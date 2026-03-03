@@ -128,6 +128,59 @@ export function analyzeTechnical(page: PageData): CheckResult[] {
     })
   }
 
+  // Lang attribute
+  const langVal = page.lang
+  const langValid = langVal ? /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(langVal) : false
+  results.push({
+    category: "TECHNICAL",
+    checkName: "lang_attribute",
+    status: langValid ? "PASS" : langVal ? "WARN" : "FAIL",
+    score: langValid ? 100 : langVal ? 50 : 0,
+    value: langVal || "Absent",
+    expected: 'Attribut lang BCP 47 (ex: "fr", "en-US")',
+    message: langValid
+      ? `Attribut lang correct : "${langVal}".`
+      : langVal
+        ? `Attribut lang présent mais format suspect : "${langVal}".`
+        : "Attribut lang absent sur la balise <html>. Important pour le SEO international.",
+    priority: langVal ? "LOW" : "MEDIUM",
+    effort: "LOW",
+  })
+
+  // robots.txt
+  if (page.hasRobotsTxt !== undefined) {
+    results.push({
+      category: "TECHNICAL",
+      checkName: "robots_txt",
+      status: page.hasRobotsTxt ? "PASS" : "WARN",
+      score: page.hasRobotsTxt ? 100 : 30,
+      value: page.hasRobotsTxt ? "Accessible" : "Absent ou vide",
+      expected: "Fichier robots.txt accessible",
+      message: page.hasRobotsTxt
+        ? "Le fichier robots.txt est accessible."
+        : "Fichier robots.txt absent ou vide. Les moteurs de recherche ne connaissent pas vos règles de crawl.",
+      priority: "MEDIUM",
+      effort: "LOW",
+    })
+  }
+
+  // sitemap.xml
+  if (page.hasSitemap !== undefined) {
+    results.push({
+      category: "TECHNICAL",
+      checkName: "sitemap",
+      status: page.hasSitemap ? "PASS" : "WARN",
+      score: page.hasSitemap ? 100 : 30,
+      value: page.hasSitemap ? "Accessible" : "Absent",
+      expected: "Fichier sitemap.xml accessible",
+      message: page.hasSitemap
+        ? "Le sitemap XML est accessible."
+        : "Sitemap XML absent. Soumettez-en un pour faciliter l'indexation.",
+      priority: "MEDIUM",
+      effort: "LOW",
+    })
+  }
+
   // Temps de réponse
   const rtMs = page.responseTime
   const rtStatus: CheckStatus = rtMs < 500 ? "PASS" : rtMs < 2000 ? "WARN" : "FAIL"
@@ -235,6 +288,66 @@ export function analyzeOnPage(page: PageData): CheckResult[] {
       : `${imagesWithoutAlt} image(s) sans attribut ALT. Impact accessibilité et SEO.`,
     priority: imagesWithoutAlt > 5 ? "HIGH" : "MEDIUM",
     effort: "LOW",
+  })
+
+  // Open Graph
+  const og = page.ogTags
+  const ogFields = [og?.title, og?.description, og?.image].filter(Boolean).length
+  const ogScore = Math.round((ogFields / 3) * 100)
+  results.push({
+    category: "ON_PAGE",
+    checkName: "open_graph",
+    status: ogFields === 3 ? "PASS" : ogFields > 0 ? "WARN" : "FAIL",
+    score: ogScore,
+    value: `${ogFields}/3 balises OG (title, description, image)`,
+    expected: "og:title + og:description + og:image",
+    message: ogFields === 3
+      ? "Toutes les balises Open Graph principales sont présentes."
+      : ogFields > 0
+        ? `Open Graph incomplet : ${ogFields}/3 balises présentes. Complétez pour un meilleur partage social.`
+        : "Aucune balise Open Graph. Le partage sur les réseaux sociaux sera mal optimisé.",
+    priority: ogFields === 0 ? "MEDIUM" : "LOW",
+    effort: "LOW",
+  })
+
+  // Heading hierarchy
+  const h2Count = page.headings.h2.length
+  const h3Count = page.headings.h3.length
+  const h4Count = page.headings.h4?.length ?? 0
+  const h1Count2 = page.h1.length
+  const hierarchyOk = h1Count2 >= 1 && (h3Count === 0 || h2Count > 0) && (h4Count === 0 || h3Count > 0)
+  results.push({
+    category: "ON_PAGE",
+    checkName: "heading_hierarchy",
+    status: hierarchyOk ? "PASS" : "WARN",
+    score: hierarchyOk ? 100 : 40,
+    value: `H1:${h1Count2} H2:${h2Count} H3:${h3Count} H4:${h4Count}`,
+    expected: "H1 > H2 > H3 > H4 (hiérarchie logique)",
+    message: hierarchyOk
+      ? "La hiérarchie des titres est logique et bien structurée."
+      : "La hiérarchie des titres est incohérente (ex: H3 sans H2). Restructurez vos titres.",
+    priority: "MEDIUM",
+    effort: "LOW",
+  })
+
+  // Word count
+  const wc = page.wordCount ?? 0
+  const wcStatus: CheckStatus = wc >= 300 ? "PASS" : wc >= 100 ? "WARN" : "FAIL"
+  const wcScore = wc >= 300 ? 100 : wc >= 100 ? 60 : wc > 0 ? 20 : 0
+  results.push({
+    category: "ON_PAGE",
+    checkName: "word_count",
+    status: wcStatus,
+    score: wcScore,
+    value: `${wc} mots`,
+    expected: "≥ 300 mots",
+    message: wcStatus === "PASS"
+      ? `Contenu suffisant : ${wc} mots.`
+      : wc >= 100
+        ? `Contenu léger : ${wc} mots. Visez au moins 300 mots pour un bon positionnement.`
+        : `Contenu très insuffisant : ${wc} mots. Les pages thin content sont pénalisées.`,
+    priority: wcStatus === "FAIL" ? "HIGH" : "MEDIUM",
+    effort: "MEDIUM",
   })
 
   // Schema.org

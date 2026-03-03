@@ -59,6 +59,7 @@ export const apiClient = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  getAuditBreakdown: (id: string) => fetcher<PageBreakdown>(`/api/audits/${id}/breakdown`),
   deleteAudit: (id: string) =>
     fetcher<void>(`/api/audits/${id}`, { method: "DELETE" }),
 
@@ -163,7 +164,31 @@ export interface PageResult {
 
 export interface AuditDetail extends Audit {
   report: AuditReport | null
-  pages: Array<{ id: string; url: string; statusCode: number | null; results: PageResult[] }>
+  pages: Array<{
+    id: string
+    url: string
+    statusCode: number | null
+    redirectUrl?: string | null
+    isIndexable?: boolean | null
+    hasRobotsTxt?: boolean | null
+    hasSitemap?: boolean | null
+    wordCount?: number | null
+    lang?: string | null
+    results: PageResult[]
+  }>
+}
+
+export interface PageBreakdown {
+  breakdown: { healthy: number; redirects: number; errors: number; blocked: number }
+  topIssues: Array<{
+    checkName: string
+    category: string
+    failCount: number
+    warnCount: number
+    maxPriority: string
+    score: number
+  }>
+  totalPages: number
 }
 
 export interface Project {

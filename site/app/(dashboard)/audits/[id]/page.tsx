@@ -5,12 +5,17 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ArrowLeft, ExternalLink, Download, AlertTriangle, XCircle, CheckCircle, Gauge, Globe, ImageIcon, LinkIcon, Link2, ShieldCheck } from "lucide-react"
-import { useAudit } from "@/hooks/useAudits"
+import { useAudit, useAuditBreakdown } from "@/hooks/useAudits"
 import { ScoreGauge } from "@/components/audit/ScoreGauge"
 import { ScoreRadar } from "@/components/audit/ScoreRadar"
 import { IssueList } from "@/components/audit/IssueList"
 import { AuditProgress } from "@/components/audit/AuditProgress"
+import { PagesBreakdownDonut } from "@/components/audit/PagesBreakdownDonut"
+import { TopIssuesWidget } from "@/components/audit/TopIssuesWidget"
+import { ThematicSection } from "@/components/audit/ThematicSection"
+import { PagesTable } from "@/components/audit/PagesTable"
 import type { PageResult } from "@/lib/api-client"
 
 interface Props {
@@ -92,6 +97,8 @@ const PERF_METRICS_CONFIG: Array<{
 export default function AuditDetailPage({ params }: Props) {
   const { id } = use(params)
   const { data: audit, isLoading } = useAudit(id)
+  const isCompleted = audit?.status === "COMPLETED"
+  const { data: breakdownData } = useAuditBreakdown(id, isCompleted)
 
   const scrollTo = useCallback((anchorId: string) => {
     const el = document.getElementById(anchorId)
@@ -274,6 +281,34 @@ export default function AuditDetailPage({ params }: Props) {
             ))}
           </div>
 
+          {/* NOUVEAU — Donut Pages Breakdown + Top Issues */}
+          {breakdownData && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700">Répartition des pages</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PagesBreakdownDonut
+                    healthy={breakdownData.breakdown.healthy}
+                    redirects={breakdownData.breakdown.redirects}
+                    errors={breakdownData.breakdown.errors}
+                    blocked={breakdownData.breakdown.blocked}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold text-slate-700">Top problèmes</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <TopIssuesWidget issues={breakdownData.topIssues} totalPages={breakdownData.totalPages} />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* Barre de navigation rapide (ancres) */}
           {allResults.length > 0 && (
             <div className="flex flex-wrap gap-3 mb-6">
@@ -331,83 +366,116 @@ export default function AuditDetailPage({ params }: Props) {
             </Card>
           )}
 
-          {/* === SECTIONS PAR STATUT === */}
+          {/* === TABS : Par statut | Technique | Contenu | Performance | UX Mobile | Toutes les pages === */}
+          <Tabs defaultValue="status" className="mb-8">
+            <TabsList className="mb-4">
+              <TabsTrigger value="status">Par statut</TabsTrigger>
+              <TabsTrigger value="technical">Technique</TabsTrigger>
+              <TabsTrigger value="content">Contenu</TabsTrigger>
+              <TabsTrigger value="performance">Performance</TabsTrigger>
+              <TabsTrigger value="ux">UX Mobile</TabsTrigger>
+              <TabsTrigger value="pages">Toutes les pages</TabsTrigger>
+            </TabsList>
 
-          {/* Section Critiques */}
-          {critiques.length > 0 && (
-            <section id="critiques" className="mb-8 scroll-mt-4">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center">
-                  <XCircle className="h-4 w-4 text-red-500" />
-                </div>
-                <h2 className="text-lg font-bold text-red-700">
-                  Problèmes critiques
-                </h2>
-                <span className="text-sm font-medium text-red-400 ml-1">({critiques.length})</span>
-              </div>
-              <IssueList results={critiques} />
-            </section>
-          )}
+            {/* Tab : Par statut */}
+            <TabsContent value="status" className="space-y-8">
+              {/* Section Critiques */}
+              {critiques.length > 0 && (
+                <section id="critiques" className="scroll-mt-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center">
+                      <XCircle className="h-4 w-4 text-red-500" />
+                    </div>
+                    <h2 className="text-lg font-bold text-red-700">
+                      Problèmes critiques
+                    </h2>
+                    <span className="text-sm font-medium text-red-400 ml-1">({critiques.length})</span>
+                  </div>
+                  <IssueList results={critiques} />
+                </section>
+              )}
 
-          {/* Section Avertissements */}
-          {avertissements.length > 0 && (
-            <section id="avertissements" className="mb-8 scroll-mt-4">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="h-8 w-8 rounded-full bg-orange-100 flex items-center justify-center">
-                  <AlertTriangle className="h-4 w-4 text-orange-500" />
-                </div>
-                <h2 className="text-lg font-bold text-orange-700">
-                  Avertissements
-                </h2>
-                <span className="text-sm font-medium text-orange-400 ml-1">({avertissements.length})</span>
-              </div>
-              <IssueList results={avertissements} />
-            </section>
-          )}
+              {/* Section Avertissements */}
+              {avertissements.length > 0 && (
+                <section id="avertissements" className="scroll-mt-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="h-8 w-8 rounded-full bg-orange-100 flex items-center justify-center">
+                      <AlertTriangle className="h-4 w-4 text-orange-500" />
+                    </div>
+                    <h2 className="text-lg font-bold text-orange-700">
+                      Avertissements
+                    </h2>
+                    <span className="text-sm font-medium text-orange-400 ml-1">({avertissements.length})</span>
+                  </div>
+                  <IssueList results={avertissements} />
+                </section>
+              )}
 
-          {/* Section Réussis */}
-          {reussis.length > 0 && (
-            <section id="reussis" className="mb-8 scroll-mt-4">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                  <CheckCircle className="h-4 w-4 text-emerald-500" />
-                </div>
-                <h2 className="text-lg font-bold text-emerald-700">
-                  Checks réussis
-                </h2>
-                <span className="text-sm font-medium text-emerald-400 ml-1">({reussis.length})</span>
-              </div>
-              <IssueList results={reussis} compact />
-            </section>
-          )}
+              {/* Section Réussis */}
+              {reussis.length > 0 && (
+                <section id="reussis" className="scroll-mt-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <CheckCircle className="h-4 w-4 text-emerald-500" />
+                    </div>
+                    <h2 className="text-lg font-bold text-emerald-700">
+                      Checks réussis
+                    </h2>
+                    <span className="text-sm font-medium text-emerald-400 ml-1">({reussis.length})</span>
+                  </div>
+                  <IssueList results={reussis} compact />
+                </section>
+              )}
+            </TabsContent>
 
-          {/* Section Pages */}
-          {audit.pages.length > 0 && (
-            <section className="mb-8">
+            {/* Tab : Technique */}
+            <TabsContent value="technical">
+              <ThematicSection
+                category="TECHNICAL"
+                score={audit.report.scoreTechnical}
+                results={allResults}
+              />
+            </TabsContent>
+
+            {/* Tab : Contenu */}
+            <TabsContent value="content">
+              <ThematicSection
+                category="ON_PAGE"
+                score={audit.report.scoreOnPage}
+                results={allResults}
+              />
+            </TabsContent>
+
+            {/* Tab : Performance */}
+            <TabsContent value="performance">
+              <ThematicSection
+                category="PERFORMANCE"
+                score={audit.report.scorePerformance}
+                results={allResults}
+              />
+            </TabsContent>
+
+            {/* Tab : UX Mobile */}
+            <TabsContent value="ux">
+              <ThematicSection
+                category="UX_MOBILE"
+                score={audit.report.scoreUX}
+                results={allResults}
+              />
+            </TabsContent>
+
+            {/* Tab : Toutes les pages */}
+            <TabsContent value="pages">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Pages crawlées ({audit.pages.length})</CardTitle>
+                  <CardTitle className="text-base">Toutes les pages ({audit.pages.length})</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    {audit.pages.map((page) => (
-                      <div key={page.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:bg-slate-50">
-                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                          page.statusCode === 200 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-                        }`}>
-                          {page.statusCode ?? "—"}
-                        </span>
-                        <span className="text-sm text-slate-600 truncate">{page.url}</span>
-                        <span className="ml-auto text-xs text-slate-400 flex-shrink-0">
-                          {page.results.length} checks
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <PagesTable pages={audit.pages} />
                 </CardContent>
               </Card>
-            </section>
-          )}
+            </TabsContent>
+          </Tabs>
         </>
       )}
 

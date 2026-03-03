@@ -4,84 +4,12 @@ import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { AlertTriangle, XCircle, CheckCircle, ChevronDown, ChevronUp, Lightbulb } from "lucide-react"
+import { CATEGORY_LABELS, CHECK_ADVICE, getCheckLabel } from "@/lib/check-labels"
 import type { PageResult } from "@/lib/api-client"
 
 interface IssueListProps {
   results: PageResult[]
   compact?: boolean
-}
-
-const CATEGORY_LABELS: Record<string, string> = {
-  TECHNICAL: "Technique",
-  ON_PAGE: "On-Page",
-  PERFORMANCE: "Performance",
-  UX_MOBILE: "UX Mobile",
-}
-
-const CHECK_LABELS: Record<string, string> = {
-  title: "Balise Title",
-  meta_description: "Meta Description",
-  response_time: "Temps de réponse",
-  page_size: "Poids de page",
-  h1: "Balise H1",
-  images_alt: "Attributs ALT des images",
-  canonical: "URL Canonique",
-  robots_txt: "Fichier robots.txt",
-  sitemap: "Sitemap XML",
-  https: "Protocole HTTPS",
-  viewport: "Meta Viewport",
-  lang: "Attribut lang",
-  og_tags: "Balises Open Graph",
-  structured_data: "Données structurées",
-  heading_hierarchy: "Hiérarchie des titres",
-  internal_links: "Liens internes",
-  external_links: "Liens externes",
-  broken_links: "Liens cassés",
-  image_optimization: "Optimisation des images",
-  css_minification: "Minification CSS",
-  js_minification: "Minification JavaScript",
-  gzip_compression: "Compression Gzip",
-  browser_caching: "Cache navigateur",
-  redirect_chains: "Chaînes de redirection",
-  mobile_friendly: "Compatibilité mobile",
-  font_size: "Taille de police",
-  tap_targets: "Cibles tactiles",
-  content_width: "Largeur du contenu",
-  mixed_content: "Contenu mixte HTTP/HTTPS",
-  https_resources: "Ressources HTTPS",
-}
-
-const CHECK_ADVICE: Record<string, string> = {
-  title: "Raccourcissez votre titre à 50-60 caractères pour un affichage optimal dans les SERPs.",
-  meta_description: "Rédigez une meta description de 150-160 caractères avec votre mot-clé principal.",
-  response_time: "Optimisez le TTFB : activez un cache serveur, utilisez un CDN, optimisez les requêtes DB.",
-  page_size: "Réduisez le poids : compressez les images (WebP), minifiez CSS/JS, activez gzip.",
-  h1: "Utilisez un seul H1 par page, contenant votre mot-clé principal.",
-  images_alt: "Ajoutez un attribut ALT descriptif à chaque image pour l'accessibilité et le SEO.",
-  canonical: "Définissez une URL canonique pour éviter le contenu dupliqué.",
-  robots_txt: "Vérifiez que votre robots.txt autorise l'accès aux pages importantes.",
-  sitemap: "Créez un sitemap XML à jour et soumettez-le via la Search Console.",
-  https: "Migrez vers HTTPS pour sécuriser les données et améliorer le classement.",
-  viewport: "Ajoutez la meta viewport pour un affichage responsive correct.",
-  lang: "Spécifiez l'attribut lang sur la balise <html> pour aider les moteurs de recherche.",
-  og_tags: "Ajoutez les balises Open Graph pour un meilleur affichage sur les réseaux sociaux.",
-  structured_data: "Implémentez le balisage Schema.org pour enrichir vos résultats de recherche.",
-  heading_hierarchy: "Respectez la hiérarchie H1 > H2 > H3 sans sauter de niveaux.",
-  internal_links: "Ajoutez des liens internes pertinents pour améliorer le maillage et la navigation.",
-  external_links: "Liez vers des sources de qualité pour renforcer la crédibilité de votre contenu.",
-  broken_links: "Corrigez ou supprimez les liens cassés qui nuisent à l'expérience utilisateur.",
-  image_optimization: "Compressez vos images et utilisez le format WebP pour réduire le temps de chargement.",
-  css_minification: "Minifiez vos fichiers CSS pour réduire leur taille et accélérer le chargement.",
-  js_minification: "Minifiez et regroupez vos fichiers JavaScript pour améliorer les performances.",
-  gzip_compression: "Activez la compression Gzip/Brotli sur votre serveur.",
-  browser_caching: "Configurez les en-têtes Cache-Control pour les ressources statiques.",
-  redirect_chains: "Simplifiez les redirections : évitez les chaînes de plus de 2 redirections.",
-  mobile_friendly: "Assurez-vous que votre site est entièrement responsive et mobile-friendly.",
-  font_size: "Utilisez une taille de police minimum de 16px pour le corps du texte.",
-  tap_targets: "Espacez les éléments cliquables d'au moins 48px pour le mobile.",
-  content_width: "Adaptez la largeur du contenu au viewport sans scroll horizontal.",
-  mixed_content: "Remplacez toutes les ressources HTTP par leurs équivalents HTTPS.",
-  https_resources: "Chargez toutes les ressources (images, scripts, CSS) en HTTPS.",
 }
 
 const PRIORITY_CONFIG = {
@@ -111,10 +39,6 @@ function MiniScoreBar({ score }: { score: number }) {
       </span>
     </div>
   )
-}
-
-function getCheckLabel(checkName: string): string {
-  return CHECK_LABELS[checkName] || checkName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 export function IssueList({ results, compact = false }: IssueListProps) {

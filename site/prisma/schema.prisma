@@ -184,6 +184,17 @@ model AuditPage {
   // Schema.org
   hasSchemaOrg    Boolean?
   schemaTypes     String[]
+  // Enrichment fields
+  lang            String?
+  ogTitle         String?
+  ogDescription   String?
+  ogImage         String?
+  ogType          String?
+  wordCount       Int?
+  hasRobotsTxt    Boolean?
+  hasSitemap      Boolean?
+  metaRobots      String?
+  hasViewport     Boolean?
   // Raw data
   rawHtml         String?  @db.Text
   crawledAt       DateTime @default(now())

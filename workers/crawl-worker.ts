@@ -110,6 +110,16 @@ const crawlWorker = new Worker<CrawlJobData>(
             externalLinks: page.externalLinks.length,
             hasSchemaOrg: page.schemaOrgTypes.length > 0,
             schemaTypes: page.schemaOrgTypes,
+            lang: page.lang,
+            ogTitle: page.ogTags?.title,
+            ogDescription: page.ogTags?.description,
+            ogImage: page.ogTags?.image,
+            ogType: page.ogTags?.type,
+            wordCount: page.wordCount,
+            hasRobotsTxt: page.hasRobotsTxt,
+            hasSitemap: page.hasSitemap,
+            metaRobots: page.metaRobots,
+            hasViewport: page.hasViewport,
             rawHtml: page.rawHtml?.substring(0, 50000),
           },
         })
@@ -156,6 +166,10 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
     let processedCount = 0
 
     for (const page of pages) {
+      const ogTags = (page.ogTitle || page.ogDescription || page.ogImage || page.ogType)
+        ? { title: page.ogTitle ?? undefined, description: page.ogDescription ?? undefined, image: page.ogImage ?? undefined, type: page.ogType ?? undefined }
+        : undefined
+
       const pageData = {
         url: page.url,
         statusCode: page.statusCode ?? 0,
@@ -168,16 +182,21 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
         headings: (page.headings as { h2: string[]; h3: string[]; h4: string[] }) ??
           { h2: [], h3: [], h4: [] },
         canonicalUrl: page.canonicalUrl ?? undefined,
-        metaRobots: undefined,
+        metaRobots: page.metaRobots ?? undefined,
         isIndexable: page.isIndexable ?? true,
         images: Array.from({ length: page.totalImages ?? 0 }, (_, i) => ({
           src: "",
           hasAlt: i < (page.imagesWithAlt ?? 0),
         })),
-        internalLinks: Array.from({ length: page.internalLinks ?? 0 }, () => "https://placeholder"),
-        externalLinks: Array.from({ length: page.externalLinks ?? 0 }, () => "https://placeholder"),
+        internalLinks: Array.from({ length: page.internalLinks ?? 0 }, () => "https://internal.placeholder"),
+        externalLinks: Array.from({ length: page.externalLinks ?? 0 }, () => "https://external.placeholder"),
         schemaOrgTypes: page.schemaTypes,
-        hasViewport: true,
+        hasViewport: page.hasViewport ?? false,
+        lang: page.lang ?? undefined,
+        ogTags,
+        wordCount: page.wordCount ?? undefined,
+        hasRobotsTxt: page.hasRobotsTxt ?? undefined,
+        hasSitemap: page.hasSitemap ?? undefined,
       }
 
       const analysis = analyzePage(pageData)

@@ -128,6 +128,22 @@ function parsePageContent(
 
   const hasViewport = $('meta[name="viewport"]').length > 0
 
+  // Lang attribute
+  const lang = $("html").attr("lang")?.trim() || undefined
+
+  // Open Graph tags
+  const ogTitle = $('meta[property="og:title"]').attr("content")?.trim()
+  const ogDescription = $('meta[property="og:description"]').attr("content")?.trim()
+  const ogImage = $('meta[property="og:image"]').attr("content")?.trim()
+  const ogType = $('meta[property="og:type"]').attr("content")?.trim()
+  const ogTags = (ogTitle || ogDescription || ogImage || ogType)
+    ? { title: ogTitle, description: ogDescription, image: ogImage, type: ogType }
+    : undefined
+
+  // Word count
+  const bodyText = $("body").text().replace(/\s+/g, " ").trim()
+  const wordCount = bodyText ? bodyText.split(/\s+/).length : 0
+
   return {
     title,
     metaDescription,
@@ -141,6 +157,9 @@ function parsePageContent(
     externalLinks: [...new Set(externalLinks)],
     schemaOrgTypes,
     hasViewport,
+    lang,
+    ogTags,
+    wordCount,
   }
 }
 
@@ -238,12 +257,35 @@ export class SEOCrawler {
     }
   }
 
+  private async checkSiteResources(startUrl: string): Promise<{ hasRobotsTxt: boolean; hasSitemap: boolean }> {
+    const url = new URL(startUrl)
+    const base = `${url.protocol}//${url.host}`
+
+    let hasRobotsTxt = false
+    let hasSitemap = false
+
+    try {
+      const robotsRes = await fetch(`${base}/robots.txt`, { signal: AbortSignal.timeout(5000) })
+      hasRobotsTxt = robotsRes.ok && (await robotsRes.text()).length > 0
+    } catch { /* unreachable */ }
+
+    try {
+      const sitemapRes = await fetch(`${base}/sitemap.xml`, { signal: AbortSignal.timeout(5000) })
+      hasSitemap = sitemapRes.ok && (await sitemapRes.text()).includes("<")
+    } catch { /* unreachable */ }
+
+    return { hasRobotsTxt, hasSitemap }
+  }
+
   async crawlSite(
     startUrl: string,
     onProgress?: (crawled: number, total: number) => void
   ): Promise<PageData[]> {
     const results: PageData[] = []
     const queue: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }]
+
+    // Check robots.txt and sitemap once at the start
+    const siteResources = await this.checkSiteResources(startUrl)
 
     while (queue.length > 0 && results.length < this.options.maxPages) {
       const { url, depth } = queue.shift()!
@@ -258,6 +300,8 @@ export class SEOCrawler {
       }
 
       const pageData = await this.crawlPage(url)
+      pageData.hasRobotsTxt = siteResources.hasRobotsTxt
+      pageData.hasSitemap = siteResources.hasSitemap
       results.push(pageData)
       onProgress?.(results.length, this.options.maxPages)
 

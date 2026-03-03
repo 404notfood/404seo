@@ -43,6 +43,15 @@ export function useLaunchAudit() {
   })
 }
 
+export function useAuditBreakdown(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["audit", id, "breakdown"],
+    queryFn: () => apiClient.getAuditBreakdown(id),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
 export function useDeleteAudit() {
   const queryClient = useQueryClient()
   return useMutation({

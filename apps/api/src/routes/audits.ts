@@ -123,11 +123,86 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
         project: true,
         report: true,
         jobs: true,
-        pages: { include: { results: true }, take: 100 },
+        pages: {
+          select: {
+            id: true,
+            url: true,
+            statusCode: true,
+            redirectUrl: true,
+            isIndexable: true,
+            hasRobotsTxt: true,
+            hasSitemap: true,
+            wordCount: true,
+            lang: true,
+            results: true,
+          },
+          take: 100,
+        },
       },
     })
     if (!audit) return reply.status(404).send({ error: "Audit introuvable" })
     return reply.send(audit)
+  })
+
+  // GET /api/audits/:id/breakdown — Répartition pages + top issues
+  fastify.get<{ Params: { id: string } }>("/api/audits/:id/breakdown", async (request, reply) => {
+    const audit = await prisma.audit.findFirst({
+      where: { id: request.params.id, tenantId: request.tenantId },
+    })
+    if (!audit) return reply.status(404).send({ error: "Audit introuvable" })
+
+    const pages = await prisma.auditPage.findMany({
+      where: { auditId: audit.id },
+      select: { statusCode: true, isIndexable: true, redirectUrl: true },
+    })
+
+    const healthy = pages.filter((p) => p.statusCode === 200 && p.isIndexable !== false && !p.redirectUrl).length
+    const redirects = pages.filter((p) => p.redirectUrl || (p.statusCode && [301, 302, 307, 308].includes(p.statusCode))).length
+    const errors = pages.filter((p) => p.statusCode && (p.statusCode >= 400 || p.statusCode === 0)).length
+    const blocked = pages.filter((p) => p.isIndexable === false).length
+
+    // Top issues
+    const results = await prisma.pageResult.findMany({
+      where: { page: { auditId: audit.id } },
+      select: { checkName: true, status: true, category: true, priority: true },
+    })
+
+    const severityWeight = { HIGH: 3, MEDIUM: 2, LOW: 1 }
+    const issueMap = new Map<string, { checkName: string; category: string; failCount: number; warnCount: number; maxPriority: string }>()
+
+    for (const r of results) {
+      if (r.status === "PASS") continue
+      const existing = issueMap.get(r.checkName)
+      if (existing) {
+        if (r.status === "FAIL") existing.failCount++
+        if (r.status === "WARN") existing.warnCount++
+        if (severityWeight[r.priority as keyof typeof severityWeight] > severityWeight[existing.maxPriority as keyof typeof severityWeight]) {
+          existing.maxPriority = r.priority
+        }
+      } else {
+        issueMap.set(r.checkName, {
+          checkName: r.checkName,
+          category: r.category,
+          failCount: r.status === "FAIL" ? 1 : 0,
+          warnCount: r.status === "WARN" ? 1 : 0,
+          maxPriority: r.priority,
+        })
+      }
+    }
+
+    const topIssues = [...issueMap.values()]
+      .map((i) => ({
+        ...i,
+        score: (i.failCount * 3 + i.warnCount) * severityWeight[i.maxPriority as keyof typeof severityWeight],
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+
+    return reply.send({
+      breakdown: { healthy, redirects, errors, blocked },
+      topIssues,
+      totalPages: pages.length,
+    })
   })
 
   // GET /api/audits/:id/progress — SSE progression temps réel

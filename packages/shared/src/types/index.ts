@@ -36,6 +36,11 @@ export interface PageData {
   schemaOrgTypes: string[]
   rawHtml?: string
   hasViewport: boolean
+  lang?: string
+  ogTags?: { title?: string; description?: string; image?: string; type?: string }
+  wordCount?: number
+  hasRobotsTxt?: boolean
+  hasSitemap?: boolean
   error?: string
 }
 
