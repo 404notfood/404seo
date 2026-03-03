@@ -9,12 +9,13 @@
   },
   "dependencies": {
     "bullmq": "^5.38.0",
+    "dotenv": "^16.6.1",
     "ioredis": "^5.6.0",
     "@prisma/client": "^6",
-    "@seo/shared": "*",
-    "@seo/crawler": "*",
-    "@seo/analyzer": "*",
-    "@seo/scorer": "*"
+    "@seo/shared": "workspace:*",
+    "@seo/crawler": "workspace:*",
+    "@seo/analyzer": "workspace:*",
+    "@seo/scorer": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.19.3",

@@ -2,11 +2,21 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
+function getSessionToken(): string | null {
+  if (typeof document === "undefined") return null
+  const match = document.cookie.match(/better-auth\.session_token=([^;]+)/)
+  if (!match) return null
+  // BetterAuth encode le token comme "token.signature" — on veut juste le token
+  return match[1].split(".")[0]
+}
+
 async function fetcher<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getSessionToken()
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
     credentials: "include",

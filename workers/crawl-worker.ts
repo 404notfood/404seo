@@ -1,6 +1,6 @@
 // workers/crawl-worker.ts — Worker BullMQ crawl + analyse + scoring
+import "dotenv/config"
 import { Worker, Queue, Job } from "bullmq"
-import { Redis } from "ioredis"
 import { PrismaClient } from "@prisma/client"
 import { SEOCrawler } from "@seo/crawler"
 import { analyzePage } from "@seo/analyzer"
@@ -11,11 +11,11 @@ import type { CrawlJobData, AnalyzeJobData, ReportJobData } from "@seo/shared"
 // Redis + Prisma
 // ─────────────────────────────────────────────
 
-const redis = new Redis({
+const redisConnection = {
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
-  maxRetriesPerRequest: null, // Requis par BullMQ
-})
+  maxRetriesPerRequest: null as unknown as undefined,
+}
 
 const prisma = new PrismaClient()
 
@@ -24,7 +24,7 @@ const prisma = new PrismaClient()
 // ─────────────────────────────────────────────
 
 export const crawlQueue = new Queue("crawl", {
-  connection: redis,
+  connection: redisConnection,
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: "exponential", delay: 2000 },
@@ -34,7 +34,7 @@ export const crawlQueue = new Queue("crawl", {
 })
 
 export const analyzeQueue = new Queue("analyze", {
-  connection: redis,
+  connection: redisConnection,
   defaultJobOptions: {
     attempts: 2,
     backoff: { type: "fixed", delay: 5000 },
@@ -44,7 +44,7 @@ export const analyzeQueue = new Queue("analyze", {
 })
 
 export const reportQueue = new Queue("report", {
-  connection: redis,
+  connection: redisConnection,
   defaultJobOptions: {
     attempts: 2,
     removeOnComplete: { count: 50 },
@@ -129,7 +129,7 @@ const crawlWorker = new Worker<CrawlJobData>(
     }
   },
   {
-    connection: redis,
+    connection: redisConnection,
     concurrency: 2,
     limiter: { max: 10, duration: 60000 },
   }
@@ -207,7 +207,7 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
     return { pagesAnalyzed: processedCount }
   },
   {
-    connection: redis,
+    connection: redisConnection,
     concurrency: 4,
   }
 )
@@ -310,7 +310,7 @@ const reportWorker = new Worker<ReportJobData>(
     return { score: score.global, grade: score.grade }
   },
   {
-    connection: redis,
+    connection: redisConnection,
     concurrency: 4,
   }
 )
@@ -346,7 +346,6 @@ process.on("SIGTERM", async () => {
     analyzeWorker.close(),
     reportWorker.close(),
   ])
-  await redis.quit()
   await prisma.$disconnect()
   console.log("[WORKERS] Arrêté proprement.")
 })

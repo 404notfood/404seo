@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "puppeteer": "^24.3.0",
-    "@seo/shared": "*",
-    "@seo/scorer": "*"
+    "@seo/shared": "workspace:*",
+    "@seo/scorer": "workspace:*"
   }
 }
