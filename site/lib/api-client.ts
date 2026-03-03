@@ -72,6 +72,14 @@ export const apiClient = {
   createPortal: () =>
     fetcher<{ url: string }>("/api/billing/portal", { method: "POST" }),
 
+  // Tenant / Branding
+  getTenant: () => fetcher<TenantInfo>("/api/tenant"),
+  updateBranding: (data: UpdateBrandingInput) =>
+    fetcher<TenantInfo>("/api/tenant/branding", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
   // Projects
   getProjects: () => fetcher<Project[]>("/api/projects"),
   createProject: (data: CreateProjectInput) =>
@@ -181,4 +189,20 @@ export interface CreateProjectInput {
   name: string
   domain: string
   description?: string
+}
+
+export interface TenantInfo {
+  id: string
+  name: string
+  slug: string
+  plan: "STARTER" | "PRO" | "AGENCY" | "ENTERPRISE"
+  logoUrl: string | null
+  brandColor: string | null
+  customDomain: string | null
+}
+
+export interface UpdateBrandingInput {
+  name?: string
+  logoUrl?: string | null
+  brandColor?: string | null
 }

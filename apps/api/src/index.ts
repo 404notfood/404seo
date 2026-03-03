@@ -8,6 +8,7 @@ import auditsRoutes from "./routes/audits"
 import projectsRoutes from "./routes/projects"
 import billingRoutes from "./routes/billing"
 import meRoutes from "./routes/me"
+import tenantRoutes from "./routes/tenant"
 
 const fastify = Fastify({
   logger: {
@@ -50,6 +51,7 @@ async function start() {
   await fastify.register(auditsRoutes)
   await fastify.register(projectsRoutes)
   await fastify.register(billingRoutes)
+  await fastify.register(tenantRoutes)
 
   // Health check
   fastify.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))

@@ -1,17 +1,17 @@
 "use client"
 
-import { use } from "react"
+import { use, useCallback } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, ExternalLink, Download } from "lucide-react"
+import { ArrowLeft, ExternalLink, Download, AlertTriangle, XCircle, CheckCircle, Gauge, Globe, ImageIcon, LinkIcon, Link2, ShieldCheck } from "lucide-react"
 import { useAudit } from "@/hooks/useAudits"
 import { ScoreGauge } from "@/components/audit/ScoreGauge"
 import { ScoreRadar } from "@/components/audit/ScoreRadar"
 import { IssueList } from "@/components/audit/IssueList"
 import { AuditProgress } from "@/components/audit/AuditProgress"
+import type { PageResult } from "@/lib/api-client"
 
 interface Props {
   params: Promise<{ id: string }>
@@ -36,9 +36,67 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
   )
 }
 
+/* ——— Métrique Performance (grille) ——— */
+interface PerfMetricProps {
+  icon: React.ReactNode
+  label: string
+  value: string | null
+  expected: string | null
+  score: number
+  status: "PASS" | "WARN" | "FAIL"
+}
+
+function PerfMetric({ icon, label, value, expected, score, status }: PerfMetricProps) {
+  const statusColor = status === "PASS" ? "text-emerald-600" : status === "WARN" ? "text-orange-500" : "text-red-500"
+  const barColor = score >= 75 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444"
+
+  return (
+    <div className="p-3 rounded-xl border border-slate-100 bg-white space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="text-slate-400">{icon}</div>
+        <span className="text-xs font-semibold text-slate-700">{label}</span>
+        <span className={`ml-auto text-xs font-bold ${statusColor}`}>
+          {status === "PASS" ? "OK" : status === "WARN" ? "Moyen" : "Critique"}
+        </span>
+      </div>
+      {value && (
+        <p className="text-lg font-bold text-slate-900 leading-none">{value}</p>
+      )}
+      {expected && (
+        <p className="text-[11px] text-slate-400">Recommandé : <span className="text-blue-600 font-medium">{expected}</span></p>
+      )}
+      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+        <div
+          className="h-1.5 rounded-full transition-all duration-500"
+          style={{ width: `${score}%`, background: barColor }}
+        />
+      </div>
+    </div>
+  )
+}
+
+/* ——— Config métrique Performance par checkName ——— */
+const PERF_METRICS_CONFIG: Array<{
+  checkName: string
+  label: string
+  icon: React.ReactNode
+}> = [
+  { checkName: "response_time", label: "Temps de réponse", icon: <Gauge className="h-4 w-4" /> },
+  { checkName: "page_size", label: "Poids de page", icon: <Globe className="h-4 w-4" /> },
+  { checkName: "image_optimization", label: "Images optimisées", icon: <ImageIcon className="h-4 w-4" /> },
+  { checkName: "internal_links", label: "Liens internes", icon: <LinkIcon className="h-4 w-4" /> },
+  { checkName: "external_links", label: "Liens externes", icon: <Link2 className="h-4 w-4" /> },
+  { checkName: "https_resources", label: "Ressources HTTPS", icon: <ShieldCheck className="h-4 w-4" /> },
+]
+
 export default function AuditDetailPage({ params }: Props) {
   const { id } = use(params)
   const { data: audit, isLoading } = useAudit(id)
+
+  const scrollTo = useCallback((anchorId: string) => {
+    const el = document.getElementById(anchorId)
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [])
 
   if (isLoading) {
     return (
@@ -67,6 +125,18 @@ export default function AuditDetailPage({ params }: Props) {
 
   // Dédoublonner les résultats de toutes les pages
   const allResults = audit.pages.flatMap((p) => p.results)
+
+  // Classement par statut
+  const critiques = allResults.filter((r) => r.status === "FAIL" && r.priority === "HIGH")
+  const avertissements = allResults.filter((r) => r.status === "WARN" || (r.status === "FAIL" && r.priority !== "HIGH"))
+  const reussis = allResults.filter((r) => r.status === "PASS")
+
+  // Métriques performance
+  const perfResults = allResults.filter((r) => r.category === "PERFORMANCE")
+  const perfMetrics = PERF_METRICS_CONFIG.map((cfg) => {
+    const check = perfResults.find((r) => r.checkName === cfg.checkName)
+    return check ? { ...cfg, check } : null
+  }).filter((m): m is { checkName: string; label: string; icon: React.ReactNode; check: PageResult } => m !== null)
 
   return (
     <div className="p-8">
@@ -204,43 +274,139 @@ export default function AuditDetailPage({ params }: Props) {
             ))}
           </div>
 
-          {/* Issues */}
+          {/* Barre de navigation rapide (ancres) */}
           {allResults.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Résultats détaillés</CardTitle>
+            <div className="flex flex-wrap gap-3 mb-6">
+              <button
+                onClick={() => scrollTo("critiques")}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-50 border border-red-200 text-red-700 text-sm font-medium hover:bg-red-100 transition-colors"
+              >
+                <XCircle className="h-4 w-4" />
+                Critiques ({critiques.length})
+              </button>
+              <button
+                onClick={() => scrollTo("avertissements")}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-orange-50 border border-orange-200 text-orange-700 text-sm font-medium hover:bg-orange-100 transition-colors"
+              >
+                <AlertTriangle className="h-4 w-4" />
+                Avertissements ({avertissements.length})
+              </button>
+              <button
+                onClick={() => scrollTo("reussis")}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium hover:bg-emerald-100 transition-colors"
+              >
+                <CheckCircle className="h-4 w-4" />
+                Réussis ({reussis.length})
+              </button>
+            </div>
+          )}
+
+          {/* Section Performance dédiée */}
+          {perfMetrics.length > 0 && (
+            <Card className="mb-6">
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-3">
+                  <ScoreGauge score={Math.round(audit.report.scorePerformance)} size={64} />
+                  <div>
+                    <CardTitle className="text-base">Métriques Performance</CardTitle>
+                    <p className="text-xs text-slate-400 mt-0.5">Détail des indicateurs de vitesse et optimisation</p>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="issues">
-                  <TabsList className="mb-4">
-                    <TabsTrigger value="issues">Problèmes & checks</TabsTrigger>
-                    <TabsTrigger value="pages">Pages ({audit.pages.length})</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="issues">
-                    <IssueList results={allResults} />
-                  </TabsContent>
-
-                  <TabsContent value="pages">
-                    <div className="space-y-2">
-                      {audit.pages.map((page) => (
-                        <div key={page.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:bg-slate-50">
-                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                            page.statusCode === 200 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-                          }`}>
-                            {page.statusCode ?? "—"}
-                          </span>
-                          <span className="text-sm text-slate-600 truncate">{page.url}</span>
-                          <span className="ml-auto text-xs text-slate-400 flex-shrink-0">
-                            {page.results.length} checks
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {perfMetrics.map(({ checkName, label, icon, check }) => (
+                    <PerfMetric
+                      key={checkName}
+                      icon={icon}
+                      label={label}
+                      value={check.value}
+                      expected={check.expected}
+                      score={check.score}
+                      status={check.status}
+                    />
+                  ))}
+                </div>
               </CardContent>
             </Card>
+          )}
+
+          {/* === SECTIONS PAR STATUT === */}
+
+          {/* Section Critiques */}
+          {critiques.length > 0 && (
+            <section id="critiques" className="mb-8 scroll-mt-4">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center">
+                  <XCircle className="h-4 w-4 text-red-500" />
+                </div>
+                <h2 className="text-lg font-bold text-red-700">
+                  Problèmes critiques
+                </h2>
+                <span className="text-sm font-medium text-red-400 ml-1">({critiques.length})</span>
+              </div>
+              <IssueList results={critiques} />
+            </section>
+          )}
+
+          {/* Section Avertissements */}
+          {avertissements.length > 0 && (
+            <section id="avertissements" className="mb-8 scroll-mt-4">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-8 w-8 rounded-full bg-orange-100 flex items-center justify-center">
+                  <AlertTriangle className="h-4 w-4 text-orange-500" />
+                </div>
+                <h2 className="text-lg font-bold text-orange-700">
+                  Avertissements
+                </h2>
+                <span className="text-sm font-medium text-orange-400 ml-1">({avertissements.length})</span>
+              </div>
+              <IssueList results={avertissements} />
+            </section>
+          )}
+
+          {/* Section Réussis */}
+          {reussis.length > 0 && (
+            <section id="reussis" className="mb-8 scroll-mt-4">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <CheckCircle className="h-4 w-4 text-emerald-500" />
+                </div>
+                <h2 className="text-lg font-bold text-emerald-700">
+                  Checks réussis
+                </h2>
+                <span className="text-sm font-medium text-emerald-400 ml-1">({reussis.length})</span>
+              </div>
+              <IssueList results={reussis} compact />
+            </section>
+          )}
+
+          {/* Section Pages */}
+          {audit.pages.length > 0 && (
+            <section className="mb-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Pages crawlées ({audit.pages.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {audit.pages.map((page) => (
+                      <div key={page.id} className="flex items-center gap-3 p-3 rounded-lg border border-slate-100 hover:bg-slate-50">
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                          page.statusCode === 200 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                        }`}>
+                          {page.statusCode ?? "—"}
+                        </span>
+                        <span className="text-sm text-slate-600 truncate">{page.url}</span>
+                        <span className="ml-auto text-xs text-slate-400 flex-shrink-0">
+                          {page.results.length} checks
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
           )}
         </>
       )}

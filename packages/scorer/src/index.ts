@@ -22,14 +22,19 @@ const CHECK_WEIGHTS: Record<string, number> = {
   http_status:     10,
   indexability:     8,
   canonical:        6,
-  response_time:    6,
   // ON_PAGE
   title:            8,
   meta_description: 8,
   h1:               7,
   images_alt:       4,
   schema_org:       3,
-  // PERFORMANCE (Lighthouse)
+  // PERFORMANCE (checks analyzer + Lighthouse)
+  response_time:    8,
+  page_size:        7,
+  image_optimization: 5,
+  internal_links:   5,
+  external_links:   3,
+  https_resources:  4,
   lcp:             10,
   cls:              8,
   fid:              5,
@@ -109,7 +114,14 @@ export interface SEOScore {
 export function calculateGlobalScore(analysis: AnalysisResult): SEOScore {
   const scoreTechnical = calculateCategoryScore(analysis.technical)
   const scoreOnPage = calculateCategoryScore(analysis.onPage)
-  const scorePerformance = calculatePerformanceScore(analysis.lighthouse)
+
+  // Performance : blender checks analyzer + Lighthouse si disponible
+  const scorePerformanceChecks = calculateCategoryScore(analysis.performance)
+  const scorePerformanceLH = calculatePerformanceScore(analysis.lighthouse)
+  const scorePerformance = analysis.lighthouse
+    ? Math.round(scorePerformanceChecks * 0.4 + scorePerformanceLH * 0.6)
+    : scorePerformanceChecks
+
   const scoreUXMobile = calculateCategoryScore(analysis.uxMobile)
 
   const global = Math.round(
@@ -210,6 +222,12 @@ function formatCheckTitle(checkName: string): string {
     h1: "Structurer le H1",
     images_alt: "Ajouter les attributs ALT",
     schema_org: "Implémenter Schema.org",
+    page_size: "Réduire le poids de la page",
+    image_optimization: "Optimiser les images",
+    internal_links: "Améliorer le maillage interne",
+    external_links: "Vérifier les liens externes",
+    https_resources: "Corriger les ressources non-HTTPS",
+    mobile_friendly: "Optimiser pour mobile",
     viewport: "Ajouter la balise viewport",
     lcp: "Améliorer le LCP (Core Web Vitals)",
     cls: "Corriger le CLS (Core Web Vitals)",

@@ -174,14 +174,14 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
           src: "",
           hasAlt: i < (page.imagesWithAlt ?? 0),
         })),
-        internalLinks: [],
-        externalLinks: [],
+        internalLinks: Array.from({ length: page.internalLinks ?? 0 }, () => "https://placeholder"),
+        externalLinks: Array.from({ length: page.externalLinks ?? 0 }, () => "https://placeholder"),
         schemaOrgTypes: page.schemaTypes,
         hasViewport: true,
       }
 
       const analysis = analyzePage(pageData)
-      const allChecks = [...analysis.technical, ...analysis.onPage, ...analysis.uxMobile]
+      const allChecks = [...analysis.technical, ...analysis.onPage, ...analysis.performance, ...analysis.uxMobile]
 
       await prisma.pageResult.createMany({
         data: allChecks.map((check) => ({

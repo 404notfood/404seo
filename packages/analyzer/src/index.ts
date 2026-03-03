@@ -282,6 +282,142 @@ export function analyzeUXMobile(page: PageData): CheckResult[] {
 }
 
 // ─────────────────────────────────────────────
+// ANALYSE PERFORMANCE
+// ─────────────────────────────────────────────
+
+export function analyzePerformance(page: PageData): CheckResult[] {
+  const results: CheckResult[] = []
+
+  // Temps de réponse
+  const rtMs = page.responseTime
+  const rtStatus: CheckStatus = rtMs < 500 ? "PASS" : rtMs < 2000 ? "WARN" : "FAIL"
+  const rtScore = rtMs < 500 ? 100 : rtMs < 1000 ? 80 : rtMs < 2000 ? 50 : 0
+  results.push({
+    category: "PERFORMANCE",
+    checkName: "response_time",
+    status: rtStatus,
+    score: rtScore,
+    value: `${rtMs}ms`,
+    expected: "< 500ms",
+    message: rtStatus === "PASS"
+      ? `Temps de réponse excellent : ${rtMs}ms`
+      : `Temps de réponse lent : ${rtMs}ms. Impact direct sur le TTFB et l'expérience utilisateur.`,
+    priority: rtStatus === "FAIL" ? "HIGH" : "MEDIUM",
+    effort: "HIGH",
+  })
+
+  // Taille de la page
+  const sizeKB = page.pageSize / 1024
+  const sizeStatus: CheckStatus = sizeKB < 500 ? "PASS" : sizeKB < 2048 ? "WARN" : "FAIL"
+  const sizeScore = sizeKB < 500 ? 100 : sizeKB < 1024 ? 70 : sizeKB < 2048 ? 40 : 0
+  results.push({
+    category: "PERFORMANCE",
+    checkName: "page_size",
+    status: sizeStatus,
+    score: sizeScore,
+    value: sizeKB < 1024 ? `${Math.round(sizeKB)} KB` : `${(sizeKB / 1024).toFixed(1)} MB`,
+    expected: "< 500 KB",
+    message: sizeStatus === "PASS"
+      ? `Page légère : ${Math.round(sizeKB)} KB`
+      : `Page lourde : ${sizeKB < 1024 ? Math.round(sizeKB) + " KB" : (sizeKB / 1024).toFixed(1) + " MB"}. Réduire le poids pour améliorer le chargement.`,
+    priority: sizeStatus === "FAIL" ? "HIGH" : "MEDIUM",
+    effort: "MEDIUM",
+  })
+
+  // Optimisation des images (ratio avec ALT)
+  const totalImages = page.images.length
+  if (totalImages > 0) {
+    const imagesWithAlt = page.images.filter((img) => img.hasAlt).length
+    const altRatio = (imagesWithAlt / totalImages) * 100
+    const imgStatus: CheckStatus = altRatio > 90 ? "PASS" : altRatio > 50 ? "WARN" : "FAIL"
+    results.push({
+      category: "PERFORMANCE",
+      checkName: "image_optimization",
+      status: imgStatus,
+      score: Math.round(altRatio),
+      value: `${imagesWithAlt}/${totalImages} images optimisées`,
+      expected: "> 90% avec attribut ALT",
+      message: imgStatus === "PASS"
+        ? `${Math.round(altRatio)}% des images ont un attribut ALT.`
+        : `Seulement ${Math.round(altRatio)}% des images ont un ALT. Impact accessibilité et SEO images.`,
+      priority: imgStatus === "FAIL" ? "HIGH" : "MEDIUM",
+      effort: "LOW",
+    })
+  } else {
+    results.push({
+      category: "PERFORMANCE",
+      checkName: "image_optimization",
+      status: "PASS",
+      score: 100,
+      value: "Aucune image",
+      expected: "> 90% avec attribut ALT",
+      message: "Aucune image détectée sur la page.",
+      priority: "LOW",
+      effort: "LOW",
+    })
+  }
+
+  // Liens internes
+  const internalCount = page.internalLinks.length
+  const internalStatus: CheckStatus = internalCount > 3 ? "PASS" : internalCount > 0 ? "WARN" : "FAIL"
+  results.push({
+    category: "PERFORMANCE",
+    checkName: "internal_links",
+    status: internalStatus,
+    score: internalCount > 3 ? 100 : internalCount > 0 ? 60 : 0,
+    value: `${internalCount} liens internes`,
+    expected: "> 3 liens internes",
+    message: internalStatus === "PASS"
+      ? `Bon maillage interne : ${internalCount} liens.`
+      : internalCount > 0
+        ? `Seulement ${internalCount} lien(s) interne(s). Améliorer le maillage interne.`
+        : "Aucun lien interne. Le maillage est essentiel pour le crawl et le PageRank.",
+    priority: internalStatus === "FAIL" ? "HIGH" : "MEDIUM",
+    effort: "LOW",
+  })
+
+  // Liens externes
+  const externalCount = page.externalLinks.length
+  const externalStatus: CheckStatus = externalCount > 0 ? "PASS" : "FAIL"
+  results.push({
+    category: "PERFORMANCE",
+    checkName: "external_links",
+    status: externalStatus,
+    score: externalCount > 0 ? 100 : 30,
+    value: `${externalCount} liens sortants`,
+    expected: "> 0 lien sortant",
+    message: externalStatus === "PASS"
+      ? `${externalCount} lien(s) sortant(s) — bon signal de confiance.`
+      : "Aucun lien sortant. Les liens externes renforcent la crédibilité de la page.",
+    priority: "LOW",
+    effort: "LOW",
+  })
+
+  // Ressources HTTPS (vérification des liens)
+  const allLinks = [...page.internalLinks, ...page.externalLinks]
+  if (allLinks.length > 0) {
+    const httpLinks = allLinks.filter((l) => l.startsWith("http://"))
+    const httpsRatio = ((allLinks.length - httpLinks.length) / allLinks.length) * 100
+    const httpsStatus: CheckStatus = httpLinks.length === 0 ? "PASS" : "WARN"
+    results.push({
+      category: "PERFORMANCE",
+      checkName: "https_resources",
+      status: httpsStatus,
+      score: Math.round(httpsRatio),
+      value: httpLinks.length === 0 ? "100% HTTPS" : `${httpLinks.length} lien(s) HTTP`,
+      expected: "100% HTTPS",
+      message: httpsStatus === "PASS"
+        ? "Tous les liens utilisent HTTPS."
+        : `${httpLinks.length} lien(s) en HTTP détecté(s). Contenu mixte possible.`,
+      priority: "MEDIUM",
+      effort: "LOW",
+    })
+  }
+
+  return results
+}
+
+// ─────────────────────────────────────────────
 // ANALYSE PRINCIPALE
 // ─────────────────────────────────────────────
 
@@ -289,7 +425,7 @@ export function analyzePage(page: PageData, lighthouse?: LighthouseData): Analys
   return {
     technical: analyzeTechnical(page),
     onPage: analyzeOnPage(page),
-    performance: [], // Rempli par Lighthouse séparément
+    performance: analyzePerformance(page),
     uxMobile: analyzeUXMobile(page),
     lighthouse,
   }

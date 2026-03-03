@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Clock, CheckCircle, XCircle, Loader2, ExternalLink, Trash2, Zap } from "lucide-react"
+import { Search, Clock, CheckCircle, XCircle, Loader2, ExternalLink, Trash2, Zap, Monitor, Smartphone, ChevronDown, ChevronUp, Settings2 } from "lucide-react"
 import { useAudits, useLaunchAudit, useDeleteAudit } from "@/hooks/useAudits"
 import { useProjects } from "@/hooks/useProjects"
 import { useRole } from "@/hooks/useMe"
@@ -34,6 +34,10 @@ function scoreColor(score: number) {
 export default function AuditsPage() {
   const [url, setUrl] = useState("")
   const [projectId, setProjectId] = useState("")
+  const [showOptions, setShowOptions] = useState(false)
+  const [maxPages, setMaxPages] = useState(100)
+  const [maxDepth, setMaxDepth] = useState(5)
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop")
 
   const { data: audits, isLoading } = useAudits()
   const { data: projects } = useProjects()
@@ -44,7 +48,10 @@ export default function AuditsPage() {
   function handleLaunch(e: React.FormEvent) {
     e.preventDefault()
     if (!url || !projectId) return
-    launchAudit({ url, projectId }, { onSuccess: () => setUrl("") })
+    launchAudit(
+      { url, projectId, options: { maxPages, maxDepth, device } },
+      { onSuccess: () => setUrl("") },
+    )
   }
 
   return (
@@ -100,6 +107,79 @@ export default function AuditsPage() {
             )}
           </Button>
         </form>
+
+        {/* Options avancées */}
+        <button
+          type="button"
+          onClick={() => setShowOptions(!showOptions)}
+          className="flex items-center gap-1.5 mt-3 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <Settings2 className="h-3 w-3" />
+          Options avancées
+          {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        </button>
+
+        {showOptions && (
+          <div className="mt-3 p-4 bg-slate-50 rounded-xl border border-slate-100 grid grid-cols-3 gap-4">
+            {/* Nombre de pages */}
+            <div className="space-y-1.5">
+              <Label htmlFor="maxPages" className="text-xs font-medium text-slate-600">Nombre de pages</Label>
+              <Input
+                id="maxPages"
+                type="number"
+                min={1}
+                max={500}
+                value={maxPages}
+                onChange={(e) => setMaxPages(Math.max(1, Math.min(500, parseInt(e.target.value) || 1)))}
+                className="bg-white border-slate-200 text-sm h-9"
+              />
+              <p className="text-[10px] text-slate-400">1 – 500 pages max</p>
+            </div>
+
+            {/* Profondeur */}
+            <div className="space-y-1.5">
+              <Label htmlFor="maxDepth" className="text-xs font-medium text-slate-600">Profondeur</Label>
+              <Input
+                id="maxDepth"
+                type="number"
+                min={1}
+                max={10}
+                value={maxDepth}
+                onChange={(e) => setMaxDepth(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                className="bg-white border-slate-200 text-sm h-9"
+              />
+              <p className="text-[10px] text-slate-400">1 – 10 niveaux</p>
+            </div>
+
+            {/* Device */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-slate-600">Appareil</Label>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={device === "desktop" ? "default" : "outline"}
+                  className={`flex-1 h-9 text-xs gap-1.5 ${device === "desktop" ? "btn-glow" : ""}`}
+                  style={device === "desktop" ? { background: "#2563eb" } : {}}
+                  onClick={() => setDevice("desktop")}
+                >
+                  <Monitor className="h-3.5 w-3.5" />Desktop
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={device === "mobile" ? "default" : "outline"}
+                  className={`flex-1 h-9 text-xs gap-1.5 ${device === "mobile" ? "btn-glow" : ""}`}
+                  style={device === "mobile" ? { background: "#2563eb" } : {}}
+                  onClick={() => setDevice("mobile")}
+                >
+                  <Smartphone className="h-3.5 w-3.5" />Mobile
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!projects?.length && (
           <p className="text-xs text-slate-400 mt-3">
             <Link href="/projects" className="font-medium hover:underline" style={{ color: "#2563eb" }}>Créez un projet</Link> avant de lancer un audit.
