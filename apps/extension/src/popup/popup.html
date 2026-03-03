@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>SEO Audit Pro</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{width:360px;font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#f1f5f9}
+
+    .header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #1e293b}
+    .header h1{font-size:14px;font-weight:700;color:#fff;letter-spacing:.5px}
+    .badge-plan{font-size:10px;background:#2563eb;color:#fff;padding:2px 8px;border-radius:20px;font-weight:600}
+
+    .score-section{padding:24px 20px;display:flex;align-items:center;gap:20px}
+    .score-circle{width:80px;height:80px;border-radius:50%;border:4px solid #2563eb;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0}
+    .score-circle.good{border-color:#10b981}
+    .score-circle.warn{border-color:#f59e0b}
+    .score-circle.bad{border-color:#ef4444}
+    .score-num{font-size:28px;font-weight:800;color:#fff;line-height:1}
+    .score-label{font-size:9px;color:#94a3b8;margin-top:2px}
+    .score-info h2{font-size:13px;font-weight:600;color:#e2e8f0;margin-bottom:4px}
+    .score-info p{font-size:11px;color:#64748b;word-break:break-all}
+
+    .issues-section{padding:0 20px 12px;max-height:300px;overflow-y:auto}
+    .issues-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#475569;margin-bottom:10px}
+    .issue-item{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:6px;margin-bottom:6px;background:#1e293b}
+    .dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0}
+    .dot.pass{background:#10b981}
+    .dot.warn{background:#f59e0b}
+    .dot.fail{background:#ef4444}
+    .issue-label{font-size:12px;font-weight:600;color:#e2e8f0}
+    .issue-detail{font-size:11px;color:#64748b;margin-top:2px}
+
+    .actions{padding:12px 20px 16px;display:flex;flex-direction:column;gap:8px;border-top:1px solid #1e293b}
+    .btn{padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:opacity .2s;text-align:center}
+    .btn:hover{opacity:.85}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .btn-primary{background:#2563eb;color:#fff}
+    .btn-secondary{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+
+    .loading{padding:40px 20px;text-align:center;color:#475569;font-size:13px}
+    .spinner{width:32px;height:32px;border:3px solid #1e293b;border-top-color:#2563eb;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .issues-section::-webkit-scrollbar{width:4px}
+    .issues-section::-webkit-scrollbar-track{background:transparent}
+    .issues-section::-webkit-scrollbar-thumb{background:#334155;border-radius:2px}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>SEO Audit Pro</h1>
+    <span class="badge-plan" id="plan-badge">Gratuit</span>
+  </div>
+
+  <div id="loading" class="loading">
+    <div class="spinner"></div>
+    Analyse en cours…
+  </div>
+
+  <div id="content" style="display:none">
+    <div class="score-section">
+      <div class="score-circle" id="score-circle">
+        <span class="score-num" id="score-value">--</span>
+        <span class="score-label">/100</span>
+      </div>
+      <div class="score-info">
+        <h2 id="score-grade">Analyse rapide</h2>
+        <p id="page-url"></p>
+      </div>
+    </div>
+
+    <div class="issues-section">
+      <div class="issues-title">Vérifications</div>
+      <div id="issues-list"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btn-full-audit">Lancer un audit complet →</button>
+      <button class="btn btn-secondary" id="btn-open-dashboard">Voir le dashboard</button>
+    </div>
+  </div>
+
+  <script type="module" src="popup.ts"></script>
+</body>
+</html>

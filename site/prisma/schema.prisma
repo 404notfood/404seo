@@ -1,0 +1,366 @@
+// schema.prisma — SaaS SEO Platform
+// Prisma 6.x + PostgreSQL
+// Multi-tenant via tenantId sur toutes les tables
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// AUTH (BetterAuth gère ses propres tables)
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // BetterAuth relations
+  sessions      Session[]
+  accounts      Account[]
+
+  // App relations
+  role          Role      @default(MEMBER)
+  tenantId      String?
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id])
+  projects      Project[]
+  audits        Audit[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verifications")
+}
+
+// ─────────────────────────────────────────────
+// MULTI-TENANT
+// ─────────────────────────────────────────────
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  plan        Plan     @default(STARTER)
+  logoUrl     String?
+  // White label
+  brandColor  String?  @default("#2563eb")
+  customDomain String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users        User[]
+  projects     Project[]
+  audits       Audit[]
+  subscription Subscription?
+
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────
+// PROJETS & AUDITS
+// ─────────────────────────────────────────────
+
+model Project {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String
+  name        String
+  domain      String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+  audits  Audit[]
+
+  @@index([tenantId])
+  @@map("projects")
+}
+
+model Audit {
+  id          String      @id @default(cuid())
+  tenantId    String
+  userId      String
+  projectId   String
+  url         String
+  status      AuditStatus @default(PENDING)
+  options     Json?       // { maxPages, maxDepth, device, ... }
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  completedAt DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id])
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pages    AuditPage[]
+  report   AuditReport?
+  jobs     AuditJob[]
+
+  @@index([tenantId])
+  @@index([projectId])
+  @@map("audits")
+}
+
+model AuditPage {
+  id              String   @id @default(cuid())
+  auditId         String
+  url             String
+  statusCode      Int?
+  redirectUrl     String?
+  responseTime    Int?     // ms
+  pageSize        Int?     // bytes
+  isIndexable     Boolean?
+  hasCanonical    Boolean?
+  canonicalUrl    String?
+  // On-Page
+  title           String?
+  titleLength     Int?
+  metaDescription String?
+  metaDescLength  Int?
+  h1              String[]
+  headings        Json?    // { h2: [...], h3: [...], ... }
+  // Images
+  totalImages     Int?
+  imagesWithAlt   Int?
+  imagesWithoutAlt Int?
+  // Links
+  internalLinks   Int?
+  externalLinks   Int?
+  brokenLinks     Int?
+  // Schema.org
+  hasSchemaOrg    Boolean?
+  schemaTypes     String[]
+  // Raw data
+  rawHtml         String?  @db.Text
+  crawledAt       DateTime @default(now())
+
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  results PageResult[]
+
+  @@index([auditId])
+  @@map("audit_pages")
+}
+
+model PageResult {
+  id           String   @id @default(cuid())
+  pageId       String
+  category     Category
+  checkName    String
+  status       CheckStatus
+  score        Float    // 0-100
+  value        String?  // valeur mesurée
+  expected     String?  // valeur attendue
+  message      String
+  priority     Priority @default(MEDIUM)
+  effort       Effort   @default(MEDIUM)
+
+  page AuditPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@map("page_results")
+}
+
+model AuditReport {
+  id              String   @id @default(cuid())
+  auditId         String   @unique
+  // Scores
+  scoreGlobal     Float
+  scoreTechnical  Float
+  scoreOnPage     Float
+  scorePerformance Float
+  scoreUX         Float
+  // Lighthouse
+  lighthousePerf  Float?
+  lighthouseLCP   Float?
+  lighthouseCLS   Float?
+  lighthouseFID   Float?
+  lighthouseTTFB  Float?
+  // Summary
+  totalPages      Int?
+  totalIssues     Int?
+  criticalIssues  Int?
+  warnings        Int?
+  passed          Int?
+  // AI
+  aiSuggestions   Json?
+  // PDF
+  pdfUrl          String?
+  generatedAt     DateTime @default(now())
+
+  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@map("audit_reports")
+}
+
+model AuditJob {
+  id        String    @id @default(cuid())
+  auditId   String
+  bullJobId String?   // BullMQ job ID
+  type      JobType
+  status    JobStatus @default(QUEUED)
+  progress  Int       @default(0) // 0-100
+  error     String?
+  startedAt DateTime?
+  finishedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([auditId])
+  @@map("audit_jobs")
+}
+
+// ─────────────────────────────────────────────
+// BILLING (Stripe)
+// ─────────────────────────────────────────────
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  tenantId             String             @unique
+  stripeCustomerId     String             @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  plan                 Plan               @default(STARTER)
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  // Quotas
+  pagesQuota           Int                @default(100)   // pages/mois
+  pagesUsed            Int                @default(0)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Plan {
+  STARTER   // 100 pages
+  PRO       // 10 000 pages
+  AGENCY    // 100 000 pages
+  ENTERPRISE
+}
+
+enum AuditStatus {
+  PENDING
+  CRAWLING
+  ANALYZING
+  SCORING
+  GENERATING_REPORT
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum Category {
+  TECHNICAL
+  ON_PAGE
+  PERFORMANCE
+  UX_MOBILE
+}
+
+enum CheckStatus {
+  PASS
+  WARN
+  FAIL
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum Effort {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum JobType {
+  CRAWL
+  ANALYZE
+  SCORE
+  REPORT
+  AI
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  TRIALING
+  PAUSED
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+  GUEST
+}
