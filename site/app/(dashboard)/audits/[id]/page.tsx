@@ -97,7 +97,27 @@ export default function AuditDetailPage({ params }: Props) {
           </p>
         </div>
         {audit.status === "COMPLETED" && (
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={() => {
+            const token = document.cookie.match(/better-auth\.session_token=([^;]+)/)?.[1]?.split(".")[0]
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+            const url = `${apiUrl}/api/audits/${id}/pdf`
+            fetch(url, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+              credentials: "include",
+            })
+              .then(res => {
+                if (!res.ok) throw new Error("Erreur génération PDF")
+                return res.blob()
+              })
+              .then(blob => {
+                const a = document.createElement("a")
+                a.href = URL.createObjectURL(blob)
+                a.download = `audit-seo-${new URL(audit.url).hostname}.pdf`
+                a.click()
+                URL.revokeObjectURL(a.href)
+              })
+              .catch(() => alert("Erreur lors de la génération du PDF"))
+          }}>
             <Download className="h-4 w-4 mr-2" />
             Télécharger PDF
           </Button>
