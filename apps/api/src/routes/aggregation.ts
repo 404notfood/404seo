@@ -9,6 +9,7 @@ interface IssuesQuery {
   priority?: "HIGH" | "MEDIUM" | "LOW"
   page?: string
   limit?: string
+  projectId?: string
 }
 
 interface ContentQuery {
@@ -17,12 +18,17 @@ interface ContentQuery {
   noH1?: string
   page?: string
   limit?: string
+  projectId?: string
+}
+
+interface ProjectQuery {
+  projectId?: string
 }
 
 // ─── Helpers ───────────────────────────────────────────
 
-const completedAuditFilter = (tenantId: string) => ({
-  audit: { tenantId, deletedAt: null, status: "COMPLETED" as const },
+const completedAuditFilter = (tenantId: string, projectId?: string) => ({
+  audit: { tenantId, deletedAt: null, status: "COMPLETED" as const, ...(projectId ? { projectId } : {}) },
 })
 
 const severityWeight: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 }
@@ -38,9 +44,10 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
     const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1)
     const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50))
     const skip = (page - 1) * limit
+    const { projectId } = query
 
     const where = {
-      page: completedAuditFilter(request.tenantId),
+      page: completedAuditFilter(request.tenantId, projectId),
       status: query.status ? (query.status as "FAIL" | "WARN") : { in: ["FAIL" as const, "WARN" as const] },
       ...(query.category ? { category: query.category } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
@@ -66,14 +73,14 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       prisma.pageResult.count({ where }),
       prisma.pageResult.count({
         where: {
-          page: completedAuditFilter(request.tenantId),
+          page: completedAuditFilter(request.tenantId, projectId),
           status: "FAIL",
           ...(query.category ? { category: query.category } : {}),
         },
       }),
       prisma.pageResult.count({
         where: {
-          page: completedAuditFilter(request.tenantId),
+          page: completedAuditFilter(request.tenantId, projectId),
           status: "WARN",
           ...(query.category ? { category: query.category } : {}),
         },
@@ -98,10 +105,11 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
   // ─────────────────────────────────────────────────────
   fastify.get("/api/performance-overview", async (request, reply) => {
     const tenantId = request.tenantId
+    const { projectId } = request.query as ProjectQuery
 
     const [reports, pages] = await Promise.all([
       prisma.auditReport.findMany({
-        where: { audit: { tenantId, deletedAt: null, status: "COMPLETED" } },
+        where: { audit: { tenantId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) } },
         select: {
           scorePerformance: true,
           auditId: true,
@@ -110,7 +118,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { audit: { createdAt: "desc" } },
       }),
       prisma.auditPage.findMany({
-        where: completedAuditFilter(tenantId),
+        where: completedAuditFilter(tenantId, projectId),
         select: {
           url: true,
           responseTime: true,
@@ -172,10 +180,11 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
   // ─────────────────────────────────────────────────────
   fastify.get("/api/on-page-overview", async (request, reply) => {
     const tenantId = request.tenantId
+    const { projectId } = request.query as ProjectQuery
 
     const [reports, pages] = await Promise.all([
       prisma.auditReport.findMany({
-        where: { audit: { tenantId, deletedAt: null, status: "COMPLETED" } },
+        where: { audit: { tenantId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) } },
         select: {
           scoreOnPage: true,
           auditId: true,
@@ -184,7 +193,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { audit: { createdAt: "desc" } },
       }),
       prisma.auditPage.findMany({
-        where: completedAuditFilter(tenantId),
+        where: completedAuditFilter(tenantId, projectId),
         select: {
           url: true,
           titleLength: true,
@@ -259,17 +268,18 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
     const page = Math.max(1, parseInt(query.page ?? "1", 10) || 1)
     const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10) || 50))
     const skip = (page - 1) * limit
+    const { projectId } = query
 
     // Construire les filtres conditionnels
     type PageWhere = {
-      audit: { tenantId: string; deletedAt: null; status: "COMPLETED" }
+      audit: { tenantId: string; deletedAt: null; status: "COMPLETED"; projectId?: string }
       wordCount?: { lt: number }
       OR?: Array<{ metaDescLength: null | { equals: number } }>
       h1?: { isEmpty: boolean }
     }
 
     const where: PageWhere = {
-      audit: { tenantId: request.tenantId, deletedAt: null, status: "COMPLETED" },
+      audit: { tenantId: request.tenantId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) },
     }
 
     if (query.thin === "true") {
@@ -319,10 +329,12 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
   // ─────────────────────────────────────────────────────
   fastify.get("/api/stats/timeline", async (request, reply) => {
     const tenantId = request.tenantId
+    const { projectId } = request.query as ProjectQuery
+    const auditWhere = { tenantId, deletedAt: null as null, status: "COMPLETED" as const, ...(projectId ? { projectId } : {}) }
 
     const [auditsWithReport, distribution] = await Promise.all([
       prisma.audit.findMany({
-        where: { tenantId, deletedAt: null, status: "COMPLETED" },
+        where: auditWhere,
         select: {
           id: true,
           url: true,
@@ -342,7 +354,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       prisma.pageResult.groupBy({
         by: ["status"],
         where: {
-          page: completedAuditFilter(tenantId),
+          page: completedAuditFilter(tenantId, projectId),
         },
         _count: { _all: true },
       }),

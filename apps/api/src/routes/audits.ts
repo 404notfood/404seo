@@ -8,7 +8,6 @@ import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import { requireRole } from "../lib/guards"
 
 const LaunchAuditSchema = z.object({
-  url: z.string().url(),
   projectId: z.string().cuid(),
   options: z
     .object({
@@ -30,17 +29,19 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: "Données invalides", details: parse.error.flatten() })
     }
 
-    const { url, projectId, options } = parse.data
-
-    if (!isValidPublicUrl(url)) {
-      return reply.status(400).send({ error: "URL invalide ou non autorisée" })
-    }
+    const { projectId, options } = parse.data
 
     const project = await prisma.project.findFirst({
       where: { id: projectId, tenantId: request.tenantId },
     })
     if (!project) {
       return reply.status(404).send({ error: "Projet introuvable" })
+    }
+
+    const url = project.domain
+
+    if (!isValidPublicUrl(url)) {
+      return reply.status(400).send({ error: "URL du projet invalide ou non autorisée" })
     }
 
     // Vérification du quota pages
@@ -88,8 +89,9 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/audits — Liste
   fastify.get("/api/audits", async (request, reply) => {
+    const { projectId } = request.query as { projectId?: string }
     const audits = await prisma.audit.findMany({
-      where: { tenantId: request.tenantId, deletedAt: null },
+      where: { tenantId: request.tenantId, deletedAt: null, ...(projectId ? { projectId } : {}) },
       include: {
         project: { select: { name: true, domain: true } },
         report: { select: { scoreGlobal: true, criticalIssues: true } },
@@ -103,16 +105,18 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/audits/stats — Stats pour le dashboard
   fastify.get("/api/audits/stats", async (request, reply) => {
+    const { projectId } = request.query as { projectId?: string }
+    const auditWhere = { tenantId: request.tenantId, deletedAt: null as null, ...(projectId ? { projectId } : {}) }
     type ReportStat = { scoreGlobal: number; criticalIssues: number | null; warnings: number | null; passed: number | null }
     const [total, completed, reports, recent] = await Promise.all([
-      prisma.audit.count({ where: { tenantId: request.tenantId, deletedAt: null } }),
-      prisma.audit.count({ where: { tenantId: request.tenantId, deletedAt: null, status: "COMPLETED" } }),
+      prisma.audit.count({ where: auditWhere }),
+      prisma.audit.count({ where: { ...auditWhere, status: "COMPLETED" } }),
       prisma.auditReport.findMany({
-        where: { audit: { tenantId: request.tenantId, deletedAt: null } },
+        where: { audit: auditWhere },
         select: { scoreGlobal: true, criticalIssues: true, warnings: true, passed: true },
       }) as Promise<ReportStat[]>,
       prisma.audit.findMany({
-        where: { tenantId: request.tenantId, deletedAt: null },
+        where: auditWhere,
         include: {
           project: { select: { name: true } },
           report: { select: { scoreGlobal: true } },

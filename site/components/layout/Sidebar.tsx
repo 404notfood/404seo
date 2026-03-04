@@ -14,7 +14,6 @@ import {
   FileSearch,
   BarChart3,
   Globe,
-  AlertTriangle,
   Sparkles,
   TrendingUp,
   Link2,
@@ -33,6 +32,8 @@ import {
   Star,
   MessageSquare,
   Map,
+  ChevronsUpDown,
+  Layers,
 } from "lucide-react"
 import { signOut, useSession } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
@@ -40,7 +41,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useRole } from "@/hooks/useMe"
 import { useQuery } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
+import { useActiveProject } from "@/contexts/ProjectContext"
+import { useProjects } from "@/hooks/useProjects"
 
 // ── Types ────────────────────────────────────────
 interface NavItem {
@@ -221,31 +224,7 @@ function NavItems({ items, pathname }: { items: NavItem[]; pathname: string }) {
     <div className="space-y-0.5">
       {items.map((item) => {
         const Icon = item.icon
-        const active = !item.disabled && isActive(item.href, pathname)
-
-        if (item.disabled) {
-          return (
-            <div
-              key={item.href + item.label}
-              className="flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] font-medium cursor-default opacity-50"
-              style={{ color: "#475569" }}
-            >
-              <Icon className="h-[18px] w-[18px] shrink-0" style={{ color: "#334155" }} />
-              <span className="flex-1 truncate">{item.label}</span>
-              {item.badge && (
-                <span
-                  className="text-[8px] font-bold uppercase px-1.5 py-[1px] rounded-full shrink-0"
-                  style={{
-                    background: `${item.badgeColor ?? "#2563eb"}15`,
-                    color: item.badgeColor ?? "#2563eb",
-                  }}
-                >
-                  {item.badge}
-                </span>
-              )}
-            </div>
-          )
-        }
+        const active = isActive(item.href, pathname)
 
         return (
           <Link
@@ -281,6 +260,78 @@ function NavItems({ items, pathname }: { items: NavItem[]; pathname: string }) {
           </Link>
         )
       })}
+    </div>
+  )
+}
+
+// ── Project Selector ─────────────────────────────
+function ProjectSelector() {
+  const { activeProjectId, setActiveProjectId, activeProject } = useActiveProject()
+  const { data: projects } = useProjects()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [])
+
+  const label = activeProject
+    ? activeProject.name
+    : "Tous les projets"
+
+  const hostname = activeProject?.domain
+    ? (() => { try { return new URL(activeProject.domain).hostname } catch { return activeProject.domain } })()
+    : null
+
+  return (
+    <div ref={ref} className="relative mx-2.5 mb-1">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors hover:bg-white/[0.06] cursor-pointer"
+        style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <div className="h-7 w-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: activeProject ? "rgba(37,99,235,0.2)" : "rgba(255,255,255,0.06)" }}>
+          <Layers className="h-3.5 w-3.5" style={{ color: activeProject ? "#60a5fa" : "#64748b" }} />
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+          <p className="text-[12px] font-semibold text-white truncate leading-none">{label}</p>
+          {hostname && <p className="text-[10px] mt-0.5 truncate" style={{ color: "#475569" }}>{hostname}</p>}
+        </div>
+        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0" style={{ color: "#475569" }} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute left-0 right-0 top-full mt-1 rounded-xl py-1 z-50 shadow-lg"
+          style={{ background: "#1e293b", border: "1px solid rgba(255,255,255,0.1)" }}
+        >
+          <button
+            onClick={() => { setActiveProjectId(null); setOpen(false) }}
+            className="w-full text-left px-3 py-2 text-[12px] font-medium transition-colors hover:bg-white/[0.06]"
+            style={{ color: !activeProjectId ? "#60a5fa" : "#94a3b8" }}
+          >
+            Tous les projets
+          </button>
+          {projects?.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => { setActiveProjectId(p.id); setOpen(false) }}
+              className="w-full text-left px-3 py-2 text-[12px] font-medium transition-colors hover:bg-white/[0.06]"
+              style={{ color: activeProjectId === p.id ? "#60a5fa" : "#94a3b8" }}
+            >
+              <span className="block truncate">{p.name}</span>
+              <span className="block text-[10px] truncate" style={{ color: "#475569" }}>{p.domain}</span>
+            </button>
+          ))}
+          {!projects?.length && (
+            <p className="px-3 py-2 text-[11px]" style={{ color: "#475569" }}>Aucun projet</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -332,6 +383,11 @@ export function Sidebar() {
             </div>
           </div>
         </Link>
+      </div>
+
+      {/* ── Project Selector ── */}
+      <div className="pt-2.5 pb-1" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <ProjectSelector />
       </div>
 
       {/* ── Navigation sections ── */}
