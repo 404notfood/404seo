@@ -42,6 +42,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 })
 
+function escapeHtml(str: string): string {
+  const div = document.createElement("div")
+  div.textContent = str
+  return div.innerHTML
+}
+
 function renderResults(tab: chrome.tabs.Tab, response: PageAnalysisResponse) {
   const { score, issues, data } = response
 
@@ -70,14 +76,14 @@ function renderResults(tab: chrome.tabs.Tab, response: PageAnalysisResponse) {
   const cleanUrl = data.url.replace(/^https?:\/\//, "")
   urlEl.textContent = cleanUrl.length > 45 ? cleanUrl.substring(0, 45) + "…" : cleanUrl
 
-  // Liste des vérifications
+  // Liste des vérifications (échappement XSS)
   const listEl = document.getElementById("issues-list")!
   listEl.innerHTML = issues.map((issue) => `
     <div class="issue-item">
-      <div class="dot ${issue.status}"></div>
+      <div class="dot ${escapeHtml(issue.status)}"></div>
       <div>
-        <div class="issue-label">${issue.label}</div>
-        <div class="issue-detail">${issue.detail}</div>
+        <div class="issue-label">${escapeHtml(issue.label)}</div>
+        <div class="issue-detail">${escapeHtml(issue.detail)}</div>
       </div>
     </div>
   `).join("")
@@ -133,7 +139,10 @@ async function launchFullAudit(url: string, appUrl: string, token: string) {
 }
 
 function showError(message: string) {
-  document.getElementById("loading")!.innerHTML = `
-    <div style="color:#ef4444;font-size:13px;padding:20px">${message}</div>
-  `
+  const loadingEl = document.getElementById("loading")!
+  loadingEl.innerHTML = ""
+  const div = document.createElement("div")
+  div.style.cssText = "color:#ef4444;font-size:13px;padding:20px"
+  div.textContent = message
+  loadingEl.appendChild(div)
 }

@@ -38,7 +38,10 @@
     }
   ],
 
-  "options_page": "src/options/options.html",
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
 
   "icons": {
     "16": "icons/icon-16.png",

@@ -22,6 +22,23 @@ function getStripe() {
   return new Stripe(key, { apiVersion: "2026-02-25.clover" })
 }
 
+// Idempotency : stocker les event IDs déjà traités (TTL 24h)
+const processedEvents = new Map<string, number>()
+const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
+
+function isEventProcessed(eventId: string): boolean {
+  const ts = processedEvents.get(eventId)
+  if (ts && Date.now() - ts < IDEMPOTENCY_TTL_MS) return true
+  // Cleanup old entries periodically
+  if (processedEvents.size > 1000) {
+    const now = Date.now()
+    for (const [id, time] of processedEvents) {
+      if (now - time > IDEMPOTENCY_TTL_MS) processedEvents.delete(id)
+    }
+  }
+  return false
+}
+
 const billingRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/billing — Récupérer l'abonnement actuel
   fastify.get("/api/billing", async (request, reply) => {
@@ -135,6 +152,12 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
       } catch {
         return reply.status(400).send({ error: "Signature webhook invalide" })
       }
+
+      // Idempotency check
+      if (isEventProcessed(event.id)) {
+        return reply.send({ received: true, skipped: true })
+      }
+      processedEvents.set(event.id, Date.now())
 
       switch (event.type) {
         case "checkout.session.completed": {

@@ -15,7 +15,8 @@
     "@seo/shared": "workspace:*",
     "@seo/crawler": "workspace:*",
     "@seo/analyzer": "workspace:*",
-    "@seo/scorer": "workspace:*"
+    "@seo/scorer": "workspace:*",
+    "pino": "^9.6.0"
   },
   "devDependencies": {
     "tsx": "^4.19.3",

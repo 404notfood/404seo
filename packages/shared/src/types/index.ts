@@ -39,8 +39,13 @@ export interface PageData {
   lang?: string
   ogTags?: { title?: string; description?: string; image?: string; type?: string }
   wordCount?: number
+  bodyText?: string
+  topKeywords?: import("../keywords").KeywordEntry[]
   hasRobotsTxt?: boolean
   hasSitemap?: boolean
+  hasResponsiveMeta?: boolean
+  smallTapTargets?: number
+  smallFontSizes?: number
   error?: string
 }
 

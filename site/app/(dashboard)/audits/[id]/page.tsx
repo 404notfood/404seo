@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, ExternalLink, Download, AlertTriangle, XCircle, CheckCircle, Gauge, Globe, ImageIcon, LinkIcon, Link2, ShieldCheck } from "lucide-react"
+import { ArrowLeft, ExternalLink, Download, AlertTriangle, XCircle, CheckCircle, Gauge, Globe, ImageIcon, LinkIcon, Link2, ShieldCheck, Search } from "lucide-react"
 import { useAudit, useAuditBreakdown } from "@/hooks/useAudits"
 import { ScoreGauge } from "@/components/audit/ScoreGauge"
 import { ScoreRadar } from "@/components/audit/ScoreRadar"
@@ -16,6 +16,7 @@ import { PagesBreakdownDonut } from "@/components/audit/PagesBreakdownDonut"
 import { TopIssuesWidget } from "@/components/audit/TopIssuesWidget"
 import { ThematicSection } from "@/components/audit/ThematicSection"
 import { PagesTable } from "@/components/audit/PagesTable"
+import { KeywordsTab } from "@/components/audit/KeywordsTab"
 import type { PageResult } from "@/lib/api-client"
 
 interface Props {
@@ -374,6 +375,7 @@ export default function AuditDetailPage({ params }: Props) {
               <TabsTrigger value="content">Contenu</TabsTrigger>
               <TabsTrigger value="performance">Performance</TabsTrigger>
               <TabsTrigger value="ux">UX Mobile</TabsTrigger>
+              <TabsTrigger value="keywords">Mots-clés</TabsTrigger>
               <TabsTrigger value="pages">Toutes les pages</TabsTrigger>
             </TabsList>
 
@@ -462,6 +464,11 @@ export default function AuditDetailPage({ params }: Props) {
                 score={audit.report.scoreUX}
                 results={allResults}
               />
+            </TabsContent>
+
+            {/* Tab : Mots-clés */}
+            <TabsContent value="keywords">
+              <KeywordsTab auditId={id} enabled={isCompleted} />
             </TabsContent>
 
             {/* Tab : Toutes les pages */}

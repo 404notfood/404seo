@@ -32,6 +32,8 @@ export const CHECK_LABELS: Record<string, string> = {
   image_optimization: "Optimisation des images",
   https_resources: "Ressources HTTPS",
   mobile_friendly: "Compatibilité mobile",
+  tap_targets: "Cibles tactiles",
+  font_size: "Taille de police",
 }
 
 export const CHECK_ADVICE: Record<string, string> = {
@@ -59,6 +61,8 @@ export const CHECK_ADVICE: Record<string, string> = {
   image_optimization: "Compressez vos images et utilisez le format WebP pour réduire le temps de chargement.",
   https_resources: "Chargez toutes les ressources (images, scripts, CSS) en HTTPS.",
   mobile_friendly: "Assurez-vous que votre site est entièrement responsive et mobile-friendly.",
+  tap_targets: "Espacez les éléments cliquables d'au moins 44×44px pour une utilisation confortable au doigt.",
+  font_size: "Utilisez une taille de police minimum de 12px pour le corps du texte. 16px est recommandé.",
 }
 
 export function getCheckLabel(checkName: string): string {

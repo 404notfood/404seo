@@ -1,13 +1,17 @@
 // packages/reporter/src/index.ts — Génération PDF via Puppeteer
 import puppeteer from "puppeteer"
 import type { SEOScore, Recommendation } from "@seo/scorer"
-import type { CheckResult } from "@seo/shared"
+import type { CheckResult, SiteKeywordEntry } from "@seo/shared"
 
 export interface ReportData {
   url: string
   date: string
   score: SEOScore
   recommendations: Recommendation[]
+  keywords?: {
+    keywords: SiteKeywordEntry[]
+    totalPages: number
+  }
   tenantBranding?: {
     name?: string
     logoUrl?: string
@@ -18,6 +22,15 @@ export interface ReportData {
 // ─────────────────────────────────────────────
 // Couleurs & Helpers
 // ─────────────────────────────────────────────
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
 
 function gradeColor(score: number): string {
   if (score >= 90) return "#10b981"
@@ -94,11 +107,11 @@ function renderCategoryDetail(
         <div class="check-row">
           <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
             ${statusDot(c.status)}
-            <span class="check-name-text">${formatCheckName(c.checkName)}</span>
+            <span class="check-name-text">${escapeHtml(formatCheckName(c.checkName))}</span>
           </div>
           <span class="check-score" style="color:${gradeColor(c.score)}">${c.score}/100</span>
         </div>
-        ${c.status !== "PASS" ? `<div class="check-detail">${c.message}${c.value ? ` <span class="tag">Valeur : ${c.value}</span>` : ""}${c.expected ? ` <span class="tag">Attendu : ${c.expected}</span>` : ""}</div>` : ""}
+        ${c.status !== "PASS" ? `<div class="check-detail">${escapeHtml(c.message)}${c.value ? ` <span class="tag">Valeur : ${escapeHtml(c.value)}</span>` : ""}${c.expected ? ` <span class="tag">Attendu : ${escapeHtml(c.expected)}</span>` : ""}</div>` : ""}
       `).join("")}
     </div>
   </div>`
@@ -123,6 +136,14 @@ function formatCheckName(name: string): string {
     image_optimization: "Optimisation images",
     viewport: "Balise Viewport",
     mobile_friendly: "Compatibilité mobile",
+    tap_targets: "Cibles tactiles",
+    font_size: "Taille de police",
+    lang_attribute: "Attribut lang",
+    robots_txt: "Fichier robots.txt",
+    sitemap: "Sitemap XML",
+    open_graph: "Balises Open Graph",
+    heading_hierarchy: "Hiérarchie des titres",
+    word_count: "Volume de contenu",
     lcp: "LCP (Largest Contentful Paint)",
     cls: "CLS (Cumulative Layout Shift)",
     fid: "FID (First Input Delay)",
@@ -143,13 +164,13 @@ function renderIssueItem(issue: CheckResult, index: number, type: string): strin
     <div class="issue-num">${index}</div>
     <div class="issue-body">
       <div class="issue-top">
-        <span class="check-name-text">${formatCheckName(issue.checkName)}</span>
+        <span class="check-name-text">${escapeHtml(formatCheckName(issue.checkName))}</span>
         <span class="badge ${badgeClass}">${badgeLabel}</span>
       </div>
-      <div class="message">${issue.message}</div>
+      <div class="message">${escapeHtml(issue.message)}</div>
       <div class="issue-meta">
-        ${issue.value ? `<span class="tag">Valeur : ${issue.value}</span>` : ""}
-        ${issue.expected ? `<span class="tag">Attendu : ${issue.expected}</span>` : ""}
+        ${issue.value ? `<span class="tag">Valeur : ${escapeHtml(issue.value)}</span>` : ""}
+        ${issue.expected ? `<span class="tag">Attendu : ${escapeHtml(issue.expected)}</span>` : ""}
         <span class="tag">Priorité : ${issue.priority}</span>
       </div>
     </div>
@@ -164,10 +185,10 @@ function renderRecItem(rec: Recommendation, index: number, brandColor: string): 
     <div class="rec-num" style="background:${brandColor}">${index}</div>
     <div class="rec-body">
       <div class="rec-header">
-        <span class="rec-title">${rec.title}</span>
+        <span class="rec-title">${escapeHtml(rec.title)}</span>
         <span class="roi-badge" style="background:${brandColor}">ROI ${rec.roi}/10</span>
       </div>
-      <div class="rec-desc">${rec.description}</div>
+      <div class="rec-desc">${escapeHtml(rec.description)}</div>
       <div class="rec-tags">
         <span class="tag-color" style="background:${impactColors[rec.impact]}20;color:${impactColors[rec.impact]}">Impact : ${rec.impact}</span>
         <span class="tag-color" style="background:${effortColors[rec.effort]}20;color:${effortColors[rec.effort]}">Effort : ${rec.effort}</span>
@@ -177,11 +198,66 @@ function renderRecItem(rec: Recommendation, index: number, brandColor: string): 
 }
 
 // ─────────────────────────────────────────────
+// Keywords Section
+// ─────────────────────────────────────────────
+
+function renderKeywordsSection(keywords: SiteKeywordEntry[], brandColor: string): string {
+  if (keywords.length === 0) return ""
+
+  const maxScore = keywords[0]?.avgScore ?? 1
+  const top20 = keywords.slice(0, 20)
+
+  return `
+  <div class="page">
+    <h2>Mots-clés Identifiés</h2>
+    <p style="color:#64748b;margin-bottom:20px;font-size:13px">
+      Top ${top20.length} mots-clés extraits des pages crawlées, pondérés par position (Title, H1, H2...) et fréquence.
+    </p>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="border-bottom:2px solid #e2e8f0;text-align:left">
+          <th style="padding:8px 12px;color:#64748b;font-weight:600">#</th>
+          <th style="padding:8px 12px;color:#64748b;font-weight:600">Mot-clé</th>
+          <th style="padding:8px 12px;color:#64748b;font-weight:600;text-align:center">Occurrences</th>
+          <th style="padding:8px 12px;color:#64748b;font-weight:600;text-align:center">Pages</th>
+          <th style="padding:8px 12px;color:#64748b;font-weight:600">Score</th>
+          <th style="padding:8px 12px;color:#64748b;font-weight:600">Positions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${top20.map((kw, i) => {
+          const barWidth = Math.round((kw.avgScore / maxScore) * 100)
+          const positionBadges = kw.positions.map((p) =>
+            `<span style="display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;background:${p === "title" || p === "h1" ? brandColor + "20" : "#f1f5f9"};color:${p === "title" || p === "h1" ? brandColor : "#64748b"};margin-right:3px">${p}</span>`
+          ).join("")
+
+          return `<tr style="border-bottom:1px solid #f1f5f9;${i % 2 === 0 ? "background:#f8fafc" : ""}">
+            <td style="padding:8px 12px;color:#94a3b8;font-weight:600">${i + 1}</td>
+            <td style="padding:8px 12px;font-weight:600;color:#1e293b">${escapeHtml(kw.term)}</td>
+            <td style="padding:8px 12px;text-align:center;color:#475569">${kw.totalCount}</td>
+            <td style="padding:8px 12px;text-align:center;color:#475569">${kw.pageCount}</td>
+            <td style="padding:8px 12px;min-width:120px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden">
+                  <div style="width:${barWidth}%;height:100%;background:${brandColor};border-radius:3px"></div>
+                </div>
+                <span style="font-size:10px;color:#64748b;min-width:30px;text-align:right">${kw.avgScore}</span>
+              </div>
+            </td>
+            <td style="padding:8px 12px">${positionBadges}</td>
+          </tr>`
+        }).join("")}
+      </tbody>
+    </table>
+  </div>`
+}
+
+// ─────────────────────────────────────────────
 // Template HTML complet
 // ─────────────────────────────────────────────
 
 function generateReportHTML(data: ReportData): string {
-  const { url, date, score, recommendations, tenantBranding } = data
+  const { url, date, score, recommendations, keywords, tenantBranding } = data
   const brandColor = tenantBranding?.brandColor ?? "#2563eb"
   const logoUrl = tenantBranding?.logoUrl ?? ""
   const companyName = tenantBranding?.name ?? "SEO Audit Pro"
@@ -357,7 +433,7 @@ function generateReportHTML(data: ReportData): string {
     <div class="subtitle">Analyse complète et recommandations</div>
     <div class="gauge-wrap">${renderSvgGauge(score.global, 180, 14)}</div>
     <div class="grade-label" style="color:${gradeColor(score.global)}">Grade ${score.grade}</div>
-    <div class="url-box">${url}</div>
+    <div class="url-box">${escapeHtml(url)}</div>
     <div class="date">Généré le ${date}</div>
   </div>
 
@@ -468,6 +544,9 @@ function generateReportHTML(data: ReportData): string {
       <span>${date}</span>
     </div>
   </div>` : ""}
+
+  <!-- ════════════ MOTS-CLÉS (optionnel) ════════════ -->
+  ${keywords?.keywords?.length ? renderKeywordsSection(keywords.keywords, brandColor) : ""}
 
   <!-- ════════════ PLAN D'ACTION ════════════ -->
   <div class="page">

@@ -3,20 +3,27 @@ import Fastify from "fastify"
 import cors from "@fastify/cors"
 import cookie from "@fastify/cookie"
 import sensible from "@fastify/sensible"
+import rateLimit from "@fastify/rate-limit"
 import authPlugin from "./plugins/auth"
 import auditsRoutes from "./routes/audits"
 import projectsRoutes from "./routes/projects"
 import billingRoutes from "./routes/billing"
 import meRoutes from "./routes/me"
 import tenantRoutes from "./routes/tenant"
+import aggregationRoutes from "./routes/aggregation"
+import localRoutes from "./routes/local"
+
+const isDev = process.env.NODE_ENV !== "production"
 
 const fastify = Fastify({
-  logger: {
-    transport: {
-      target: "pino-pretty",
-      options: { translateTime: "HH:MM:ss", ignore: "pid,hostname" },
-    },
-  },
+  logger: isDev
+    ? {
+        transport: {
+          target: "pino-pretty",
+          options: { translateTime: "HH:MM:ss", ignore: "pid,hostname" },
+        },
+      }
+    : { level: "info" }, // JSON structuré en production
 })
 
 async function start() {
@@ -29,7 +36,8 @@ async function start() {
         done(null, body)
       } else {
         try {
-          done(null, JSON.parse(body.toString()))
+          const str = body.toString().trim()
+          done(null, str ? JSON.parse(str) : null)
         } catch (err) {
           done(err as Error, undefined)
         }
@@ -44,6 +52,11 @@ async function start() {
   })
   await fastify.register(cookie)
   await fastify.register(sensible)
+  await fastify.register(rateLimit, {
+    max: 100,
+    timeWindow: "1 minute",
+    allowList: ["/health", "/api/billing/webhook"],
+  })
   await fastify.register(authPlugin)
 
   // Routes
@@ -52,13 +65,15 @@ async function start() {
   await fastify.register(projectsRoutes)
   await fastify.register(billingRoutes)
   await fastify.register(tenantRoutes)
+  await fastify.register(aggregationRoutes)
+  await fastify.register(localRoutes)
 
   // Health check
   fastify.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))
 
   const port = parseInt(process.env.API_PORT || "4000")
   await fastify.listen({ port, host: "0.0.0.0" })
-  console.log(`API Fastify démarrée sur http://localhost:${port}`)
+  fastify.log.info(`API Fastify démarrée sur http://localhost:${port}`)
 }
 
 start().catch((err) => {

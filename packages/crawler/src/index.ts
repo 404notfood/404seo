@@ -2,6 +2,7 @@ import { chromium, Browser, BrowserContext } from "playwright"
 import * as cheerio from "cheerio"
 import { URL } from "url"
 import type { PageData } from "@seo/shared"
+import { extractPageKeywords } from "@seo/shared"
 
 export type { PageData }
 
@@ -15,14 +16,34 @@ const BLOCKED_HOSTS = [
   "metadata.google.internal",
 ]
 
+const BLOCKED_SUFFIXES = [".local", ".internal", ".localhost"]
+
 export function isValidPublicUrl(urlString: string): boolean {
   try {
     const url = new URL(urlString)
     if (!["http:", "https:"].includes(url.protocol)) return false
     const hostname = url.hostname.toLowerCase()
-    return !BLOCKED_HOSTS.some(
+
+    // Block known internal hostnames
+    if (BLOCKED_HOSTS.some(
       (blocked) => hostname === blocked || hostname.startsWith(blocked) || hostname.includes(blocked)
-    )
+    )) return false
+
+    // Block .local, .internal, .localhost TLDs
+    if (BLOCKED_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) return false
+
+    // Block IPv6 mapped IPv4 (::ffff:127.0.0.1)
+    if (hostname.startsWith("[") || hostname.includes("::ffff:")) return false
+
+    // Block IPv6 private ranges (fc00::/7 → fc/fd prefix)
+    if (/^f[cd][0-9a-f]{2}:/.test(hostname)) return false
+
+    // Block hex/octal/decimal-encoded IPs (0x7f000001, 2130706433, 0177.0.0.1)
+    if (/^0x[0-9a-f]+$/i.test(hostname)) return false
+    if (/^\d+$/.test(hostname)) return false // decimal IP (2130706433)
+    if (/^0\d/.test(hostname.split(".")[0])) return false // octal (0177.0.0.1)
+
+    return true
   } catch {
     return false
   }
@@ -160,6 +181,7 @@ function parsePageContent(
     lang,
     ogTags,
     wordCount,
+    bodyText,
   }
 }
 
@@ -227,6 +249,39 @@ export class SEOCrawler {
       const pageSize = Buffer.byteLength(html, "utf-8")
       const parsed = parsePageContent(html, finalUrl)
 
+      // Keywords extraction
+      const topKeywords = extractPageKeywords(
+        parsed.title,
+        parsed.h1,
+        parsed.headings,
+        parsed.metaDescription,
+        parsed.bodyText ?? ""
+      )
+
+      // Mobile UX checks via Playwright (run in page context)
+      const mobileMetrics = await page.evaluate(() => {
+        let smallTapTargets = 0
+        let smallFontSizes = 0
+        const clickables = document.querySelectorAll("a, button, input, select, textarea, [role='button']")
+        clickables.forEach((el) => {
+          const rect = el.getBoundingClientRect()
+          if (rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44)) {
+            smallTapTargets++
+          }
+        })
+        const textEls = document.querySelectorAll("p, span, li, td, th, label, div")
+        textEls.forEach((el) => {
+          const style = window.getComputedStyle(el)
+          const fontSize = parseFloat(style.fontSize)
+          if (fontSize > 0 && fontSize < 12 && el.textContent && el.textContent.trim().length > 0) {
+            smallFontSizes++
+          }
+        })
+        const viewport = document.querySelector('meta[name="viewport"]')
+        const hasResponsiveMeta = !!(viewport && viewport.getAttribute("content")?.includes("width=device-width"))
+        return { smallTapTargets, smallFontSizes, hasResponsiveMeta }
+      }).catch(() => ({ smallTapTargets: 0, smallFontSizes: 0, hasResponsiveMeta: false }))
+
       return {
         url: finalUrl,
         statusCode,
@@ -235,6 +290,11 @@ export class SEOCrawler {
         pageSize,
         rawHtml: html,
         ...parsed,
+        bodyText: undefined, // Don't persist bodyText
+        topKeywords,
+        hasResponsiveMeta: mobileMetrics.hasResponsiveMeta,
+        smallTapTargets: mobileMetrics.smallTapTargets,
+        smallFontSizes: mobileMetrics.smallFontSizes,
       }
     } catch (error) {
       return {

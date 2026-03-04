@@ -181,24 +181,6 @@ export function analyzeTechnical(page: PageData): CheckResult[] {
     })
   }
 
-  // Temps de réponse
-  const rtMs = page.responseTime
-  const rtStatus: CheckStatus = rtMs < 500 ? "PASS" : rtMs < 2000 ? "WARN" : "FAIL"
-  const rtScore = rtMs < 500 ? 100 : rtMs < 1000 ? 80 : rtMs < 2000 ? 50 : 0
-  results.push({
-    category: "TECHNICAL",
-    checkName: "response_time",
-    status: rtStatus,
-    score: rtScore,
-    value: `${rtMs}ms`,
-    expected: "< 500ms",
-    message: rtStatus === "PASS"
-      ? `Temps de réponse excellent : ${rtMs}ms`
-      : `Temps de réponse lent : ${rtMs}ms. Impact TTFB.`,
-    priority: rtStatus === "FAIL" ? "HIGH" : "MEDIUM",
-    effort: "HIGH",
-  })
-
   return results
 }
 
@@ -388,6 +370,56 @@ export function analyzeUXMobile(page: PageData): CheckResult[] {
       ? "Balise viewport présente. Page adaptée mobile."
       : "Balise viewport absente ! La page n'est pas adaptée aux mobiles.",
     priority: page.hasViewport ? "LOW" : "HIGH",
+    effort: "LOW",
+  })
+
+  // Mobile-friendly (responsive meta check)
+  const hasResponsive = page.hasResponsiveMeta ?? page.hasViewport
+  results.push({
+    category: "UX_MOBILE",
+    checkName: "mobile_friendly",
+    status: hasResponsive ? "PASS" : "FAIL",
+    score: hasResponsive ? 100 : 0,
+    value: hasResponsive ? "Responsive" : "Non responsive",
+    expected: "width=device-width dans viewport",
+    message: hasResponsive
+      ? "La page utilise un viewport responsive (width=device-width)."
+      : "La page n'a pas de viewport responsive. L'affichage mobile sera dégradé.",
+    priority: hasResponsive ? "LOW" : "HIGH",
+    effort: "LOW",
+  })
+
+  // Tap targets
+  const smallTaps = page.smallTapTargets ?? 0
+  const tapStatus: CheckStatus = smallTaps === 0 ? "PASS" : smallTaps <= 5 ? "WARN" : "FAIL"
+  results.push({
+    category: "UX_MOBILE",
+    checkName: "tap_targets",
+    status: tapStatus,
+    score: smallTaps === 0 ? 100 : smallTaps <= 3 ? 70 : smallTaps <= 10 ? 40 : 0,
+    value: `${smallTaps} élément(s) < 44px`,
+    expected: "0 élément cliquable < 44×44px",
+    message: tapStatus === "PASS"
+      ? "Toutes les cibles tactiles ont une taille suffisante."
+      : `${smallTaps} élément(s) cliquable(s) trop petit(s) (< 44px). Difficile à toucher sur mobile.`,
+    priority: tapStatus === "FAIL" ? "HIGH" : "MEDIUM",
+    effort: "LOW",
+  })
+
+  // Font size
+  const smallFonts = page.smallFontSizes ?? 0
+  const fontStatus: CheckStatus = smallFonts === 0 ? "PASS" : smallFonts <= 5 ? "WARN" : "FAIL"
+  results.push({
+    category: "UX_MOBILE",
+    checkName: "font_size",
+    status: fontStatus,
+    score: smallFonts === 0 ? 100 : smallFonts <= 3 ? 70 : smallFonts <= 10 ? 40 : 0,
+    value: `${smallFonts} élément(s) < 12px`,
+    expected: "0 texte avec font-size < 12px",
+    message: fontStatus === "PASS"
+      ? "Toutes les tailles de police sont lisibles."
+      : `${smallFonts} élément(s) avec une police trop petite (< 12px). Difficile à lire sur mobile.`,
+    priority: fontStatus === "FAIL" ? "MEDIUM" : "LOW",
     effort: "LOW",
   })
 

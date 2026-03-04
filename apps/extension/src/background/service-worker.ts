@@ -25,6 +25,6 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "install") {
-    chrome.tabs.create({ url: "options.html" })
+    chrome.tabs.create({ url: chrome.runtime.getURL("src/options/options.html") })
   }
 })

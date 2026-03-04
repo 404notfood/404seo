@@ -47,7 +47,9 @@ const CHECK_WEIGHTS: Record<string, number> = {
   ttfb:             7,
   // UX_MOBILE
   viewport:        10,
-  mobile_friendly:  5,
+  mobile_friendly:  8,
+  tap_targets:      5,
+  font_size:        4,
 }
 
 // ─────────────────────────────────────────────
@@ -241,6 +243,8 @@ function formatCheckTitle(checkName: string): string {
     word_count: "Enrichir le contenu textuel",
     mobile_friendly: "Optimiser pour mobile",
     viewport: "Ajouter la balise viewport",
+    tap_targets: "Agrandir les cibles tactiles",
+    font_size: "Augmenter la taille de police",
     lcp: "Améliorer le LCP (Core Web Vitals)",
     cls: "Corriger le CLS (Core Web Vitals)",
     ttfb: "Réduire le TTFB",

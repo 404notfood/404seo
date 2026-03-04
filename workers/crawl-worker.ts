@@ -2,10 +2,20 @@
 import "dotenv/config"
 import { Worker, Queue, Job } from "bullmq"
 import { PrismaClient } from "@prisma/client"
+import pino from "pino"
 import { SEOCrawler } from "@seo/crawler"
 import { analyzePage } from "@seo/analyzer"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import type { CrawlJobData, AnalyzeJobData, ReportJobData } from "@seo/shared"
+import { aggregateSiteKeywords } from "@seo/shared"
+import type { KeywordEntry } from "@seo/shared"
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || "info",
+  ...(process.env.NODE_ENV !== "production" && {
+    transport: { target: "pino-pretty", options: { translateTime: "HH:MM:ss" } },
+  }),
+})
 
 // ─────────────────────────────────────────────
 // Redis + Prisma
@@ -120,6 +130,10 @@ const crawlWorker = new Worker<CrawlJobData>(
             hasSitemap: page.hasSitemap,
             metaRobots: page.metaRobots,
             hasViewport: page.hasViewport,
+            hasResponsiveMeta: page.hasResponsiveMeta,
+            smallTapTargets: page.smallTapTargets,
+            smallFontSizes: page.smallFontSizes,
+            topKeywords: JSON.parse(JSON.stringify(page.topKeywords ?? [])),
             rawHtml: page.rawHtml?.substring(0, 50000),
           },
         })
@@ -197,6 +211,9 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
         wordCount: page.wordCount ?? undefined,
         hasRobotsTxt: page.hasRobotsTxt ?? undefined,
         hasSitemap: page.hasSitemap ?? undefined,
+        hasResponsiveMeta: page.hasResponsiveMeta ?? undefined,
+        smallTapTargets: page.smallTapTargets ?? undefined,
+        smallFontSizes: page.smallFontSizes ?? undefined,
       }
 
       const analysis = analyzePage(pageData)
@@ -220,6 +237,12 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
       processedCount++
       await job.updateProgress(50 + Math.round((processedCount / pages.length) * 40))
     }
+
+    // Nettoyer le rawHtml après analyse (économise ~50KB/page)
+    await prisma.auditPage.updateMany({
+      where: { id: { in: pageIds } },
+      data: { rawHtml: null },
+    })
 
     await reportQueue.add("report", { auditId })
 
@@ -305,6 +328,19 @@ const reportWorker = new Worker<ReportJobData>(
     const score = calculateGlobalScore(analysis)
     const totalPages = await prisma.auditPage.count({ where: { auditId } })
 
+    // Aggregate keywords from all pages
+    const pagesWithKeywords = await prisma.auditPage.findMany({
+      where: { auditId },
+      select: { url: true, topKeywords: true },
+    })
+    const siteKeywords = aggregateSiteKeywords(
+      pagesWithKeywords.map((p) => ({
+        url: p.url,
+        topKeywords: (p.topKeywords as KeywordEntry[] | null) ?? [],
+      })),
+      totalPages
+    )
+
     await prisma.auditReport.create({
       data: {
         auditId,
@@ -318,6 +354,7 @@ const reportWorker = new Worker<ReportJobData>(
         criticalIssues: score.criticalIssues.length,
         warnings: score.warnings.length,
         passed: score.passed.length,
+        aiSuggestions: JSON.parse(JSON.stringify({ keywords: siteKeywords })),
       },
     })
 
@@ -325,6 +362,15 @@ const reportWorker = new Worker<ReportJobData>(
       where: { id: auditId },
       data: { status: "COMPLETED", completedAt: new Date() },
     })
+
+    // Déduire les pages crawlées du quota
+    const audit = await prisma.audit.findUnique({ where: { id: auditId }, select: { tenantId: true } })
+    if (audit?.tenantId) {
+      await prisma.subscription.updateMany({
+        where: { tenantId: audit.tenantId },
+        data: { pagesUsed: { increment: totalPages } },
+      })
+    }
 
     return { score: score.global, grade: score.grade }
   },
@@ -340,7 +386,7 @@ const reportWorker = new Worker<ReportJobData>(
 
 crawlWorker.on("failed", async (job, err) => {
   if (!job) return
-  console.error(`[CRAWL] Job ${job.id} échoué:`, err.message)
+  logger.error({ jobId: job.id, auditId: job.data.auditId, err: err.message }, "Crawl job failed")
   await prisma.audit.update({
     where: { id: job.data.auditId },
     data: { status: "FAILED" },
@@ -349,24 +395,44 @@ crawlWorker.on("failed", async (job, err) => {
 
 analyzeWorker.on("failed", async (job, err) => {
   if (!job) return
-  console.error(`[ANALYZE] Job ${job.id} échoué:`, err.message)
+  logger.error({ jobId: job.id, auditId: job.data.auditId, err: err.message }, "Analyze job failed")
+  try {
+    await prisma.audit.update({
+      where: { id: job.data.auditId },
+      data: { status: "FAILED" },
+    })
+    await prisma.auditJob.updateMany({
+      where: { auditId: job.data.auditId, type: "ANALYZE" },
+      data: { status: "FAILED", error: err.message, finishedAt: new Date() },
+    })
+  } catch { /* best effort */ }
 })
 
 reportWorker.on("failed", async (job, err) => {
   if (!job) return
-  console.error(`[REPORT] Job ${job.id} échoué:`, err.message)
+  logger.error({ jobId: job.id, auditId: job.data.auditId, err: err.message }, "Report job failed")
+  try {
+    await prisma.audit.update({
+      where: { id: job.data.auditId },
+      data: { status: "FAILED" },
+    })
+    await prisma.auditJob.updateMany({
+      where: { auditId: job.data.auditId, type: "REPORT" },
+      data: { status: "FAILED", error: err.message, finishedAt: new Date() },
+    })
+  } catch { /* best effort */ }
 })
 
 // Graceful shutdown
 process.on("SIGTERM", async () => {
-  console.log("[WORKERS] Arrêt en cours...")
+  logger.info("Workers shutting down...")
   await Promise.all([
     crawlWorker.close(),
     analyzeWorker.close(),
     reportWorker.close(),
   ])
   await prisma.$disconnect()
-  console.log("[WORKERS] Arrêté proprement.")
+  logger.info("Workers stopped gracefully")
 })
 
-console.log("[WORKERS] Démarré — en attente de jobs...")
+logger.info("Workers started — waiting for jobs...")

@@ -105,6 +105,7 @@ model Tenant {
   projects     Project[]
   audits       Audit[]
   subscription Subscription?
+  gbpListings  GBPListing[]
 
   @@map("tenants")
 }
@@ -142,6 +143,7 @@ model Audit {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   completedAt DateTime?
+  deletedAt   DateTime?
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user     User      @relation(fields: [userId], references: [id])
@@ -151,6 +153,7 @@ model Audit {
   jobs     AuditJob[]
 
   @@index([tenantId])
+  @@index([tenantId, status])
   @@index([projectId])
   @@map("audits")
 }
@@ -195,6 +198,11 @@ model AuditPage {
   hasSitemap      Boolean?
   metaRobots      String?
   hasViewport     Boolean?
+  hasResponsiveMeta Boolean?
+  smallTapTargets Int?
+  smallFontSizes  Int?
+  // Keywords
+  topKeywords     Json?
   // Raw data
   rawHtml         String?  @db.Text
   crawledAt       DateTime @default(now())
@@ -222,6 +230,7 @@ model PageResult {
   page AuditPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
   @@index([pageId])
+  @@index([pageId, status])
   @@map("page_results")
 }
 
@@ -301,6 +310,107 @@ model Subscription {
 }
 
 // ─────────────────────────────────────────────
+// SEO LOCAL (Google Business Profile)
+// ─────────────────────────────────────────────
+
+model GBPListing {
+  id              String        @id @default(cuid())
+  tenantId        String
+  businessName    String
+  category        String
+  phone           String?
+  website         String?
+  address         String
+  lat             Float?
+  lng             Float?
+  openingHours    Json?
+  completionScore Int           @default(0)
+  isVerified      Boolean       @default(false)
+  status          GBPStatus     @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reviews  GBPReview[]
+  posts    GBPPost[]
+  rankings GBPRanking[]
+  photos   GBPPhoto[]
+
+  @@index([tenantId])
+  @@map("gbp_listings")
+}
+
+model GBPReview {
+  id               String          @id @default(cuid())
+  listingId        String
+  authorName       String
+  rating           Int             // 1-5
+  text             String?         @db.Text
+  replyText        String?         @db.Text
+  replyStatus      GBPReplyStatus  @default(PENDING)
+  sentiment        GBPSentiment?
+  aiSuggestedReply String?         @db.Text
+  publishedAt      DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_reviews")
+}
+
+model GBPPost {
+  id          String        @id @default(cuid())
+  listingId   String
+  type        GBPPostType   @default(UPDATE)
+  content     String        @db.Text
+  imageUrl    String?
+  ctaType     String?
+  ctaUrl      String?
+  status      GBPPostStatus @default(DRAFT)
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  views       Int           @default(0)
+  clicks      Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_posts")
+}
+
+model GBPRanking {
+  id        String   @id @default(cuid())
+  listingId String
+  keyword   String
+  positions Json     // Grid positions
+  avgRank   Float
+  bestRank  Int
+  checkedAt DateTime @default(now())
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_rankings")
+}
+
+model GBPPhoto {
+  id        String       @id @default(cuid())
+  listingId String
+  type      GBPPhotoType @default(INTERIOR)
+  url       String
+  caption   String?
+  createdAt DateTime     @default(now())
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_photos")
+}
+
+// ─────────────────────────────────────────────
 // ENUMS
 // ─────────────────────────────────────────────
 
@@ -375,4 +485,45 @@ enum Role {
   ADMIN
   MEMBER
   GUEST
+}
+
+// GBP Enums
+enum GBPStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+  DUPLICATE
+}
+
+enum GBPReplyStatus {
+  PENDING
+  REPLIED
+  IGNORED
+}
+
+enum GBPSentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum GBPPostType {
+  UPDATE
+  EVENT
+  OFFER
+}
+
+enum GBPPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+enum GBPPhotoType {
+  LOGO
+  COVER
+  INTERIOR
+  EXTERIOR
+  PRODUCT
+  TEAM
 }
