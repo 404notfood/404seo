@@ -18,14 +18,17 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
   fastify.addHook("preHandler", async (request: FastifyRequest, reply) => {
     // Routes publiques
-    const publicPaths = ["/health", "/api/auth", "/api/billing/webhook"]
+    const publicPaths = ["/health", "/api/auth", "/api/billing/webhook", "/api/google/callback"]
     if (publicPaths.some((p) => request.url.startsWith(p))) return
 
     const authHeader = request.headers.authorization
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null
 
-    // Aussi vérifier le cookie de session BetterAuth
-    const cookieToken = request.cookies?.["better-auth.session_token"]?.split(".")[0]
+    // Aussi vérifier le cookie de session BetterAuth (préfixe __Secure- en HTTPS)
+    const cookieToken = (
+      request.cookies?.["__Secure-better-auth.session_token"] ||
+      request.cookies?.["better-auth.session_token"]
+    )?.split(".")[0]
     const sessionToken = token || cookieToken
 
     if (!sessionToken) {

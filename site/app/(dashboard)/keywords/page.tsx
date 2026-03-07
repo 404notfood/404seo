@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Search } from "lucide-react"
 import { useAudits } from "@/hooks/useAudits"
+import { useActiveProject } from "@/contexts/ProjectContext"
 import { useQuery } from "@tanstack/react-query"
 import { apiClient, type SiteKeywordEntry } from "@/lib/api-client"
 import {
@@ -22,7 +23,8 @@ function scoreColor(s: number) {
 }
 
 export default function KeywordsPage() {
-  const { data: audits, isLoading: auditsLoading } = useAudits()
+  const { activeProjectId } = useActiveProject()
+  const { data: audits, isLoading: auditsLoading } = useAudits(activeProjectId)
   const completedAudits = audits?.filter((a) => a.status === "COMPLETED") ?? []
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
@@ -102,7 +104,7 @@ export default function KeywordsPage() {
                   <BarChart layout="vertical" data={chartData}>
                     <XAxis type="number" tick={{ fontSize: 12 }} />
                     <YAxis dataKey="term" type="category" width={140} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(value: number | undefined) => value ?? 0} />
+                    <Tooltip formatter={(value) => (typeof value === "number" ? value : 0)} />
                     <Bar dataKey="totalCount" name="Occurrences" fill="#2563eb" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>

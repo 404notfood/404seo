@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BarChart3 } from "lucide-react"
 import { useStatsTimeline } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 import {
   ResponsiveContainer,
   LineChart,
@@ -34,7 +35,8 @@ function fmtDate(d: string) {
 }
 
 export default function StatsPage() {
-  const { data, isLoading } = useStatsTimeline()
+  const { activeProjectId } = useActiveProject()
+  const { data, isLoading } = useStatsTimeline(activeProjectId)
 
   if (isLoading) {
     return (
@@ -106,7 +108,7 @@ export default function StatsPage() {
                   <LineChart data={chartTimeline}>
                     <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-                    <Tooltip formatter={(value: number | undefined) => value ?? "—"} />
+                    <Tooltip formatter={(value) => (typeof value === "number" ? value : "—")} />
                     <Legend />
                     {SCORE_LINES.map((l) => (
                       <Line
@@ -150,7 +152,7 @@ export default function StatsPage() {
                           <Cell key={i} fill={PIE_COLORS[i]} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value: number | undefined) => value ?? 0} />
+                      <Tooltip formatter={(value) => (typeof value === "number" ? value : 0)} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -168,7 +170,7 @@ export default function StatsPage() {
                     <BarChart data={barData}>
                       <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip formatter={(value: number | undefined) => value ?? 0} />
+                      <Tooltip formatter={(value) => (typeof value === "number" ? value : 0)} />
                       <Bar dataKey="count" name="Audits" fill="#2563eb" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>

@@ -1,6 +1,7 @@
 "use client"
 
 import { useAuditStats } from "@/hooks/useAudits"
+import { useActiveProject } from "@/contexts/ProjectContext"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
@@ -69,7 +70,8 @@ function StatCard({
 }
 
 export default function DashboardPage() {
-  const { data: stats, isLoading } = useAuditStats()
+  const { activeProjectId } = useActiveProject()
+  const { data: stats, isLoading } = useAuditStats(activeProjectId)
 
   return (
     <div className="p-8 max-w-6xl mx-auto">

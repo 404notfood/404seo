@@ -8,6 +8,6 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@seo/shared": "workspace:*"
+    "@seo/shared": "*"
   }
 }

@@ -8,42 +8,42 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
-import { CheckCircle, Zap, Building2, CreditCard, AlertCircle } from "lucide-react"
+import { CheckCircle, Zap, CreditCard, AlertCircle, Lock } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { useEffect, Suspense } from "react"
+import type { PlanConfig } from "@/lib/api-client"
 
-const PLANS = [
-  {
-    key: "STARTER" as const,
-    name: "Starter",
-    price: "Gratuit",
-    quota: "100 pages / mois",
-    icon: CheckCircle,
-    features: ["1 projet", "Audit technique de base", "Export PDF"],
-  },
-  {
-    key: "PRO" as const,
-    name: "Pro",
-    price: "29€ / mois",
-    quota: "10 000 pages / mois",
-    icon: Zap,
-    features: ["Projets illimités", "Audit complet", "IA suggestions", "Export PDF"],
-    highlight: true,
-  },
-  {
-    key: "AGENCY" as const,
-    name: "Agency",
-    price: "99€ / mois",
-    quota: "100 000 pages / mois",
-    icon: Building2,
-    features: ["Multi-tenant", "White label", "API access", "Support prioritaire"],
-  },
-]
+// Labels lisibles pour chaque feature
+const FEATURE_LABELS: Record<string, string> = {
+  featureAI:           "Recommandations IA",
+  featureRankTracking: "Suivi de positions",
+  featureLocalSeo:     "SEO Local (GBP, avis)",
+  featureWhiteLabel:   "Marque blanche PDF",
+  featureApiAccess:    "Accès API REST",
+  featureCompetitors:  "Analyse concurrents",
+  featureBacklinks:    "Profil de backlinks",
+}
 
 const STATUS_LABEL: Record<string, { label: string; variant: "default" | "secondary" | "destructive" }> = {
   ACTIVE:    { label: "Actif",              variant: "default" },
   PAST_DUE:  { label: "Paiement en retard", variant: "destructive" },
   CANCELLED: { label: "Annulé",             variant: "secondary" },
+}
+
+function formatPrice(cents: number): string {
+  if (cents === 0) return "Gratuit"
+  return `${(cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: 0 })} € / mois`
+}
+
+function formatQuota(val: number, unit: string): string {
+  if (val === -1) return `Illimité en ${unit}`
+  return `${val.toLocaleString("fr-FR")} ${unit}`
+}
+
+function getActiveFeatures(plan: PlanConfig): string[] {
+  return Object.entries(FEATURE_LABELS)
+    .filter(([key]) => (plan as unknown as Record<string, unknown>)[key] === true)
+    .map(([, label]) => label)
 }
 
 function SuccessToast() {
@@ -55,6 +55,10 @@ function SuccessToast() {
   return null
 }
 
+function PlanCardSkeleton() {
+  return <Skeleton className="h-80 rounded-2xl" />
+}
+
 export default function BillingPage() {
   const { data: billing, isLoading } = useQuery({
     queryKey: ["billing"],
@@ -64,7 +68,7 @@ export default function BillingPage() {
   const checkout = useMutation({
     mutationFn: (plan: string) => apiClient.createCheckout(plan),
     onSuccess: ({ url }) => { if (url) window.location.href = url },
-    onError: () => toast.error("Erreur lors de la redirection vers Stripe"),
+    onError: (err: Error) => toast.error(err.message || "Erreur lors de la redirection vers Stripe"),
   })
 
   const portal = useMutation({
@@ -75,7 +79,8 @@ export default function BillingPage() {
 
   const currentPlan = billing?.plan ?? "STARTER"
   const sub = billing?.subscription
-  const pagesPercent = sub ? Math.round((sub.pagesUsed / sub.pagesQuota) * 100) : 0
+  const plans = billing?.plans ?? []
+  const pagesPercent = sub ? Math.min(100, Math.round((sub.pagesUsed / sub.pagesQuota) * 100)) : 0
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -86,7 +91,7 @@ export default function BillingPage() {
         <p className="text-slate-500 mt-1">Gérez votre abonnement et vos paiements</p>
       </div>
 
-      {/* Quota usage */}
+      {/* ── Quota usage ── */}
       {isLoading ? (
         <Skeleton className="h-24 w-full mb-8 rounded-xl" />
       ) : sub ? (
@@ -127,77 +132,115 @@ export default function BillingPage() {
         </Card>
       ) : null}
 
-      {/* Plans */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-        {PLANS.map((plan) => {
-          const Icon = plan.icon
-          const isCurrent = currentPlan === plan.key
+      {/* ── Plans dynamiques ── */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+          {[0, 1, 2].map((i) => <PlanCardSkeleton key={i} />)}
+        </div>
+      ) : plans.length === 0 ? (
+        <div className="mb-8 p-8 rounded-2xl border border-slate-200 bg-slate-50 text-center">
+          <p className="text-slate-500">Plans non configurés — contactez l&apos;administrateur.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+          {plans.map((plan) => {
+            const isCurrent = currentPlan === plan.plan
+            const features = getActiveFeatures(plan)
+            const isFree = plan.price === 0
+            const hasStripePrice = !!plan.stripePriceId
+            const isPopular = plan.plan === "PRO"
 
-          return (
-            <Card
-              key={plan.key}
-              className={[
-                "relative transition-shadow",
-                isCurrent ? "border-blue-300 shadow-md shadow-blue-100" : "",
-                plan.highlight && !isCurrent ? "border-blue-200" : "",
-              ].join(" ")}
-            >
-              {plan.highlight && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className="bg-blue-600 text-white text-xs font-semibold px-3 py-1 rounded-full">
-                    Populaire
-                  </span>
-                </div>
-              )}
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Icon className={`h-5 w-5 ${isCurrent ? "text-blue-600" : "text-slate-400"}`} />
-                    <CardTitle className="text-lg">{plan.name}</CardTitle>
+            return (
+              <Card
+                key={plan.plan}
+                className={[
+                  "relative flex flex-col transition-shadow",
+                  isCurrent ? "border-blue-300 shadow-md shadow-blue-100" : "",
+                  isPopular && !isCurrent ? "border-blue-200" : "",
+                ].join(" ")}
+              >
+                {isPopular && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className="bg-blue-600 text-white text-xs font-semibold px-3 py-1 rounded-full">
+                      Populaire
+                    </span>
                   </div>
-                  {isCurrent && <Badge className="bg-blue-600 text-white text-xs">Actuel</Badge>}
-                </div>
-                <div className="mt-2">
-                  <span className="text-2xl font-bold text-slate-900">{plan.price}</span>
-                </div>
-                <CardDescription>{plan.quota}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2 mb-5">
-                  {plan.features.map((f) => (
-                    <li key={f} className="text-sm text-slate-600 flex items-center gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-
-                {isCurrent ? (
-                  <Button className="w-full" variant="outline" disabled>
-                    Plan actuel
-                  </Button>
-                ) : plan.key === "STARTER" ? (
-                  <Button className="w-full" variant="outline" disabled>
-                    Gratuit
-                  </Button>
-                ) : (
-                  <Button
-                    className="w-full"
-                    variant={plan.highlight ? "default" : "outline"}
-                    onClick={() => checkout.mutate(plan.key)}
-                    disabled={checkout.isPending}
-                  >
-                    <Zap className="h-4 w-4 mr-2" />
-                    {currentPlan !== "STARTER" ? `Passer au ${plan.name}` : `Choisir ${plan.name}`}
-                  </Button>
                 )}
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
 
-      {/* Portail Stripe */}
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{plan.displayName}</CardTitle>
+                    {isCurrent && <Badge className="bg-blue-600 text-white text-xs">Actuel</Badge>}
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-2xl font-bold text-slate-900">{formatPrice(plan.price)}</span>
+                    {plan.priceYearly && plan.priceYearly > 0 && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        ou {formatPrice(Math.round(plan.priceYearly / 12))}/mois facturé annuellement
+                      </p>
+                    )}
+                  </div>
+                  <CardDescription>{formatQuota(plan.pageQuota, "pages/audit")}</CardDescription>
+                </CardHeader>
+
+                <CardContent className="flex flex-col flex-1">
+                  <ul className="space-y-2 mb-5 flex-1">
+                    {/* Quota audits/mois */}
+                    <li className="text-sm text-slate-600 flex items-center gap-2">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                      {formatQuota(plan.auditQuota, "audits / mois")}
+                    </li>
+                    {/* Projets */}
+                    <li className="text-sm text-slate-600 flex items-center gap-2">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                      {formatQuota(plan.projectQuota, "projets")}
+                    </li>
+                    {/* Utilisateurs */}
+                    <li className="text-sm text-slate-600 flex items-center gap-2">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                      {formatQuota(plan.userQuota, "utilisateurs")}
+                    </li>
+                    {/* Features actives */}
+                    {features.map((f) => (
+                      <li key={f} className="text-sm text-slate-600 flex items-center gap-2">
+                        <CheckCircle className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+
+                  {isCurrent ? (
+                    <Button className="w-full" variant="outline" disabled>
+                      Plan actuel
+                    </Button>
+                  ) : isFree ? (
+                    <Button className="w-full" variant="outline" disabled>
+                      Gratuit
+                    </Button>
+                  ) : !hasStripePrice ? (
+                    <Button className="w-full" variant="outline" disabled title="Le prix Stripe n'est pas encore configuré par l'administrateur">
+                      <Lock className="h-4 w-4 mr-2" />
+                      Prix non configuré
+                    </Button>
+                  ) : (
+                    <Button
+                      className="w-full"
+                      variant={isPopular ? "default" : "outline"}
+                      onClick={() => checkout.mutate(plan.plan)}
+                      disabled={checkout.isPending}
+                    >
+                      <Zap className="h-4 w-4 mr-2" />
+                      {currentPlan !== "STARTER" ? `Passer au ${plan.displayName}` : `Choisir ${plan.displayName}`}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Portail Stripe ── */}
       {sub && currentPlan !== "STARTER" && (
         <Card>
           <CardHeader>

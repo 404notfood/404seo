@@ -3,17 +3,16 @@ import type { FastifyPluginAsync } from "fastify"
 import Stripe from "stripe"
 import { prisma } from "../lib/prisma"
 
-// Prix Stripe par plan (configurés dans le dashboard Stripe)
-const PRICE_IDS: Record<string, string> = {
-  PRO:    process.env.STRIPE_PRICE_PRO    ?? "",
-  AGENCY: process.env.STRIPE_PRICE_AGENCY ?? "",
+type Plan = "STARTER" | "PRO" | "AGENCY" | "ENTERPRISE"
+
+// Helper : charger un PlanConfig depuis la DB
+async function getPlanConfig(plan: string) {
+  return prisma.planConfig.findUnique({ where: { plan: plan as Plan } })
 }
 
-// Quotas pages par plan
-const PLAN_QUOTAS: Record<string, number> = {
-  STARTER: 100,
-  PRO:     10_000,
-  AGENCY:  100_000,
+// Helper : trouver un plan depuis un stripePriceId
+async function getPlanByPriceId(priceId: string) {
+  return prisma.planConfig.findFirst({ where: { stripePriceId: priceId } })
 }
 
 function getStripe() {
@@ -40,16 +39,13 @@ function isEventProcessed(eventId: string): boolean {
 }
 
 const billingRoutes: FastifyPluginAsync = async (fastify) => {
-  // GET /api/billing — Récupérer l'abonnement actuel
+  // GET /api/billing — Récupérer l'abonnement actuel + configs des plans
   fastify.get("/api/billing", async (request, reply) => {
-    const subscription = await prisma.subscription.findUnique({
-      where: { tenantId: request.tenantId },
-    })
-
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: request.tenantId },
-      select: { plan: true },
-    })
+    const [subscription, tenant, planConfigs] = await Promise.all([
+      prisma.subscription.findUnique({ where: { tenantId: request.tenantId } }),
+      prisma.tenant.findUnique({ where: { id: request.tenantId }, select: { plan: true } }),
+      prisma.planConfig.findMany({ where: { isActive: true }, orderBy: { sortOrder: "asc" } }),
+    ])
 
     return reply.send({
       plan: tenant?.plan ?? "STARTER",
@@ -61,28 +57,29 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
             currentPeriodEnd: subscription.currentPeriodEnd,
           }
         : null,
+      plans: planConfigs,
     })
   })
 
   // POST /api/billing/checkout — Créer une session Stripe Checkout
   fastify.post<{ Body: { plan: string } }>("/api/billing/checkout", async (request, reply) => {
     const { plan } = request.body ?? {}
-    if (!plan || !PRICE_IDS[plan]) {
-      return reply.status(400).send({ error: "Plan invalide" })
+    if (!plan) return reply.status(400).send({ error: "Plan requis" })
+
+    // Lire le PlanConfig depuis la DB
+    const planConfig = await getPlanConfig(plan)
+    if (!planConfig) return reply.status(400).send({ error: "Plan introuvable en base" })
+    if (!planConfig.stripePriceId) {
+      return reply.status(400).send({ error: "Ce plan n'a pas de prix Stripe configuré. Configurez le stripePriceId dans /admin/plans." })
     }
 
     const stripe = getStripe()
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 
-    // Récupérer ou créer le client Stripe
-    let subscription = await prisma.subscription.findUnique({
-      where: { tenantId: request.tenantId },
-    })
-
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: request.tenantId },
-      select: { name: true },
-    })
+    const [subscription, tenant] = await Promise.all([
+      prisma.subscription.findUnique({ where: { tenantId: request.tenantId } }),
+      prisma.tenant.findUnique({ where: { id: request.tenantId }, select: { name: true } }),
+    ])
 
     let customerId = subscription?.stripeCustomerId
 
@@ -103,7 +100,7 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
       customer: customerId,
       mode: "subscription",
       payment_method_types: ["card"],
-      line_items: [{ price: PRICE_IDS[plan], quantity: 1 }],
+      line_items: [{ price: planConfig.stripePriceId, quantity: 1 }],
       success_url: `${appUrl}/settings/billing?success=1`,
       cancel_url: `${appUrl}/settings/billing?cancelled=1`,
       metadata: { tenantId: request.tenantId, plan },
@@ -183,6 +180,11 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
             }
           }
 
+          // Lire le quota depuis PlanConfig en DB (fallback 100)
+          const planCfg = await getPlanConfig(plan)
+          const pagesQuota = planCfg?.pageQuota && planCfg.pageQuota !== -1 ? planCfg.pageQuota : 100
+          const stripePriceId = planCfg?.stripePriceId ?? ""
+
           await prisma.$transaction([
             prisma.tenant.update({
               where: { id: tenantId },
@@ -194,20 +196,20 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
                 tenantId,
                 stripeCustomerId: session.customer as string,
                 stripeSubscriptionId: subscriptionId,
-                stripePriceId: PRICE_IDS[plan],
+                stripePriceId,
                 plan,
                 status: "ACTIVE",
-                pagesQuota: PLAN_QUOTAS[plan] ?? 100,
+                pagesQuota,
                 currentPeriodStart: periodStart,
                 currentPeriodEnd: periodEnd,
               },
               update: {
                 stripeCustomerId: session.customer as string,
                 stripeSubscriptionId: subscriptionId,
-                stripePriceId: PRICE_IDS[plan],
+                stripePriceId,
                 plan,
                 status: "ACTIVE",
-                pagesQuota: PLAN_QUOTAS[plan] ?? 100,
+                pagesQuota,
                 currentPeriodStart: periodStart,
                 currentPeriodEnd: periodEnd,
               },
@@ -225,8 +227,12 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
           const isActive = ["active", "trialing"].includes(sub.status)
           const priceId = sub.items.data[0]?.price.id ?? null
 
-          // Détecter le plan depuis le priceId
-          const plan = Object.entries(PRICE_IDS).find(([, p]) => p === priceId)?.[0] as "PRO" | "AGENCY" | "STARTER" | undefined
+          // Détecter le plan et son quota depuis PlanConfig en DB via le priceId
+          const updatedPlanCfg = priceId ? await getPlanByPriceId(priceId) : null
+          const plan = (updatedPlanCfg?.plan ?? "STARTER") as Plan
+          const pagesQuotaUpdated = updatedPlanCfg?.pageQuota && updatedPlanCfg.pageQuota !== -1
+            ? updatedPlanCfg.pageQuota
+            : 100
 
           const subItem = sub.items.data[0]
           const itemPeriodStart = subItem ? (subItem as unknown as { current_period_start?: number }).current_period_start : undefined
@@ -237,8 +243,8 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
             data: {
               status: isActive ? "ACTIVE" : "PAST_DUE",
               stripePriceId: priceId,
-              plan: plan ?? "STARTER",
-              pagesQuota: PLAN_QUOTAS[plan ?? "STARTER"] ?? 100,
+              plan,
+              pagesQuota: pagesQuotaUpdated,
               currentPeriodStart: itemPeriodStart ? new Date(itemPeriodStart * 1000) : undefined,
               currentPeriodEnd: itemPeriodEnd ? new Date(itemPeriodEnd * 1000) : undefined,
             },
@@ -247,7 +253,7 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
           // Mettre à jour le plan sur le tenant aussi
           const record = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: sub.id } })
           if (record) {
-            await prisma.tenant.update({ where: { id: record.tenantId }, data: { plan: plan ?? "STARTER" } })
+            await prisma.tenant.update({ where: { id: record.tenantId }, data: { plan } })
           }
           break
         }

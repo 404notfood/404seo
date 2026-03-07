@@ -10,10 +10,10 @@ const CreateProjectSchema = z.object({
 })
 
 const projectsRoutes: FastifyPluginAsync = async (fastify) => {
-  // GET /api/projects — GUEST+ peut lire
+  // GET /api/projects — chaque user voit uniquement SES projets
   fastify.get("/api/projects", async (request, reply) => {
     const projects = await prisma.project.findMany({
-      where: { tenantId: request.tenantId },
+      where: { tenantId: request.tenantId, userId: request.userId },
       include: {
         _count: { select: { audits: true } },
       },
@@ -44,10 +44,10 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send(project)
   })
 
-  // DELETE /api/projects/:id — ADMIN requis
-  fastify.delete<{ Params: { id: string } }>("/api/projects/:id", { preHandler: [requireRole("ADMIN")] }, async (request, reply) => {
+  // DELETE /api/projects/:id — le propriétaire du projet peut supprimer
+  fastify.delete<{ Params: { id: string } }>("/api/projects/:id", { preHandler: [requireRole("MEMBER")] }, async (request, reply) => {
     const project = await prisma.project.findFirst({
-      where: { id: request.params.id, tenantId: request.tenantId },
+      where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId },
     })
 
     if (!project) return reply.status(404).send({ error: "Projet introuvable" })

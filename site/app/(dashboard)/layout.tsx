@@ -10,7 +10,7 @@ export default function DashboardLayout({
 }) {
   return (
     <ProjectProvider>
-      <div className="flex min-h-screen" style={{ background: "#f1f5f9" }}>
+      <div className="flex min-h-screen bg-slate-100 dark:bg-slate-950">
         <Sidebar />
         <main className="flex-1 overflow-auto min-w-0">{children}</main>
       </div>

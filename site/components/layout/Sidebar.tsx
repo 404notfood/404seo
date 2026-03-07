@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
@@ -34,6 +35,11 @@ import {
   Map,
   ChevronsUpDown,
   Layers,
+  ShieldAlert,
+  Users,
+  Building2,
+  Sun,
+  Moon,
 } from "lucide-react"
 import { signOut, useSession } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
@@ -44,6 +50,7 @@ import { apiClient } from "@/lib/api-client"
 import { useState, useCallback, useRef, useEffect } from "react"
 import { useActiveProject } from "@/contexts/ProjectContext"
 import { useProjects } from "@/hooks/useProjects"
+import { useTheme } from "next-themes"
 
 // ── Types ────────────────────────────────────────
 interface NavItem {
@@ -136,19 +143,6 @@ const sections: NavSection[] = [
   },
 ]
 
-// ── Logo ─────────────────────────────────────────
-function RadarLogo() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
-      <circle cx="16" cy="16" r="14" stroke="#2563eb" strokeWidth="1.5" opacity="0.3" />
-      <circle cx="16" cy="16" r="9" stroke="#2563eb" strokeWidth="1.5" opacity="0.55" />
-      <circle cx="16" cy="16" r="4" fill="#2563eb" />
-      <line x1="16" y1="2" x2="16" y2="30" stroke="#06b6d4" strokeWidth="0.75" opacity="0.25" />
-      <line x1="2" y1="16" x2="30" y2="16" stroke="#06b6d4" strokeWidth="0.75" opacity="0.25" />
-      <path d="M10 22 L16 12 L22 17" stroke="#06b6d4" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
 
 // ── Plan labels ──────────────────────────────────
 const PLAN_CONFIG: Record<string, { label: string; color: string; quota: number }> = {
@@ -336,6 +330,28 @@ function ProjectSelector() {
   )
 }
 
+// ── Theme Toggle ─────────────────────────────────
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme()
+  const isDark = theme === "dark"
+  return (
+    <button
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="w-full flex items-center gap-2.5 px-2 py-2 mb-1 rounded-lg hover:bg-white/[0.06] transition-colors"
+      title={isDark ? "Passer en mode clair" : "Passer en mode sombre"}
+    >
+      {isDark ? (
+        <Sun className="h-4 w-4 shrink-0" style={{ color: "#f59e0b" }} />
+      ) : (
+        <Moon className="h-4 w-4 shrink-0" style={{ color: "#94a3b8" }} />
+      )}
+      <span className="text-[12px] font-medium" style={{ color: "#64748b" }}>
+        {isDark ? "Mode clair" : "Mode sombre"}
+      </span>
+    </button>
+  )
+}
+
 // ── Component ────────────────────────────────────
 export function Sidebar() {
   const pathname = usePathname()
@@ -366,23 +382,25 @@ export function Sidebar() {
     <aside className="w-[252px] min-h-screen flex flex-col shrink-0 select-none" style={{ background: "#0f172a" }}>
 
       {/* ── Header / Logo ── */}
-      <div className="px-4 py-4 flex items-center gap-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-        <Link href="/dashboard" className="flex items-center gap-2.5 group">
-          <div className="transition-transform duration-200 group-hover:scale-105">
-            <RadarLogo />
-          </div>
-          <div className="leading-none">
-            <p className="text-white font-bold text-[15px] tracking-tight">SEO Platform</p>
-            <div className="flex items-center gap-1.5 mt-1">
-              <span
-                className="text-[9px] font-bold uppercase px-1.5 py-[1px] rounded"
-                style={{ background: `${planConfig.color}22`, color: planConfig.color }}
-              >
-                {planConfig.label}
-              </span>
-            </div>
+      <div className="px-4 py-4 flex flex-col gap-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <Link href="/dashboard" className="flex items-center group">
+          <div className="transition-transform duration-200 group-hover:scale-[1.02]">
+            <Image
+              src="/logo.png"
+              alt="404 SEO"
+              width={160}
+              height={48}
+              className="h-12 w-auto brightness-0 invert"
+              priority
+            />
           </div>
         </Link>
+        <span
+          className="self-start text-[9px] font-bold uppercase px-1.5 py-[1px] rounded"
+          style={{ background: `${planConfig.color}22`, color: planConfig.color }}
+        >
+          {planConfig.label}
+        </span>
       </div>
 
       {/* ── Project Selector ── */}
@@ -406,6 +424,27 @@ export function Sidebar() {
             </div>
           )
         ))}
+
+        {/* ── Section admin (ADMIN seulement) ── */}
+        {role === "ADMIN" && (
+          <div>
+            <div className="px-3 pb-1.5 pt-1 flex items-center gap-2">
+              <ShieldAlert className="h-3 w-3" style={{ color: "#06b6d4" }} />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#06b6d4" }}>
+                Administration
+              </span>
+            </div>
+            <NavItems
+              items={[
+                { href: "/admin", label: "Stats plateforme", icon: BarChart3 },
+                { href: "/admin/users", label: "Utilisateurs", icon: Users },
+                { href: "/admin/tenants", label: "Tenants", icon: Building2 },
+                { href: "/admin/plans", label: "Plans & Tarifs", icon: CreditCard },
+              ]}
+              pathname={pathname}
+            />
+          </div>
+        )}
       </nav>
 
       {/* ── Pro promo card (Starter only) ── */}
@@ -476,6 +515,7 @@ export function Sidebar() {
 
       {/* ── User profile ── */}
       <div className="px-2.5 pb-3 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <ThemeToggle />
         <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.04] transition-colors cursor-default">
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarFallback className="text-[11px] font-bold" style={{ background: "rgba(37,99,235,0.25)", color: "#60a5fa" }}>

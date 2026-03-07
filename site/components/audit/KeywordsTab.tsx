@@ -82,7 +82,7 @@ export function KeywordsTab({ auditId, enabled }: KeywordsTabProps) {
                     width={100}
                   />
                   <Tooltip
-                    formatter={(value: number | undefined) => [value ?? 0, "Score"]}
+                    formatter={(value) => [typeof value === "number" ? value : 0, "Score"]}
                     labelFormatter={(label, payload) => {
                       const item = payload?.[0]?.payload as { fullTerm: string; pages: number } | undefined
                       return item ? `${item.fullTerm} (${item.pages} pages)` : String(label)

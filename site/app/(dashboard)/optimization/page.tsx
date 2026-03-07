@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Globe, CheckCircle2, Circle } from "lucide-react"
 import { useOptimization } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 
 const CAT_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   TECHNICAL: { bg: "#2563eb15", text: "#2563eb", label: "Technique" },
@@ -27,7 +28,8 @@ const EFFORT_LABELS: Record<string, { label: string; color: string }> = {
 }
 
 export default function OptimizationPage() {
-  const { data, isLoading } = useOptimization()
+  const { activeProjectId } = useActiveProject()
+  const { data, isLoading } = useOptimization(activeProjectId)
   const [done, setDone] = useState<Set<string>>(new Set())
 
   if (isLoading) {

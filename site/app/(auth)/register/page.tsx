@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import Image from "next/image"
 import { signUp } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -43,9 +44,9 @@ export default function RegisterPage() {
       <CardHeader className="space-y-1">
         <div className="flex items-center gap-2 mb-2">
           <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <span className="text-white font-bold text-sm">S</span>
+            <Image src="/logo.png" alt="404 SEO" width={32} height={32} className="rounded-lg" />
           </div>
-          <span className="font-semibold text-slate-900">SEO Audit</span>
+          <span className="font-semibold text-slate-900">404 SEO</span>
         </div>
         <CardTitle className="text-2xl">Créer un compte</CardTitle>
         <CardDescription>

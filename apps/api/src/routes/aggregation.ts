@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from "fastify"
 import { prisma } from "../lib/prisma"
+import { assertProjectOwner } from "../lib/guards"
 
 // ─── Types query params ────────────────────────────────
 
@@ -27,8 +28,9 @@ interface ProjectQuery {
 
 // ─── Helpers ───────────────────────────────────────────
 
-const completedAuditFilter = (tenantId: string, projectId?: string) => ({
-  audit: { tenantId, deletedAt: null, status: "COMPLETED" as const, ...(projectId ? { projectId } : {}) },
+// Filtre sur les pages d'audits complétés — restreint au userId du demandeur
+const completedAuditFilter = (tenantId: string, userId: string, projectId?: string) => ({
+  audit: { tenantId, userId, deletedAt: null, status: "COMPLETED" as const, ...(projectId ? { projectId } : {}) },
 })
 
 const severityWeight: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 }
@@ -46,8 +48,15 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
     const skip = (page - 1) * limit
     const { projectId } = query
 
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
+
+    const filter = completedAuditFilter(request.tenantId, request.userId, projectId)
+
     const where = {
-      page: completedAuditFilter(request.tenantId, projectId),
+      page: filter,
       status: query.status ? (query.status as "FAIL" | "WARN") : { in: ["FAIL" as const, "WARN" as const] },
       ...(query.category ? { category: query.category } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
@@ -73,14 +82,14 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       prisma.pageResult.count({ where }),
       prisma.pageResult.count({
         where: {
-          page: completedAuditFilter(request.tenantId, projectId),
+          page: filter,
           status: "FAIL",
           ...(query.category ? { category: query.category } : {}),
         },
       }),
       prisma.pageResult.count({
         where: {
-          page: completedAuditFilter(request.tenantId, projectId),
+          page: filter,
           status: "WARN",
           ...(query.category ? { category: query.category } : {}),
         },
@@ -105,11 +114,17 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
   // ─────────────────────────────────────────────────────
   fastify.get("/api/performance-overview", async (request, reply) => {
     const tenantId = request.tenantId
+    const userId = request.userId
     const { projectId } = request.query as ProjectQuery
+
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, userId, tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
 
     const [reports, pages] = await Promise.all([
       prisma.auditReport.findMany({
-        where: { audit: { tenantId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) } },
+        where: { audit: { tenantId, userId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) } },
         select: {
           scorePerformance: true,
           auditId: true,
@@ -118,7 +133,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { audit: { createdAt: "desc" } },
       }),
       prisma.auditPage.findMany({
-        where: completedAuditFilter(tenantId, projectId),
+        where: completedAuditFilter(tenantId, userId, projectId),
         select: {
           url: true,
           responseTime: true,
@@ -180,11 +195,17 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
   // ─────────────────────────────────────────────────────
   fastify.get("/api/on-page-overview", async (request, reply) => {
     const tenantId = request.tenantId
+    const userId = request.userId
     const { projectId } = request.query as ProjectQuery
+
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, userId, tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
 
     const [reports, pages] = await Promise.all([
       prisma.auditReport.findMany({
-        where: { audit: { tenantId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) } },
+        where: { audit: { tenantId, userId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) } },
         select: {
           scoreOnPage: true,
           auditId: true,
@@ -193,7 +214,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
         orderBy: { audit: { createdAt: "desc" } },
       }),
       prisma.auditPage.findMany({
-        where: completedAuditFilter(tenantId, projectId),
+        where: completedAuditFilter(tenantId, userId, projectId),
         select: {
           url: true,
           titleLength: true,
@@ -214,35 +235,18 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
     let missingH1 = 0
     let missingAlt = 0
 
-    // Compteur de problèmes par page pour le classement
     const pageIssues: Array<{ url: string; issueCount: number; auditUrl: string }> = []
 
     for (const p of pages) {
       let issues = 0
-      if (p.titleLength === null || p.titleLength === 0) {
-        missingTitles++
-        issues++
-      }
-      if (p.metaDescLength === null || p.metaDescLength === 0) {
-        missingMeta++
-        issues++
-      }
-      if (!p.h1 || p.h1.length === 0) {
-        missingH1++
-        issues++
-      }
-      if (p.imagesWithoutAlt !== null && p.imagesWithoutAlt > 0) {
-        missingAlt++
-        issues++
-      }
-      if (issues > 0) {
-        pageIssues.push({ url: p.url, issueCount: issues, auditUrl: p.audit.url })
-      }
+      if (p.titleLength === null || p.titleLength === 0) { missingTitles++; issues++ }
+      if (p.metaDescLength === null || p.metaDescLength === 0) { missingMeta++; issues++ }
+      if (!p.h1 || p.h1.length === 0) { missingH1++; issues++ }
+      if (p.imagesWithoutAlt !== null && p.imagesWithoutAlt > 0) { missingAlt++; issues++ }
+      if (issues > 0) pageIssues.push({ url: p.url, issueCount: issues, auditUrl: p.audit.url })
     }
 
-    const worstPages = pageIssues
-      .sort((a, b) => b.issueCount - a.issueCount)
-      .slice(0, 10)
+    const worstPages = pageIssues.sort((a, b) => b.issueCount - a.issueCount).slice(0, 10)
 
     return reply.send({
       avgScore,
@@ -270,30 +274,25 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
     const skip = (page - 1) * limit
     const { projectId } = query
 
-    // Construire les filtres conditionnels
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
+
     type PageWhere = {
-      audit: { tenantId: string; deletedAt: null; status: "COMPLETED"; projectId?: string }
+      audit: { tenantId: string; userId: string; deletedAt: null; status: "COMPLETED"; projectId?: string }
       wordCount?: { lt: number }
       OR?: Array<{ metaDescLength: null | { equals: number } }>
       h1?: { isEmpty: boolean }
     }
 
     const where: PageWhere = {
-      audit: { tenantId: request.tenantId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) },
+      audit: { tenantId: request.tenantId, userId: request.userId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) },
     }
 
-    if (query.thin === "true") {
-      where.wordCount = { lt: 300 }
-    }
-    if (query.noMeta === "true") {
-      where.OR = [
-        { metaDescLength: null },
-        { metaDescLength: { equals: 0 } },
-      ]
-    }
-    if (query.noH1 === "true") {
-      where.h1 = { isEmpty: true }
-    }
+    if (query.thin === "true") where.wordCount = { lt: 300 }
+    if (query.noMeta === "true") where.OR = [{ metaDescLength: null }, { metaDescLength: { equals: 0 } }]
+    if (query.noH1 === "true") where.h1 = { isEmpty: true }
 
     const [items, total] = await Promise.all([
       prisma.auditPage.findMany({
@@ -316,12 +315,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       prisma.auditPage.count({ where }),
     ])
 
-    return reply.send({
-      items,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    })
+    return reply.send({ items, total, page, totalPages: Math.ceil(total / limit) })
   })
 
   // ─────────────────────────────────────────────────────
@@ -329,8 +323,15 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
   // ─────────────────────────────────────────────────────
   fastify.get("/api/stats/timeline", async (request, reply) => {
     const tenantId = request.tenantId
+    const userId = request.userId
     const { projectId } = request.query as ProjectQuery
-    const auditWhere = { tenantId, deletedAt: null as null, status: "COMPLETED" as const, ...(projectId ? { projectId } : {}) }
+
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, userId, tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
+
+    const auditWhere = { tenantId, userId, deletedAt: null as null, status: "COMPLETED" as const, ...(projectId ? { projectId } : {}) }
 
     const [auditsWithReport, distribution] = await Promise.all([
       prisma.audit.findMany({
@@ -353,9 +354,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       prisma.pageResult.groupBy({
         by: ["status"],
-        where: {
-          page: completedAuditFilter(tenantId, projectId),
-        },
+        where: { page: completedAuditFilter(tenantId, userId, projectId) },
         _count: { _all: true },
       }),
     ])
@@ -374,9 +373,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       }))
 
     const distMap: Record<string, number> = { PASS: 0, WARN: 0, FAIL: 0 }
-    for (const d of distribution) {
-      distMap[d.status] = d._count._all
-    }
+    for (const d of distribution) distMap[d.status] = d._count._all
 
     return reply.send({
       timeline,
@@ -393,17 +390,23 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
   // ─────────────────────────────────────────────────────
   fastify.get("/api/optimization", async (request, reply) => {
     const tenantId = request.tenantId
+    const userId = request.userId
+    const { projectId } = request.query as ProjectQuery
+
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, userId, tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
 
     const grouped = await prisma.pageResult.groupBy({
       by: ["checkName", "category", "status", "priority", "effort", "message"],
       where: {
-        page: completedAuditFilter(tenantId),
+        page: completedAuditFilter(tenantId, userId, projectId),
         status: { in: ["FAIL", "WARN"] },
       },
       _count: { _all: true },
     })
 
-    // Agréger par checkName
     type RecommendationEntry = {
       checkName: string
       category: string
@@ -423,7 +426,6 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       if (existing) {
         if (g.status === "FAIL") existing.failCount += count
         if (g.status === "WARN") existing.warnCount += count
-        // Garder la priorité la plus haute
         if ((severityWeight[g.priority] ?? 0) > (severityWeight[existing.priority] ?? 0)) {
           existing.priority = g.priority
         }

@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { FileText, Download, ExternalLink } from "lucide-react"
 import { useAudits } from "@/hooks/useAudits"
+import { useActiveProject } from "@/contexts/ProjectContext"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
@@ -18,7 +19,8 @@ function fmtDate(d: string) {
 }
 
 export default function ReportsPage() {
-  const { data: audits, isLoading } = useAudits()
+  const { activeProjectId } = useActiveProject()
+  const { data: audits, isLoading } = useAudits(activeProjectId)
 
   if (isLoading) {
     return (

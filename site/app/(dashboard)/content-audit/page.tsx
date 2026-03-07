@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { PenTool, ChevronLeft, ChevronRight } from "lucide-react"
 import { useContentOverview } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 
 export default function ContentAuditPage() {
   const [thin, setThin] = useState(false)
@@ -14,7 +15,8 @@ export default function ContentAuditPage() {
   const [noH1, setNoH1] = useState(false)
   const [page, setPage] = useState(1)
 
-  const { data, isLoading } = useContentOverview({ thin, noMeta, noH1, page })
+  const { activeProjectId } = useActiveProject()
+  const { data, isLoading } = useContentOverview({ thin, noMeta, noH1, page, projectId: activeProjectId })
 
   if (isLoading) {
     return (

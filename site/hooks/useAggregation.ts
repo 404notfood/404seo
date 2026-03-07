@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
 
-export function useIssues(params?: { category?: string; status?: string; priority?: string; page?: number }) {
+export function useIssues(params?: { category?: string; status?: string; priority?: string; page?: number; projectId?: string | null }) {
   return useQuery({
     queryKey: ["issues", params],
     queryFn: () => apiClient.getIssues(params),
@@ -9,23 +9,23 @@ export function useIssues(params?: { category?: string; status?: string; priorit
   })
 }
 
-export function usePerformanceOverview() {
+export function usePerformanceOverview(projectId?: string | null) {
   return useQuery({
-    queryKey: ["performance-overview"],
-    queryFn: () => apiClient.getPerformanceOverview(),
+    queryKey: ["performance-overview", projectId ?? null],
+    queryFn: () => apiClient.getPerformanceOverview(projectId),
     staleTime: 60_000,
   })
 }
 
-export function useOnPageOverview() {
+export function useOnPageOverview(projectId?: string | null) {
   return useQuery({
-    queryKey: ["on-page-overview"],
-    queryFn: () => apiClient.getOnPageOverview(),
+    queryKey: ["on-page-overview", projectId ?? null],
+    queryFn: () => apiClient.getOnPageOverview(projectId),
     staleTime: 60_000,
   })
 }
 
-export function useContentOverview(params?: { thin?: boolean; noMeta?: boolean; noH1?: boolean; page?: number }) {
+export function useContentOverview(params?: { thin?: boolean; noMeta?: boolean; noH1?: boolean; page?: number; projectId?: string | null }) {
   return useQuery({
     queryKey: ["content-overview", params],
     queryFn: () => apiClient.getContentOverview(params),
@@ -33,18 +33,18 @@ export function useContentOverview(params?: { thin?: boolean; noMeta?: boolean; 
   })
 }
 
-export function useStatsTimeline() {
+export function useStatsTimeline(projectId?: string | null) {
   return useQuery({
-    queryKey: ["stats-timeline"],
-    queryFn: () => apiClient.getStatsTimeline(),
+    queryKey: ["stats-timeline", projectId ?? null],
+    queryFn: () => apiClient.getStatsTimeline(projectId),
     staleTime: 60_000,
   })
 }
 
-export function useOptimization() {
+export function useOptimization(projectId?: string | null) {
   return useQuery({
-    queryKey: ["optimization"],
-    queryFn: () => apiClient.getOptimization(),
+    queryKey: ["optimization", projectId ?? null],
+    queryFn: () => apiClient.getOptimization(projectId),
     staleTime: 60_000,
   })
 }

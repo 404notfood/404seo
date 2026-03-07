@@ -1,4 +1,5 @@
 import { Queue } from "bullmq"
+import IORedis from "ioredis"
 import type { CrawlJobData } from "@seo/shared"
 
 const connection = {
@@ -15,4 +16,11 @@ export const crawlQueue = new Queue<CrawlJobData>("crawl", {
     removeOnComplete: { count: 100 },
     removeOnFail: { count: 50 },
   },
+})
+
+// Client Redis simple pour usage général (pas BullMQ)
+export const redis = new IORedis({
+  host: process.env.REDIS_HOST || "localhost",
+  port: parseInt(process.env.REDIS_PORT || "6379"),
+  lazyConnect: true,
 })

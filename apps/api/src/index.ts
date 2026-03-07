@@ -12,6 +12,12 @@ import meRoutes from "./routes/me"
 import tenantRoutes from "./routes/tenant"
 import aggregationRoutes from "./routes/aggregation"
 import localRoutes from "./routes/local"
+import googleRoutes from "./routes/google"
+import rankTrackingRoutes from "./routes/rank-tracking"
+import backlinksRoutes from "./routes/backlinks"
+import competitorsRoutes from "./routes/competitors"
+import aiVisibilityRoutes from "./routes/ai-visibility"
+import adminRoutes from "./routes/admin"
 
 const isDev = process.env.NODE_ENV !== "production"
 
@@ -47,7 +53,20 @@ async function start() {
 
   // Plugins
   await fastify.register(cors, {
-    origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true)
+      const allowed = [
+        process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+        process.env.BETTER_AUTH_URL,
+        "http://localhost:3000",
+        "https://seo.404notfood.fr",
+      ].filter(Boolean)
+      if (allowed.includes(origin) || /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) {
+        cb(null, true)
+      } else {
+        cb(new Error("Not allowed by CORS"), false)
+      }
+    },
     credentials: true,
   })
   await fastify.register(cookie)
@@ -67,6 +86,12 @@ async function start() {
   await fastify.register(tenantRoutes)
   await fastify.register(aggregationRoutes)
   await fastify.register(localRoutes)
+  await fastify.register(googleRoutes)
+  await fastify.register(rankTrackingRoutes)
+  await fastify.register(backlinksRoutes)
+  await fastify.register(competitorsRoutes)
+  await fastify.register(aiVisibilityRoutes)
+  await fastify.register(adminRoutes)
 
   // Health check
   fastify.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))

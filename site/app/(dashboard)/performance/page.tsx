@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Gauge, Clock, Weight, ImageIcon } from "lucide-react"
 import { usePerformanceOverview } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 import type { PerformanceOverview } from "@/lib/api-client"
 import {
   ResponsiveContainer,
@@ -92,7 +93,8 @@ function formatDate(date: string): string {
 }
 
 export default function PerformancePage() {
-  const { data, isLoading } = usePerformanceOverview()
+  const { activeProjectId } = useActiveProject()
+  const { data, isLoading } = usePerformanceOverview(activeProjectId)
 
   if (isLoading) {
     return (
@@ -355,8 +357,8 @@ export default function PerformancePage() {
                       boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
                       fontSize: "12px",
                     }}
-                    formatter={(value: number | undefined) => [
-                      `${value ?? 0}/100`,
+                    formatter={(value) => [
+                      `${typeof value === "number" ? value : 0}/100`,
                       "Score",
                     ]}
                   />

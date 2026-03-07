@@ -4,7 +4,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -35,6 +34,11 @@ model User {
   tenant        Tenant?   @relation(fields: [tenantId], references: [id])
   projects      Project[]
   audits        Audit[]
+
+  // Admin
+  isBanned      Boolean   @default(false)
+  bannedAt      DateTime?
+  bannedBy      String?
 
   @@map("users")
 }
@@ -101,11 +105,22 @@ model Tenant {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users        User[]
-  projects     Project[]
-  audits       Audit[]
-  subscription Subscription?
-  gbpListings  GBPListing[]
+  // Admin
+  isSuspended   Boolean   @default(false)
+  suspendedAt   DateTime?
+  suspendedBy   String?
+
+  users             User[]
+  projects          Project[]
+  audits            Audit[]
+  subscription      Subscription?
+  gbpListings       GBPListing[]
+  googleAccount     GoogleAccount?
+  rankedKeywords    RankedKeyword[]
+  backlinks         Backlink[]
+  competitors       Competitor[]
+  aiVisibilityChecks AIVisibilityCheck[]
+  tenantFeatures    TenantFeature[]
 
   @@map("tenants")
 }
@@ -124,9 +139,12 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id])
-  audits  Audit[]
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id])
+  audits         Audit[]
+  rankedKeywords RankedKeyword[]
+  backlinks      Backlink[]
+  competitors    Competitor[]
 
   @@index([tenantId])
   @@map("projects")
@@ -314,21 +332,25 @@ model Subscription {
 // ─────────────────────────────────────────────
 
 model GBPListing {
-  id              String        @id @default(cuid())
-  tenantId        String
-  businessName    String
-  category        String
-  phone           String?
-  website         String?
-  address         String
-  lat             Float?
-  lng             Float?
-  openingHours    Json?
-  completionScore Int           @default(0)
-  isVerified      Boolean       @default(false)
-  status          GBPStatus     @default(ACTIVE)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id                  String        @id @default(cuid())
+  tenantId            String
+  businessName        String
+  category            String
+  phone               String?
+  website             String?
+  address             String
+  lat                 Float?
+  lng                 Float?
+  openingHours        Json?
+  completionScore     Int           @default(0)
+  isVerified          Boolean       @default(false)
+  status              GBPStatus     @default(ACTIVE)
+  // Google API fields
+  googlePlaceId       String?       // "locations/123456789"
+  googleLocationName  String?       // nom interne API GBP
+  isGoogleConnected   Boolean       @default(false)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   reviews  GBPReview[]
@@ -408,6 +430,184 @@ model GBPPhoto {
 
   @@index([listingId])
   @@map("gbp_photos")
+}
+
+// ─────────────────────────────────────────────
+// RANK TRACKING
+// ─────────────────────────────────────────────
+
+model RankedKeyword {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String?
+  keyword   String
+  device    String   @default("desktop") // desktop | mobile
+  country   String   @default("fr")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  history RankHistory[]
+
+  @@unique([tenantId, keyword, device, country])
+  @@index([tenantId])
+  @@map("ranked_keywords")
+}
+
+model RankHistory {
+  id        String   @id @default(cuid())
+  keywordId String
+  position  Int?     // null = non trouvé dans top 100
+  url       String?  // URL classée
+  title     String?  // titre de la page
+  checkedAt DateTime @default(now())
+
+  keyword RankedKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@index([keywordId])
+  @@index([keywordId, checkedAt])
+  @@map("rank_history")
+}
+
+// ─────────────────────────────────────────────
+// BACKLINKS
+// ─────────────────────────────────────────────
+
+model Backlink {
+  id           String   @id @default(cuid())
+  tenantId     String
+  projectId    String?
+  sourceUrl    String   @db.Text
+  sourceDomain String
+  targetUrl    String   @db.Text
+  anchor       String?
+  dofollow     Boolean  @default(true)
+  domainRating Int?     // 0-100
+  firstSeen    DateTime @default(now())
+  lastChecked  DateTime @default(now())
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, sourceDomain])
+  @@map("backlinks")
+}
+
+// ─────────────────────────────────────────────
+// COMPETITORS
+// ─────────────────────────────────────────────
+
+model Competitor {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String?
+  domain    String
+  label     String?  // nom personnalisé
+  createdAt DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, domain])
+  @@index([tenantId])
+  @@map("competitors")
+}
+
+// ─────────────────────────────────────────────
+// AI VISIBILITY
+// ─────────────────────────────────────────────
+
+model AIVisibilityCheck {
+  id        String   @id @default(cuid())
+  tenantId  String
+  query     String   @db.Text
+  engine    String   // "claude" | "chatgpt" | "gemini" | "perplexity"
+  domain    String   // domaine testé
+  mentioned Boolean  @default(false)
+  position  Int?     // position dans la réponse (1er, 2ème mention...)
+  snippet   String?  @db.Text // extrait de la réponse IA
+  checkedAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, engine])
+  @@map("ai_visibility_checks")
+}
+
+// ─────────────────────────────────────────────
+// GOOGLE OAUTH
+// ─────────────────────────────────────────────
+
+model GoogleAccount {
+  id            String    @id @default(cuid())
+  tenantId      String    @unique   // 1 compte Google par tenant
+  googleEmail   String
+  googleId      String              // sub Google
+  accessToken   String    @db.Text
+  refreshToken  String    @db.Text
+  tokenExpiry   DateTime
+  scopes        String[]            // scopes accordés
+  connectedAt   DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("google_accounts")
+}
+
+// ─────────────────────────────────────────────
+// ADMIN — Plans & Feature flags
+// ─────────────────────────────────────────────
+
+model PlanConfig {
+  id                  String  @id @default(cuid())
+  plan                Plan    @unique
+  displayName         String
+  price               Int     // centimes (0, 9900, 24900...)
+  priceYearly         Int?
+  stripePriceId       String?
+  stripePriceIdYearly String?
+  // Quotas
+  auditQuota    Int  // -1 = illimité
+  pageQuota     Int
+  projectQuota  Int
+  userQuota     Int
+  // Feature defaults
+  featureAI           Boolean @default(false)
+  featureRankTracking Boolean @default(false)
+  featureLocalSeo     Boolean @default(false)
+  featureWhiteLabel   Boolean @default(true)
+  featureApiAccess    Boolean @default(false)
+  featureCompetitors  Boolean @default(false)
+  featureBacklinks    Boolean @default(true)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("plan_configs")
+}
+
+model TenantFeature {
+  id        String   @id @default(cuid())
+  tenantId  String
+  feature   String   // "ai", "rank_tracking", "local_seo", etc.
+  enabled   Boolean
+  note      String?
+  setBy     String   // userId de l'admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, feature])
+  @@map("tenant_features")
 }
 
 // ─────────────────────────────────────────────

@@ -1,19 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiClient, type LaunchAuditInput } from "@/lib/api-client"
+import { toast } from "sonner"
 
-export function useAuditStats() {
+export function useAuditStats(projectId?: string | null) {
   return useQuery({
-    queryKey: ["audits", "stats"],
-    queryFn: () => apiClient.getAuditStats(),
+    queryKey: ["audits", "stats", projectId ?? null],
+    queryFn: () => apiClient.getAuditStats(projectId),
     staleTime: 30_000,
   })
 }
-import { toast } from "sonner"
 
-export function useAudits() {
+export function useAudits(projectId?: string | null) {
   return useQuery({
-    queryKey: ["audits"],
-    queryFn: () => apiClient.getAudits(),
+    queryKey: ["audits", projectId ?? null],
+    queryFn: () => apiClient.getAudits(projectId),
   })
 }
 

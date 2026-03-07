@@ -6,11 +6,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, Clock, CheckCircle, XCircle, Loader2, ExternalLink, Trash2, Zap, Monitor, Smartphone, ChevronDown, ChevronUp, Settings2 } from "lucide-react"
+import { Search, Clock, CheckCircle, XCircle, Loader2, ExternalLink, Trash2, Zap, Monitor, Smartphone, ChevronDown, ChevronUp, Settings2, FolderOpen } from "lucide-react"
 import { useAudits, useLaunchAudit, useDeleteAudit } from "@/hooks/useAudits"
-import { useProjects } from "@/hooks/useProjects"
 import { useRole } from "@/hooks/useMe"
+import { useActiveProject } from "@/contexts/ProjectContext"
 import type { AuditStatus } from "@/lib/api-client"
 import { formatDistanceToNow } from "@/lib/date"
 
@@ -32,26 +31,21 @@ function scoreColor(score: number) {
 }
 
 export default function AuditsPage() {
-  const [url, setUrl] = useState("")
-  const [projectId, setProjectId] = useState("")
   const [showOptions, setShowOptions] = useState(false)
   const [maxPages, setMaxPages] = useState(100)
   const [maxDepth, setMaxDepth] = useState(5)
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop")
 
-  const { data: audits, isLoading } = useAudits()
-  const { data: projects } = useProjects()
+  const { activeProjectId, activeProject } = useActiveProject()
+  const { data: audits, isLoading } = useAudits(activeProjectId)
   const { mutate: launchAudit, isPending } = useLaunchAudit()
   const { mutate: deleteAudit } = useDeleteAudit()
   const { isMember, isAdmin } = useRole()
 
   function handleLaunch(e: React.FormEvent) {
     e.preventDefault()
-    if (!url || !projectId) return
-    launchAudit(
-      { url, projectId, options: { maxPages, maxDepth, device } },
-      { onSuccess: () => setUrl("") },
-    )
+    if (!activeProjectId) return
+    launchAudit({ projectId: activeProjectId, options: { maxPages, maxDepth, device } })
   }
 
   return (
@@ -64,128 +58,119 @@ export default function AuditsPage() {
       </div>
 
       {/* Form lancement — MEMBER+ seulement */}
-      {isMember && <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="h-7 w-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(37,99,235,0.1)" }}>
-            <Zap className="h-3.5 w-3.5" style={{ color: "#2563eb" }} />
-          </div>
-          <h2 className="text-sm font-semibold text-slate-800">Lancer un nouvel audit</h2>
-        </div>
-        <form onSubmit={handleLaunch} className="flex gap-3">
-          <div className="w-52 shrink-0">
-            <Label htmlFor="project" className="sr-only">Projet</Label>
-            <Select value={projectId} onValueChange={setProjectId} required>
-              <SelectTrigger id="project" className="bg-slate-50 border-slate-200">
-                <SelectValue placeholder="Projet…" />
-              </SelectTrigger>
-              <SelectContent>
-                {projects?.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-                {!projects?.length && (
-                  <SelectItem value="__none" disabled>Aucun projet</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex-1">
-            <Label htmlFor="url" className="sr-only">URL</Label>
-            <Input
-              id="url" type="url"
-              placeholder="https://exemple.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              className="bg-slate-50 border-slate-200"
-              required
-            />
-          </div>
-          <Button type="submit" disabled={isPending || !projectId} className="btn-glow shrink-0" style={{ background: "#2563eb" }}>
-            {isPending ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Lancement…</>
-            ) : (
-              <><Search className="h-4 w-4 mr-2" />Analyser</>
-            )}
-          </Button>
-        </form>
-
-        {/* Options avancées */}
-        <button
-          type="button"
-          onClick={() => setShowOptions(!showOptions)}
-          className="flex items-center gap-1.5 mt-3 text-xs text-slate-400 hover:text-slate-600 transition-colors"
-        >
-          <Settings2 className="h-3 w-3" />
-          Options avancées
-          {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-        </button>
-
-        {showOptions && (
-          <div className="mt-3 p-4 bg-slate-50 rounded-xl border border-slate-100 grid grid-cols-3 gap-4">
-            {/* Nombre de pages */}
-            <div className="space-y-1.5">
-              <Label htmlFor="maxPages" className="text-xs font-medium text-slate-600">Nombre de pages</Label>
-              <Input
-                id="maxPages"
-                type="number"
-                min={1}
-                max={500}
-                value={maxPages}
-                onChange={(e) => setMaxPages(Math.max(1, Math.min(500, parseInt(e.target.value) || 1)))}
-                className="bg-white border-slate-200 text-sm h-9"
-              />
-              <p className="text-[10px] text-slate-400">1 – 500 pages max</p>
+      {isMember && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="h-7 w-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(37,99,235,0.1)" }}>
+              <Zap className="h-3.5 w-3.5" style={{ color: "#2563eb" }} />
             </div>
+            <h2 className="text-sm font-semibold text-slate-800">Lancer un nouvel audit</h2>
+          </div>
 
-            {/* Profondeur */}
-            <div className="space-y-1.5">
-              <Label htmlFor="maxDepth" className="text-xs font-medium text-slate-600">Profondeur</Label>
-              <Input
-                id="maxDepth"
-                type="number"
-                min={1}
-                max={10}
-                value={maxDepth}
-                onChange={(e) => setMaxDepth(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-                className="bg-white border-slate-200 text-sm h-9"
-              />
-              <p className="text-[10px] text-slate-400">1 – 10 niveaux</p>
-            </div>
-
-            {/* Device */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-slate-600">Appareil</Label>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={device === "desktop" ? "default" : "outline"}
-                  className={`flex-1 h-9 text-xs gap-1.5 ${device === "desktop" ? "btn-glow" : ""}`}
-                  style={device === "desktop" ? { background: "#2563eb" } : {}}
-                  onClick={() => setDevice("desktop")}
-                >
-                  <Monitor className="h-3.5 w-3.5" />Desktop
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={device === "mobile" ? "default" : "outline"}
-                  className={`flex-1 h-9 text-xs gap-1.5 ${device === "mobile" ? "btn-glow" : ""}`}
-                  style={device === "mobile" ? { background: "#2563eb" } : {}}
-                  onClick={() => setDevice("mobile")}
-                >
-                  <Smartphone className="h-3.5 w-3.5" />Mobile
-                </Button>
+          {!activeProject ? (
+            <div className="flex items-center gap-3 p-4 rounded-xl border-2 border-dashed border-slate-200 text-slate-400">
+              <FolderOpen className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="text-sm font-medium">Aucun projet sélectionné</p>
+                <p className="text-xs mt-0.5">
+                  Sélectionnez un projet dans la barre latérale ou{" "}
+                  <Link href="/projects" className="font-semibold hover:underline" style={{ color: "#2563eb" }}>créez-en un</Link>.
+                </p>
               </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <form onSubmit={handleLaunch}>
+              {/* Projet + URL en lecture seule */}
+              <div className="flex items-center gap-3 mb-3 p-3 rounded-xl" style={{ background: "rgba(37,99,235,0.04)", border: "1px solid rgba(37,99,235,0.1)" }}>
+                <FolderOpen className="h-4 w-4 shrink-0" style={{ color: "#2563eb" }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-slate-700">{activeProject.name}</p>
+                  <p className="text-xs text-slate-400 truncate">{activeProject.domain}</p>
+                </div>
+                <Button type="submit" disabled={isPending} className="btn-glow shrink-0" style={{ background: "#2563eb" }}>
+                  {isPending ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Lancement…</>
+                  ) : (
+                    <><Search className="h-4 w-4 mr-2" />Analyser</>
+                  )}
+                </Button>
+              </div>
 
-        {!projects?.length && (
-          <p className="text-xs text-slate-400 mt-3">
-            <Link href="/projects" className="font-medium hover:underline" style={{ color: "#2563eb" }}>Créez un projet</Link> avant de lancer un audit.
-          </p>
-        )}
-      </div>}
+              {/* Options avancées */}
+              <button
+                type="button"
+                onClick={() => setShowOptions(!showOptions)}
+                className="flex items-center gap-1.5 mt-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <Settings2 className="h-3 w-3" />
+                Options avancées
+                {showOptions ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </button>
+
+              {showOptions && (
+                <div className="mt-3 p-4 bg-slate-50 rounded-xl border border-slate-100 grid grid-cols-3 gap-4">
+                  {/* Nombre de pages */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="maxPages" className="text-xs font-medium text-slate-600">Nombre de pages</Label>
+                    <Input
+                      id="maxPages"
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={maxPages}
+                      onChange={(e) => setMaxPages(Math.max(1, Math.min(500, parseInt(e.target.value) || 1)))}
+                      className="bg-white border-slate-200 text-sm h-9"
+                    />
+                    <p className="text-[10px] text-slate-400">1 – 500 pages max</p>
+                  </div>
+
+                  {/* Profondeur */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="maxDepth" className="text-xs font-medium text-slate-600">Profondeur</Label>
+                    <Input
+                      id="maxDepth"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={maxDepth}
+                      onChange={(e) => setMaxDepth(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                      className="bg-white border-slate-200 text-sm h-9"
+                    />
+                    <p className="text-[10px] text-slate-400">1 – 10 niveaux</p>
+                  </div>
+
+                  {/* Device */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium text-slate-600">Appareil</Label>
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={device === "desktop" ? "default" : "outline"}
+                        className={`flex-1 h-9 text-xs gap-1.5 ${device === "desktop" ? "btn-glow" : ""}`}
+                        style={device === "desktop" ? { background: "#2563eb" } : {}}
+                        onClick={() => setDevice("desktop")}
+                      >
+                        <Monitor className="h-3.5 w-3.5" />Desktop
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={device === "mobile" ? "default" : "outline"}
+                        className={`flex-1 h-9 text-xs gap-1.5 ${device === "mobile" ? "btn-glow" : ""}`}
+                        style={device === "mobile" ? { background: "#2563eb" } : {}}
+                        onClick={() => setDevice("mobile")}
+                      >
+                        <Smartphone className="h-3.5 w-3.5" />Mobile
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </form>
+          )}
+        </div>
+      )}
 
       {/* Liste */}
       {isLoading && (
@@ -203,7 +188,9 @@ export default function AuditsPage() {
           <div className="h-14 w-14 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ background: "rgba(37,99,235,0.07)" }}>
             <Search className="h-7 w-7" style={{ color: "#2563eb" }} />
           </div>
-          <h3 className="font-semibold mb-1" style={{ color: "#0f172a" }}>Aucun audit pour le moment</h3>
+          <h3 className="font-semibold mb-1" style={{ color: "#0f172a" }}>
+            {activeProject ? `Aucun audit pour ${activeProject.name}` : "Aucun audit pour le moment"}
+          </h3>
           <p className="text-sm text-slate-400">Lancez votre premier audit ci-dessus</p>
         </div>
       )}

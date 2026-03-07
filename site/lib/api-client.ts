@@ -4,7 +4,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
 function getSessionToken(): string | null {
   if (typeof document === "undefined") return null
-  const match = document.cookie.match(/better-auth\.session_token=([^;]+)/)
+  // BetterAuth utilise le préfixe __Secure- en HTTPS, sans préfixe en HTTP
+  const match = document.cookie.match(/(?:__Secure-)?better-auth\.session_token=([^;]+)/)
   if (!match) return null
   // BetterAuth encode le token comme "token.signature" — on veut juste le token
   return match[1].split(".")[0]
@@ -51,8 +52,14 @@ export const apiClient = {
   getMe: () => fetcher<UserMe>("/api/me"),
 
   // Audits
-  getAudits: () => fetcher<Audit[]>("/api/audits"),
-  getAuditStats: () => fetcher<AuditStats>("/api/audits/stats"),
+  getAudits: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<Audit[]>(`/api/audits${qs}`)
+  },
+  getAuditStats: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<AuditStats>(`/api/audits/stats${qs}`)
+  },
   getAudit: (id: string) => fetcher<AuditDetail>(`/api/audits/${id}`),
   launchAudit: (data: LaunchAuditInput) =>
     fetcher<{ auditId: string; jobId: string }>("/api/audits", {
@@ -93,47 +100,197 @@ export const apiClient = {
     fetcher<void>(`/api/projects/${id}`, { method: "DELETE" }),
 
   // Aggregation
-  getIssues: (params?: { category?: string; status?: string; priority?: string; page?: number; limit?: number }) => {
+  getIssues: (params?: { category?: string; status?: string; priority?: string; page?: number; limit?: number; projectId?: string | null }) => {
     const sp = new URLSearchParams()
     if (params?.category) sp.set("category", params.category)
     if (params?.status) sp.set("status", params.status)
     if (params?.priority) sp.set("priority", params.priority)
     if (params?.page) sp.set("page", String(params.page))
     if (params?.limit) sp.set("limit", String(params.limit))
+    if (params?.projectId) sp.set("projectId", params.projectId)
     const qs = sp.toString()
     return fetcher<IssuesResponse>(`/api/issues${qs ? `?${qs}` : ""}`)
   },
-  getPerformanceOverview: () => fetcher<PerformanceOverview>("/api/performance-overview"),
-  getOnPageOverview: () => fetcher<OnPageOverview>("/api/on-page-overview"),
-  getContentOverview: (params?: { thin?: boolean; noMeta?: boolean; noH1?: boolean; page?: number; limit?: number }) => {
+  getPerformanceOverview: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<PerformanceOverview>(`/api/performance-overview${qs}`)
+  },
+  getOnPageOverview: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<OnPageOverview>(`/api/on-page-overview${qs}`)
+  },
+  getContentOverview: (params?: { thin?: boolean; noMeta?: boolean; noH1?: boolean; page?: number; limit?: number; projectId?: string | null }) => {
     const sp = new URLSearchParams()
     if (params?.thin) sp.set("thin", "true")
     if (params?.noMeta) sp.set("noMeta", "true")
     if (params?.noH1) sp.set("noH1", "true")
     if (params?.page) sp.set("page", String(params.page))
     if (params?.limit) sp.set("limit", String(params.limit))
+    if (params?.projectId) sp.set("projectId", params.projectId)
     const qs = sp.toString()
     return fetcher<ContentOverview>(`/api/content-overview${qs ? `?${qs}` : ""}`)
   },
-  getStatsTimeline: () => fetcher<StatsTimeline>("/api/stats/timeline"),
-  getOptimization: () => fetcher<OptimizationOverview>("/api/optimization"),
+  getStatsTimeline: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<StatsTimeline>(`/api/stats/timeline${qs}`)
+  },
+  getOptimization: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<OptimizationOverview>(`/api/optimization${qs}`)
+  },
 
   // SEO Local
   getLocalDashboard: () => fetcher<LocalDashboard>("/api/local/dashboard"),
   getLocalListings: () => fetcher<GBPListing[]>("/api/local/listings"),
+  createListing: (data: CreateListingInput) =>
+    fetcher<GBPListing>("/api/local/listings", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   getLocalReviews: (listingId: string) => fetcher<LocalReviewsData>(`/api/local/listings/${listingId}/reviews`),
+  replyToReview: (listingId: string, reviewId: string, replyText: string) =>
+    fetcher<GBPReview>(`/api/local/listings/${listingId}/reviews/${reviewId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ replyText }),
+    }),
+  aiSuggestReply: (listingId: string, reviewId: string) =>
+    fetcher<{ suggestion: string }>(`/api/local/listings/${listingId}/reviews/${reviewId}/ai-suggest`, {
+      method: "POST",
+    }),
   getLocalPosts: (listingId: string) => fetcher<LocalPostsData>(`/api/local/listings/${listingId}/posts`),
+  createPost: (listingId: string, data: CreatePostInput) =>
+    fetcher<GBPPost>(`/api/local/listings/${listingId}/posts`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   getLocalRankings: (listingId: string) => fetcher<LocalRankingsData>(`/api/local/listings/${listingId}/rankings`),
+
+  // Rank Tracking
+  getRankTracking: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<RankTrackingData>(`/api/rank-tracking${qs}`)
+  },
+  addKeyword: (data: AddKeywordInput) =>
+    fetcher<RankedKeyword>("/api/rank-tracking", { method: "POST", body: JSON.stringify(data) }),
+  deleteKeyword: (id: string) =>
+    fetcher<void>(`/api/rank-tracking/${id}`, { method: "DELETE" }),
+  checkKeywordPosition: (id: string, domain?: string) =>
+    fetcher<{ message: string }>(`/api/rank-tracking/${id}/check`, {
+      method: "POST",
+      body: JSON.stringify(domain ? { domain } : {}),
+    }),
+  checkAllPositions: (projectId?: string, domain?: string) =>
+    fetcher<{ message: string }>("/api/rank-tracking/check-all", {
+      method: "POST",
+      body: JSON.stringify({ projectId, domain }),
+    }),
+
+  // Backlinks
+  getBacklinks: (params?: { projectId?: string | null; domain?: string; page?: number }) => {
+    const sp = new URLSearchParams()
+    if (params?.projectId) sp.set("projectId", params.projectId)
+    if (params?.domain) sp.set("domain", params.domain)
+    if (params?.page) sp.set("page", String(params.page))
+    const qs = sp.toString()
+    return fetcher<BacklinksData>(`/api/backlinks${qs ? `?${qs}` : ""}`)
+  },
+  fetchBacklinks: (domain: string, projectId?: string) =>
+    fetcher<{ message: string }>("/api/backlinks/fetch", {
+      method: "POST",
+      body: JSON.stringify({ domain, projectId }),
+    }),
+  addBacklink: (data: AddBacklinkInput) =>
+    fetcher<BacklinkItem>("/api/backlinks", { method: "POST", body: JSON.stringify(data) }),
+  deleteBacklink: (id: string) =>
+    fetcher<void>(`/api/backlinks/${id}`, { method: "DELETE" }),
+
+  // Competitors
+  getCompetitors: (projectId?: string | null) => {
+    const qs = projectId ? `?projectId=${projectId}` : ""
+    return fetcher<CompetitorsData>(`/api/competitors${qs}`)
+  },
+  addCompetitor: (data: { domain: string; label?: string; projectId?: string }) =>
+    fetcher<CompetitorItem>("/api/competitors", { method: "POST", body: JSON.stringify(data) }),
+  deleteCompetitor: (id: string) =>
+    fetcher<void>(`/api/competitors/${id}`, { method: "DELETE" }),
+
+  // AI Visibility
+  getAIVisibility: (params?: { domain?: string; engine?: string }) => {
+    const sp = new URLSearchParams()
+    if (params?.domain) sp.set("domain", params.domain)
+    if (params?.engine) sp.set("engine", params.engine)
+    const qs = sp.toString()
+    return fetcher<AIVisibilityData>(`/api/ai-visibility${qs ? `?${qs}` : ""}`)
+  },
+  checkAIVisibility: (data: CheckVisibilityInput) =>
+    fetcher<{ message: string }>("/api/ai-visibility/check", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteAICheck: (id: string) =>
+    fetcher<void>(`/api/ai-visibility/${id}`, { method: "DELETE" }),
+
+  // Admin
+  getAdminStats: () => fetcher<AdminStats>("/api/admin/stats"),
+  getAdminUsers: (params?: { search?: string; page?: number; role?: string; banned?: string }) => {
+    const sp = new URLSearchParams()
+    if (params?.search) sp.set("search", params.search)
+    if (params?.page) sp.set("page", String(params.page))
+    if (params?.role) sp.set("role", params.role)
+    if (params?.banned !== undefined) sp.set("banned", params.banned)
+    const qs = sp.toString()
+    return fetcher<{ users: AdminUser[]; total: number; pages: number }>(`/api/admin/users${qs ? `?${qs}` : ""}`)
+  },
+  patchAdminUser: (id: string, data: { role?: string; isBanned?: boolean }) =>
+    fetcher<AdminUser>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getAdminTenants: (params?: { plan?: string; suspended?: string; page?: number }) => {
+    const sp = new URLSearchParams()
+    if (params?.plan) sp.set("plan", params.plan)
+    if (params?.suspended !== undefined) sp.set("suspended", params.suspended)
+    if (params?.page) sp.set("page", String(params.page))
+    const qs = sp.toString()
+    return fetcher<{ tenants: AdminTenant[]; total: number; pages: number }>(`/api/admin/tenants${qs ? `?${qs}` : ""}`)
+  },
+  patchAdminTenant: (id: string, data: { plan?: string; isSuspended?: boolean; name?: string }) =>
+    fetcher<{ id: string; name: string; plan: string; isSuspended: boolean }>(`/api/admin/tenants/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  getAdminTenantDetail: (id: string) => fetcher<AdminTenantDetail>(`/api/admin/tenants/${id}`),
+  getTenantFeatures: (id: string) =>
+    fetcher<{ features: TenantFeatureResolved[] }>(`/api/admin/tenants/${id}/features`),
+  setTenantFeature: (id: string, data: { feature: string; enabled: boolean; note?: string }) =>
+    fetcher<unknown>(`/api/admin/tenants/${id}/features`, { method: "POST", body: JSON.stringify(data) }),
+  deleteTenantFeature: (id: string, feature: string) =>
+    fetcher<void>(`/api/admin/tenants/${id}/features/${feature}`, { method: "DELETE" }),
+  getAdminPlans: () => fetcher<{ plans: PlanConfig[] }>("/api/admin/plans"),
+  createAdminPlan: (data: Partial<PlanConfig>) =>
+    fetcher<PlanConfig>("/api/admin/plans", { method: "POST", body: JSON.stringify(data) }),
+  updateAdminPlan: (plan: string, data: Partial<PlanConfig>) =>
+    fetcher<PlanConfig>(`/api/admin/plans/${plan}`, { method: "PUT", body: JSON.stringify(data) }),
+  seedAdminPlans: () => fetcher<{ results: unknown[] }>("/api/admin/plans/seed", { method: "POST" }),
+
+  // Google OAuth
+  getGoogleStatus: () => fetcher<GoogleAccountStatus>("/api/google/status"),
+  connectGoogle: () => {
+    if (typeof window !== "undefined") {
+      window.location.href = `${API_URL}/api/google/auth`
+    }
+  },
+  disconnectGoogle: () => fetcher<{ success: boolean }>("/api/google/disconnect", { method: "POST" }),
+  getGA4Data: (propertyId: string) => fetcher<GA4Data>(`/api/google/analytics?propertyId=${encodeURIComponent(propertyId)}`),
+  getGSCData: (siteUrl: string) => fetcher<GSCData>(`/api/google/search-console?siteUrl=${encodeURIComponent(siteUrl)}`),
 }
 
 export interface BillingInfo {
-  plan: "STARTER" | "PRO" | "AGENCY"
+  plan: "STARTER" | "PRO" | "AGENCY" | "ENTERPRISE"
   subscription: {
     status: string
     pagesQuota: number
     pagesUsed: number
     currentPeriodEnd: string | null
   } | null
+  plans: PlanConfig[]
 }
 
 export interface AuditStats {
@@ -256,7 +413,6 @@ export interface Project {
 }
 
 export interface LaunchAuditInput {
-  url: string
   projectId: string
   options?: {
     maxPages?: number
@@ -394,6 +550,9 @@ export interface GBPListing {
   completionScore: number
   isVerified: boolean
   status: "ACTIVE" | "SUSPENDED" | "CLOSED" | "DUPLICATE"
+  googlePlaceId: string | null
+  googleLocationName: string | null
+  isGoogleConnected: boolean
   createdAt: string
   _count: { reviews: number; posts: number; rankings: number; photos: number }
 }
@@ -452,6 +611,282 @@ export interface LocalPostsData {
   total: number
 }
 
+export interface CreatePostInput {
+  content: string
+  type?: "UPDATE" | "EVENT" | "OFFER"
+  ctaType?: string
+  ctaUrl?: string
+  scheduledAt?: string
+}
+
 export interface LocalRankingsData {
   rankings: GBPRanking[]
+}
+
+export interface CreateListingInput {
+  businessName: string
+  category: string
+  address: string
+  phone?: string
+  website?: string
+  lat?: number
+  lng?: number
+}
+
+// ─── Types Rank Tracking ──────────────────────
+
+export interface RankedKeyword {
+  id: string
+  keyword: string
+  device: "desktop" | "mobile"
+  country: string
+  projectId: string | null
+  position: number | null
+  url: string | null
+  title: string | null
+  change: number | null // positif = monté, négatif = descendu
+  checkedAt: string | null
+  history: Array<{ position: number | null; checkedAt: string }>
+}
+
+export interface RankTrackingData {
+  keywords: RankedKeyword[]
+  stats: {
+    tracked: number
+    avgPosition: number | null
+    top10: number
+    top3: number
+  }
+}
+
+export interface AddKeywordInput {
+  keyword: string
+  device?: "desktop" | "mobile"
+  country?: string
+  projectId?: string
+}
+
+// ─── Types Backlinks ──────────────────────────
+
+export interface BacklinkItem {
+  id: string
+  sourceUrl: string
+  sourceDomain: string
+  targetUrl: string
+  anchor: string | null
+  dofollow: boolean
+  domainRating: number | null
+  firstSeen: string
+  lastChecked: string
+  isActive: boolean
+}
+
+export interface BacklinksData {
+  items: BacklinkItem[]
+  total: number
+  page: number
+  totalPages: number
+  stats: {
+    total: number
+    uniqueDomains: number
+    dofollow: number
+    nofollow: number
+    avgDomainRating: number
+  }
+}
+
+export interface AddBacklinkInput {
+  sourceUrl: string
+  targetUrl: string
+  anchor?: string
+  dofollow?: boolean
+  domainRating?: number
+  projectId?: string
+}
+
+// ─── Types Competitors ────────────────────────
+
+export interface CompetitorItem {
+  id: string
+  domain: string
+  label: string | null
+  createdAt: string
+  isYou: boolean
+  hasAudit: boolean
+  scoreGlobal: number | null
+  scoreTechnical: number | null
+  scoreOnPage: number | null
+  scorePerformance: number | null
+  scoreUX: number | null
+  totalIssues: number | null
+  criticalIssues: number | null
+  totalPages: number | null
+  auditId: string | null
+}
+
+export interface OwnScore {
+  scoreGlobal: number
+  scoreTechnical: number
+  scoreOnPage: number
+  scorePerformance: number
+  scoreUX: number
+  totalIssues: number | null
+  criticalIssues: number | null
+  totalPages: number | null
+  domain: string
+}
+
+export interface CompetitorsData {
+  own: OwnScore | null
+  competitors: CompetitorItem[]
+  suggested: Array<{ domain: string; mentionCount: number }>
+}
+
+// ─── Types AI Visibility ──────────────────────
+
+export interface AIVisibilityCheck {
+  id: string
+  query: string
+  engine: string
+  domain: string
+  mentioned: boolean
+  position: number | null
+  snippet: string | null
+  checkedAt: string
+}
+
+export interface AIVisibilityData {
+  checks: AIVisibilityCheck[]
+  stats: {
+    total: number
+    mentioned: number
+    mentionRate: number
+    avgPosition: number | null
+    byEngine: Record<string, { total: number; mentioned: number }>
+  }
+}
+
+export interface CheckVisibilityInput {
+  domain: string
+  queries: string[]
+  engine?: "claude"
+}
+
+// ─── Types Google OAuth ───────────────────────
+
+export interface GoogleAccountStatus {
+  connected: boolean
+  email: string | null
+  scopes: string[]
+  connectedAt: string | null
+}
+
+export interface GA4TimelineEntry {
+  date: string
+  sessions: number
+  users: number
+  pageviews: number
+}
+
+export interface GA4Data {
+  sessions: number
+  users: number
+  pageviews: number
+  bounceRate: number
+  avgSessionDuration: number
+  timeline: GA4TimelineEntry[]
+}
+
+export interface GSCQuery {
+  query: string
+  clicks: number
+  impressions: number
+  ctr: number
+  position: number
+}
+
+export interface GSCData {
+  queries: GSCQuery[]
+  totals: {
+    clicks: number
+    impressions: number
+    avgPosition: number
+  }
+}
+
+// ─── Types Admin ──────────────────────────────
+
+export interface AdminStats {
+  mrr: number
+  tenantCount: number
+  userCount: number
+  auditsThisMonth: number
+  planBreakdown: Record<string, number>
+}
+
+export interface AdminUser {
+  id: string
+  name: string
+  email: string
+  role: "ADMIN" | "MEMBER" | "GUEST"
+  isBanned: boolean
+  bannedAt: string | null
+  tenantId: string | null
+  createdAt: string
+  tenant: { name: string; plan: string } | null
+}
+
+export interface AdminTenant {
+  id: string
+  name: string
+  slug: string
+  plan: string
+  isSuspended: boolean
+  createdAt: string
+  userCount: number
+  auditCount: number
+  mrr: number
+}
+
+export interface AdminTenantDetail extends AdminTenant {
+  projectCount: number
+  suspendedAt: string | null
+  subscription: {
+    status: string
+    stripeCustomerId: string
+    stripeSubscriptionId: string | null
+    currentPeriodEnd: string | null
+  } | null
+  features: TenantFeatureResolved[]
+}
+
+export interface TenantFeatureResolved {
+  key: string
+  label: string
+  planDefault: boolean
+  override: boolean | null
+  enabled: boolean
+}
+
+export interface PlanConfig {
+  id: string
+  plan: string
+  displayName: string
+  price: number
+  priceYearly: number | null
+  stripePriceId: string | null
+  stripePriceIdYearly: string | null
+  auditQuota: number
+  pageQuota: number
+  projectQuota: number
+  userQuota: number
+  featureAI: boolean
+  featureRankTracking: boolean
+  featureLocalSeo: boolean
+  featureWhiteLabel: boolean
+  featureApiAccess: boolean
+  featureCompetitors: boolean
+  featureBacklinks: boolean
+  isActive: boolean
+  sortOrder: number
 }

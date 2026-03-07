@@ -5,7 +5,7 @@ import { crawlQueue } from "../lib/redis"
 import { isValidPublicUrl } from "@seo/crawler"
 import { generatePDF, type ReportData } from "@seo/reporter"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
-import { requireRole } from "../lib/guards"
+import { requireRole, assertProjectOwner } from "../lib/guards"
 
 const LaunchAuditSchema = z.object({
   projectId: z.string().cuid(),
@@ -31,9 +31,8 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const { projectId, options } = parse.data
 
-    const project = await prisma.project.findFirst({
-      where: { id: projectId, tenantId: request.tenantId },
-    })
+    // Vérifie que le projet appartient à cet utilisateur
+    const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
     if (!project) {
       return reply.status(404).send({ error: "Projet introuvable" })
     }
@@ -87,11 +86,18 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send({ auditId: audit.id, jobId: job.id })
   })
 
-  // GET /api/audits — Liste
+  // GET /api/audits — Liste (filtrée par userId)
   fastify.get("/api/audits", async (request, reply) => {
     const { projectId } = request.query as { projectId?: string }
+
+    // Valider que le projectId appartient à l'utilisateur
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
+
     const audits = await prisma.audit.findMany({
-      where: { tenantId: request.tenantId, deletedAt: null, ...(projectId ? { projectId } : {}) },
+      where: { tenantId: request.tenantId, userId: request.userId, deletedAt: null, ...(projectId ? { projectId } : {}) },
       include: {
         project: { select: { name: true, domain: true } },
         report: { select: { scoreGlobal: true, criticalIssues: true } },
@@ -106,7 +112,13 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/audits/stats — Stats pour le dashboard
   fastify.get("/api/audits/stats", async (request, reply) => {
     const { projectId } = request.query as { projectId?: string }
-    const auditWhere = { tenantId: request.tenantId, deletedAt: null as null, ...(projectId ? { projectId } : {}) }
+
+    if (projectId) {
+      const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
+      if (!project) return reply.status(403).send({ error: "Accès refusé" })
+    }
+
+    const auditWhere = { tenantId: request.tenantId, userId: request.userId, deletedAt: null as null, ...(projectId ? { projectId } : {}) }
     type ReportStat = { scoreGlobal: number; criticalIssues: number | null; warnings: number | null; passed: number | null }
     const [total, completed, reports, recent] = await Promise.all([
       prisma.audit.count({ where: auditWhere }),
@@ -136,10 +148,10 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ total, completed, avgScore, totalCritical, totalPassed, recent })
   })
 
-  // GET /api/audits/:id — Détail
+  // GET /api/audits/:id — Détail (uniquement l'audit du user)
   fastify.get<{ Params: { id: string } }>("/api/audits/:id", async (request, reply) => {
     const audit = await prisma.audit.findFirst({
-      where: { id: request.params.id, tenantId: request.tenantId, deletedAt: null },
+      where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId, deletedAt: null },
       include: {
         project: true,
         report: true,
@@ -168,7 +180,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/audits/:id/breakdown — Répartition pages + top issues
   fastify.get<{ Params: { id: string } }>("/api/audits/:id/breakdown", async (request, reply) => {
     const audit = await prisma.audit.findFirst({
-      where: { id: request.params.id, tenantId: request.tenantId, deletedAt: null },
+      where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId, deletedAt: null },
     })
     if (!audit) return reply.status(404).send({ error: "Audit introuvable" })
 
@@ -243,9 +255,9 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     sseConnections.set(tenantId, currentCount + 1)
 
-    // Vérifier appartenance
+    // Vérifier appartenance (userId + tenantId)
     const audit = await prisma.audit.findFirst({
-      where: { id, tenantId, deletedAt: null },
+      where: { id, tenantId, userId: request.userId, deletedAt: null },
     })
     if (!audit) {
       sseConnections.set(tenantId, (sseConnections.get(tenantId) ?? 1) - 1)
@@ -323,7 +335,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/audits/:id/pdf — Télécharger le rapport PDF
   fastify.get<{ Params: { id: string }; Querystring: { keywords?: string } }>("/api/audits/:id/pdf", async (request, reply) => {
     const audit = await prisma.audit.findFirst({
-      where: { id: request.params.id, tenantId: request.tenantId, status: "COMPLETED", deletedAt: null },
+      where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId, status: "COMPLETED", deletedAt: null },
       include: {
         report: true,
         pages: { include: { results: true } },
@@ -395,7 +407,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/audits/:id/keywords — Mots-clés agrégés + par page
   fastify.get<{ Params: { id: string } }>("/api/audits/:id/keywords", async (request, reply) => {
     const audit = await prisma.audit.findFirst({
-      where: { id: request.params.id, tenantId: request.tenantId, status: "COMPLETED", deletedAt: null },
+      where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId, status: "COMPLETED", deletedAt: null },
       include: {
         report: { select: { aiSuggestions: true } },
         pages: {
@@ -419,7 +431,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/audits/:id — MEMBER+ (soft delete)
   fastify.delete<{ Params: { id: string } }>("/api/audits/:id", { preHandler: [requireRole("MEMBER")] }, async (request, reply) => {
     const audit = await prisma.audit.findFirst({
-      where: { id: request.params.id, tenantId: request.tenantId, deletedAt: null },
+      where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId, deletedAt: null },
     })
     if (!audit) return reply.status(404).send({ error: "Audit introuvable" })
     await prisma.audit.update({ where: { id: audit.id }, data: { deletedAt: new Date() } })

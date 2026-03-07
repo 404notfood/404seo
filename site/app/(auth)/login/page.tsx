@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
+import Image from "next/image"
 import { signIn } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -43,10 +44,8 @@ function LoginForm() {
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-1">
         <div className="flex items-center gap-2 mb-2">
-          <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <span className="text-white font-bold text-sm">S</span>
-          </div>
-          <span className="font-semibold text-slate-900">SEO Audit</span>
+          <Image src="/logo.png" alt="404 SEO" width={32} height={32} className="rounded-lg" />
+          <span className="font-semibold text-slate-900">404 SEO</span>
         </div>
         <CardTitle className="text-2xl">Connexion</CardTitle>
         <CardDescription>

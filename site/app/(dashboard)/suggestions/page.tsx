@@ -5,6 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Lightbulb, ArrowRight } from "lucide-react"
 import { useOptimization } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 
 // Impact/Effort matrix quadrants
 function getQuadrant(priority: string, effort: string): { label: string; color: string; bg: string; order: number } {
@@ -18,7 +19,8 @@ function getQuadrant(priority: string, effort: string): { label: string; color: 
 }
 
 export default function SuggestionsPage() {
-  const { data, isLoading } = useOptimization()
+  const { activeProjectId } = useActiveProject()
+  const { data, isLoading } = useOptimization(activeProjectId)
 
   if (isLoading) {
     return (

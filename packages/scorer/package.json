@@ -8,7 +8,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "@seo/shared": "workspace:*",
-    "@seo/analyzer": "workspace:*"
+    "@seo/shared": "*",
+    "@seo/analyzer": "*"
   }
 }

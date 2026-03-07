@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Sparkles, RefreshCw, Zap, FileText, Link2, Globe } from "lucide-react"
 import { useOptimization } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
   TECHNICAL: Globe,
@@ -16,7 +17,8 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
 }
 
 export default function AIRecommendationsPage() {
-  const { data, isLoading } = useOptimization()
+  const { activeProjectId } = useActiveProject()
+  const { data, isLoading } = useOptimization(activeProjectId)
   const [generating, setGenerating] = useState(false)
 
   const recs = data?.recommendations ?? []

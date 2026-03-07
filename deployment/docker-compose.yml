@@ -1,0 +1,22 @@
+# =============================================================================
+# 404seo — Podman Compose (Redis uniquement)
+# =============================================================================
+# Les services Node.js (site, api, worker) sont geres par PM2.
+# PostgreSQL est gere nativement par HestiaCP.
+# SSL et reverse proxy geres par HestiaCP Nginx.
+# =============================================================================
+
+services:
+  # ── Redis 7 (BullMQ + cache) ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: 404seo-redis
+    command: redis-server --requirepass "${REDIS_PASSWORD}" --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  redis-data:

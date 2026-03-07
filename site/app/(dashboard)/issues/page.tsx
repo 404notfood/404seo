@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Bug, ChevronLeft, ChevronRight, Filter } from "lucide-react"
 import { useIssues } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 import type { IssueItem } from "@/lib/api-client"
 
 const CATEGORIES = [
@@ -79,11 +80,14 @@ export default function IssuesPage() {
   const [priority, setPriority] = useState("")
   const [page, setPage] = useState(1)
 
+  const { activeProjectId } = useActiveProject()
+
   const { data, isLoading } = useIssues({
     category: category || undefined,
     status: status || undefined,
     priority: priority || undefined,
     page,
+    projectId: activeProjectId,
   })
 
   if (isLoading) {

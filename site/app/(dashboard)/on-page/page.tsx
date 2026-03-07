@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FileSearch, AlertTriangle, FileWarning, Heading1, ImageOff } from "lucide-react"
 import { useOnPageOverview } from "@/hooks/useAggregation"
+import { useActiveProject } from "@/contexts/ProjectContext"
 import {
   LineChart,
   Line,
@@ -138,7 +139,8 @@ const counters = [
 
 // ── Page component ───────────────────────────────
 export default function OnPagePage() {
-  const { data, isLoading } = useOnPageOverview()
+  const { activeProjectId } = useActiveProject()
+  const { data, isLoading } = useOnPageOverview(activeProjectId)
 
   // Chart data : format dates
   const chartData = (data?.reports ?? []).map((r) => ({
