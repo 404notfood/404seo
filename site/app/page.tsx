@@ -191,7 +191,7 @@ export default function HomePage() {
               className="block"
               style={{ background: "linear-gradient(90deg, #2563eb, #06b6d4)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
             >
-              avec l'IA
+              avec l`&apos;`IA
             </span>
           </h1>
 
