@@ -14,6 +14,7 @@ import {
   Link2,
   Bot,
 } from "lucide-react"
+import { Footer } from "@/components/layout/Footer"
 
 // ── Features ──────────────────────────────────────────────────────────────────
 const FEATURES = [
@@ -516,21 +517,7 @@ export default function HomePage() {
       </section>
 
       {/* ── Footer ── */}
-      <footer className="border-t border-slate-200 py-10">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <Image src="/logo.png" alt="404 SEO" width={100} height={30} className="h-8 w-auto" />
-          <p className="text-sm text-slate-400">
-            © {new Date().getFullYear()} 404 SEO · Tous droits réservés ·{" "}
-            <a href="mailto:laurentbwa@gmail.com" className="hover:text-slate-600 transition-colors">
-              Contact
-            </a>
-          </p>
-          <div className="flex items-center gap-5 text-sm text-slate-400">
-            <Link href="/login" className="hover:text-slate-600 transition-colors">Connexion</Link>
-            <Link href="/register" className="hover:text-slate-600 transition-colors">Inscription</Link>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   )
 }
