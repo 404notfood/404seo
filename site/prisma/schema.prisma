@@ -1,0 +1,729 @@
+// schema.prisma — SaaS SEO Platform
+// Prisma 6.x + PostgreSQL
+// Multi-tenant via tenantId sur toutes les tables
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// AUTH (BetterAuth gère ses propres tables)
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // BetterAuth relations
+  sessions      Session[]
+  accounts      Account[]
+
+  // App relations
+  role          Role      @default(MEMBER)
+  tenantId      String?
+  tenant        Tenant?   @relation(fields: [tenantId], references: [id])
+  projects      Project[]
+  audits        Audit[]
+
+  // Admin
+  isBanned      Boolean   @default(false)
+  bannedAt      DateTime?
+  bannedBy      String?
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("verifications")
+}
+
+// ─────────────────────────────────────────────
+// MULTI-TENANT
+// ─────────────────────────────────────────────
+
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  plan        Plan     @default(STARTER)
+  logoUrl     String?
+  // White label
+  brandColor  String?  @default("#2563eb")
+  customDomain String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Admin
+  isSuspended   Boolean   @default(false)
+  suspendedAt   DateTime?
+  suspendedBy   String?
+
+  users             User[]
+  projects          Project[]
+  audits            Audit[]
+  subscription      Subscription?
+  gbpListings       GBPListing[]
+  googleAccount     GoogleAccount?
+  rankedKeywords    RankedKeyword[]
+  backlinks         Backlink[]
+  competitors       Competitor[]
+  aiVisibilityChecks AIVisibilityCheck[]
+  tenantFeatures    TenantFeature[]
+
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────
+// PROJETS & AUDITS
+// ─────────────────────────────────────────────
+
+model Project {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String
+  name        String
+  domain      String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id])
+  audits         Audit[]
+  rankedKeywords RankedKeyword[]
+  backlinks      Backlink[]
+  competitors    Competitor[]
+
+  @@index([tenantId])
+  @@map("projects")
+}
+
+model Audit {
+  id          String      @id @default(cuid())
+  tenantId    String
+  userId      String
+  projectId   String
+  url         String
+  status      AuditStatus @default(PENDING)
+  options     Json?       // { maxPages, maxDepth, device, ... }
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  completedAt DateTime?
+  deletedAt   DateTime?
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id])
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pages    AuditPage[]
+  report   AuditReport?
+  jobs     AuditJob[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([projectId])
+  @@map("audits")
+}
+
+model AuditPage {
+  id              String   @id @default(cuid())
+  auditId         String
+  url             String
+  statusCode      Int?
+  redirectUrl     String?
+  responseTime    Int?     // ms
+  pageSize        Int?     // bytes
+  isIndexable     Boolean?
+  hasCanonical    Boolean?
+  canonicalUrl    String?
+  // On-Page
+  title           String?
+  titleLength     Int?
+  metaDescription String?
+  metaDescLength  Int?
+  h1              String[]
+  headings        Json?    // { h2: [...], h3: [...], ... }
+  // Images
+  totalImages     Int?
+  imagesWithAlt   Int?
+  imagesWithoutAlt Int?
+  // Links
+  internalLinks   Int?
+  externalLinks   Int?
+  brokenLinks     Int?
+  // Schema.org
+  hasSchemaOrg    Boolean?
+  schemaTypes     String[]
+  // Enrichment fields
+  lang            String?
+  ogTitle         String?
+  ogDescription   String?
+  ogImage         String?
+  ogType          String?
+  wordCount       Int?
+  hasRobotsTxt    Boolean?
+  hasSitemap      Boolean?
+  metaRobots      String?
+  hasViewport     Boolean?
+  hasResponsiveMeta Boolean?
+  smallTapTargets Int?
+  smallFontSizes  Int?
+  // Keywords
+  topKeywords     Json?
+  // Raw data
+  rawHtml         String?  @db.Text
+  crawledAt       DateTime @default(now())
+
+  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  results PageResult[]
+
+  @@index([auditId])
+  @@map("audit_pages")
+}
+
+model PageResult {
+  id           String   @id @default(cuid())
+  pageId       String
+  category     Category
+  checkName    String
+  status       CheckStatus
+  score        Float    // 0-100
+  value        String?  // valeur mesurée
+  expected     String?  // valeur attendue
+  message      String
+  priority     Priority @default(MEDIUM)
+  effort       Effort   @default(MEDIUM)
+
+  page AuditPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@index([pageId, status])
+  @@map("page_results")
+}
+
+model AuditReport {
+  id              String   @id @default(cuid())
+  auditId         String   @unique
+  // Scores
+  scoreGlobal     Float
+  scoreTechnical  Float
+  scoreOnPage     Float
+  scorePerformance Float
+  scoreUX         Float
+  // Lighthouse
+  lighthousePerf  Float?
+  lighthouseLCP   Float?
+  lighthouseCLS   Float?
+  lighthouseFID   Float?
+  lighthouseTTFB  Float?
+  // Summary
+  totalPages      Int?
+  totalIssues     Int?
+  criticalIssues  Int?
+  warnings        Int?
+  passed          Int?
+  // AI
+  aiSuggestions   Json?
+  // PDF
+  pdfUrl          String?
+  generatedAt     DateTime @default(now())
+
+  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@map("audit_reports")
+}
+
+model AuditJob {
+  id        String    @id @default(cuid())
+  auditId   String
+  bullJobId String?   // BullMQ job ID
+  type      JobType
+  status    JobStatus @default(QUEUED)
+  progress  Int       @default(0) // 0-100
+  error     String?
+  startedAt DateTime?
+  finishedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@index([auditId])
+  @@map("audit_jobs")
+}
+
+// ─────────────────────────────────────────────
+// BILLING (Stripe)
+// ─────────────────────────────────────────────
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  tenantId             String             @unique
+  stripeCustomerId     String             @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  plan                 Plan               @default(STARTER)
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  // Quotas
+  pagesQuota           Int                @default(100)   // pages/mois
+  pagesUsed            Int                @default(0)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────────
+// SEO LOCAL (Google Business Profile)
+// ─────────────────────────────────────────────
+
+model GBPListing {
+  id                  String        @id @default(cuid())
+  tenantId            String
+  businessName        String
+  category            String
+  phone               String?
+  website             String?
+  address             String
+  lat                 Float?
+  lng                 Float?
+  openingHours        Json?
+  completionScore     Int           @default(0)
+  isVerified          Boolean       @default(false)
+  status              GBPStatus     @default(ACTIVE)
+  // Google API fields
+  googlePlaceId       String?       // "locations/123456789"
+  googleLocationName  String?       // nom interne API GBP
+  isGoogleConnected   Boolean       @default(false)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reviews  GBPReview[]
+  posts    GBPPost[]
+  rankings GBPRanking[]
+  photos   GBPPhoto[]
+
+  @@index([tenantId])
+  @@map("gbp_listings")
+}
+
+model GBPReview {
+  id               String          @id @default(cuid())
+  listingId        String
+  authorName       String
+  rating           Int             // 1-5
+  text             String?         @db.Text
+  replyText        String?         @db.Text
+  replyStatus      GBPReplyStatus  @default(PENDING)
+  sentiment        GBPSentiment?
+  aiSuggestedReply String?         @db.Text
+  publishedAt      DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_reviews")
+}
+
+model GBPPost {
+  id          String        @id @default(cuid())
+  listingId   String
+  type        GBPPostType   @default(UPDATE)
+  content     String        @db.Text
+  imageUrl    String?
+  ctaType     String?
+  ctaUrl      String?
+  status      GBPPostStatus @default(DRAFT)
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  views       Int           @default(0)
+  clicks      Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_posts")
+}
+
+model GBPRanking {
+  id        String   @id @default(cuid())
+  listingId String
+  keyword   String
+  positions Json     // Grid positions
+  avgRank   Float
+  bestRank  Int
+  checkedAt DateTime @default(now())
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_rankings")
+}
+
+model GBPPhoto {
+  id        String       @id @default(cuid())
+  listingId String
+  type      GBPPhotoType @default(INTERIOR)
+  url       String
+  caption   String?
+  createdAt DateTime     @default(now())
+
+  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("gbp_photos")
+}
+
+// ─────────────────────────────────────────────
+// RANK TRACKING
+// ─────────────────────────────────────────────
+
+model RankedKeyword {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String?
+  keyword   String
+  device    String   @default("desktop") // desktop | mobile
+  country   String   @default("fr")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  history RankHistory[]
+
+  @@unique([tenantId, keyword, device, country])
+  @@index([tenantId])
+  @@map("ranked_keywords")
+}
+
+model RankHistory {
+  id        String   @id @default(cuid())
+  keywordId String
+  position  Int?     // null = non trouvé dans top 100
+  url       String?  // URL classée
+  title     String?  // titre de la page
+  checkedAt DateTime @default(now())
+
+  keyword RankedKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@index([keywordId])
+  @@index([keywordId, checkedAt])
+  @@map("rank_history")
+}
+
+// ─────────────────────────────────────────────
+// BACKLINKS
+// ─────────────────────────────────────────────
+
+model Backlink {
+  id           String   @id @default(cuid())
+  tenantId     String
+  projectId    String?
+  sourceUrl    String   @db.Text
+  sourceDomain String
+  targetUrl    String   @db.Text
+  anchor       String?
+  dofollow     Boolean  @default(true)
+  domainRating Int?     // 0-100
+  firstSeen    DateTime @default(now())
+  lastChecked  DateTime @default(now())
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, sourceDomain])
+  @@map("backlinks")
+}
+
+// ─────────────────────────────────────────────
+// COMPETITORS
+// ─────────────────────────────────────────────
+
+model Competitor {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String?
+  domain    String
+  label     String?  // nom personnalisé
+  createdAt DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, domain])
+  @@index([tenantId])
+  @@map("competitors")
+}
+
+// ─────────────────────────────────────────────
+// AI VISIBILITY
+// ─────────────────────────────────────────────
+
+model AIVisibilityCheck {
+  id        String   @id @default(cuid())
+  tenantId  String
+  query     String   @db.Text
+  engine    String   // "claude" | "chatgpt" | "gemini" | "perplexity"
+  domain    String   // domaine testé
+  mentioned Boolean  @default(false)
+  position  Int?     // position dans la réponse (1er, 2ème mention...)
+  snippet   String?  @db.Text // extrait de la réponse IA
+  checkedAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, engine])
+  @@map("ai_visibility_checks")
+}
+
+// ─────────────────────────────────────────────
+// GOOGLE OAUTH
+// ─────────────────────────────────────────────
+
+model GoogleAccount {
+  id            String    @id @default(cuid())
+  tenantId      String    @unique   // 1 compte Google par tenant
+  googleEmail   String
+  googleId      String              // sub Google
+  accessToken   String    @db.Text
+  refreshToken  String    @db.Text
+  tokenExpiry   DateTime
+  scopes        String[]            // scopes accordés
+  connectedAt   DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("google_accounts")
+}
+
+// ─────────────────────────────────────────────
+// ADMIN — Plans & Feature flags
+// ─────────────────────────────────────────────
+
+model PlanConfig {
+  id                  String  @id @default(cuid())
+  plan                Plan    @unique
+  displayName         String
+  price               Int     // centimes (0, 9900, 24900...)
+  priceYearly         Int?
+  stripePriceId       String?
+  stripePriceIdYearly String?
+  // Quotas
+  auditQuota    Int  // -1 = illimité
+  pageQuota     Int
+  projectQuota  Int
+  userQuota     Int
+  // Feature defaults
+  featureAI           Boolean @default(false)
+  featureRankTracking Boolean @default(false)
+  featureLocalSeo     Boolean @default(false)
+  featureWhiteLabel   Boolean @default(true)
+  featureApiAccess    Boolean @default(false)
+  featureCompetitors  Boolean @default(false)
+  featureBacklinks    Boolean @default(true)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("plan_configs")
+}
+
+model TenantFeature {
+  id        String   @id @default(cuid())
+  tenantId  String
+  feature   String   // "ai", "rank_tracking", "local_seo", etc.
+  enabled   Boolean
+  note      String?
+  setBy     String   // userId de l'admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, feature])
+  @@map("tenant_features")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Plan {
+  STARTER   // 100 pages
+  PRO       // 10 000 pages
+  AGENCY    // 100 000 pages
+  ENTERPRISE
+}
+
+enum AuditStatus {
+  PENDING
+  CRAWLING
+  ANALYZING
+  SCORING
+  GENERATING_REPORT
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum Category {
+  TECHNICAL
+  ON_PAGE
+  PERFORMANCE
+  UX_MOBILE
+}
+
+enum CheckStatus {
+  PASS
+  WARN
+  FAIL
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum Effort {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum JobType {
+  CRAWL
+  ANALYZE
+  SCORE
+  REPORT
+  AI
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  RETRYING
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  TRIALING
+  PAUSED
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+  GUEST
+}
+
+// GBP Enums
+enum GBPStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+  DUPLICATE
+}
+
+enum GBPReplyStatus {
+  PENDING
+  REPLIED
+  IGNORED
+}
+
+enum GBPSentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+enum GBPPostType {
+  UPDATE
+  EVENT
+  OFFER
+}
+
+enum GBPPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+enum GBPPhotoType {
+  LOGO
+  COVER
+  INTERIOR
+  EXTERIOR
+  PRODUCT
+  TEAM
+}

@@ -68,9 +68,9 @@ IA             Claude API (Anthropic)
 Billing        Stripe (Checkout + Webhooks + Customer Portal)
 Data fetching  TanStack Query v5
 Extension      Chrome Manifest V3 + Vite
-Monorepo       Turborepo + pnpm workspaces
+Monorepo       Turborepo + npm workspaces
 Infra locale   Laragon (PostgreSQL + Redis + Node.js natifs)
-Infra VPS      HestiaCP + Podman Quadlet (rootless)
+Infra VPS      HestiaCP + PM2 + Nginx
 ```
 
 ---
@@ -147,7 +147,7 @@ Client                    API Fastify              BullMQ Workers
 - **Node.js** >= 20
 - **PostgreSQL** >= 15
 - **Redis** >= 7
-- **pnpm** >= 9
+- **npm** >= 10
 
 > Sous Windows, [Laragon](https://laragon.org/) fournit PostgreSQL + Redis nativement.
 
@@ -158,7 +158,7 @@ Client                    API Fastify              BullMQ Workers
 git clone <repo-url> seo && cd seo
 
 # 2. Installer les dependances
-pnpm install
+npm install
 
 # 3. Configurer les variables d'environnement
 cp site/.env.example site/.env.local
@@ -190,7 +190,7 @@ NEXT_PUBLIC_API_URL="http://localhost:4000"
 cd site && npx prisma migrate dev && cd ..
 
 # 5. Lancer en dev (tout le monorepo)
-pnpm dev
+npm run dev
 ```
 
 | Service | URL |
@@ -205,12 +205,12 @@ pnpm dev
 
 ```bash
 # Developpement
-pnpm dev                             # Tout le monorepo (Turborepo)
-pnpm --filter @seo/web dev           # Next.js seulement
-pnpm --filter @seo/api dev           # Fastify seulement
+npm run dev                          # Tout le monorepo (Turborepo)
+npm run dev -w site                  # Next.js seulement
+npm run dev -w apps/api              # Fastify seulement
 
 # Build
-pnpm build                           # Build complet
+npm run build                        # Build complet
 
 # Base de donnees
 npm run db:migrate                    # Nouvelle migration Prisma

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@seo/shared": ["../packages/shared/src/index.ts"],
+      "@seo/crawler": ["../packages/crawler/src/index.ts"],
+      "@seo/analyzer": ["../packages/analyzer/src/index.ts"],
+      "@seo/scorer": ["../packages/scorer/src/index.ts"]
+    }
+  },
+  "include": ["*.ts"],
+  "exclude": ["node_modules"]
+}
