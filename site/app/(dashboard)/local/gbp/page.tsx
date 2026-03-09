@@ -10,14 +10,22 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import {
   Store, MapPin, Phone, Globe, Clock, CheckCircle2, Plus, X,
-  Link2, Star, MessageSquare, FileText, TrendingUp, ExternalLink,
-  Settings, BarChart3, Shield, Zap
+  Link2, Link2Off, Star, MessageSquare, FileText, TrendingUp, ExternalLink,
+  Settings, BarChart3, Shield, Zap, ChevronDown, Loader2
 } from "lucide-react"
 import { useLocalListings, useCreateListing } from "@/hooks/useLocal"
-import { useGoogleStatus, useDisconnectGoogleListing } from "@/hooks/useGoogle"
+import { useGoogleStatus, useDisconnectGoogleListing, useDisconnectGoogleAccount } from "@/hooks/useGoogle"
 import { apiClient } from "@/lib/api-client"
 import { toast } from "sonner"
 import Link from "next/link"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 function completionColor(score: number) {
   return score >= 80 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444"
@@ -279,9 +287,83 @@ function ListingCard({ listing }: { listing: NonNullable<ReturnType<typeof useLo
   )
 }
 
+function GoogleAccountsButton() {
+  const { data: googleStatus } = useGoogleStatus()
+  const { mutate: disconnectAccount, isPending } = useDisconnectGoogleAccount()
+  const accounts = googleStatus?.accounts ?? []
+
+  if (!googleStatus?.connected) {
+    return (
+      <Button
+        onClick={() => apiClient.connectGoogle()}
+        className="gap-2 text-sm font-medium text-white border-white/30 hover:bg-white/20"
+        style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.25)", backdropFilter: "blur(8px)" }}
+      >
+        <svg className="h-4 w-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+        Connecter avec Google
+      </Button>
+    )
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          className="gap-2 text-sm font-medium text-white"
+          style={{ background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.35)", backdropFilter: "blur(8px)" }}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+          <span className="text-emerald-300">
+            {accounts.length} compte{accounts.length > 1 ? "s" : ""} Google
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 text-emerald-400" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="text-xs font-medium text-slate-500">Comptes connectés</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {accounts.map((account) => (
+          <DropdownMenuItem
+            key={account.id}
+            className="flex items-center justify-between gap-2 cursor-default focus:bg-transparent"
+            onSelect={(e) => e.preventDefault()}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-slate-800 truncate">
+                {account.label && account.label !== account.googleEmail ? account.label : account.googleEmail}
+              </p>
+              {account.label && account.label !== account.googleEmail && (
+                <p className="text-[11px] text-slate-400 truncate">{account.googleEmail}</p>
+              )}
+              {account.listings.length > 0 && (
+                <p className="text-[10px] text-blue-500">{account.listings.length} fiche{account.listings.length > 1 ? "s" : ""}</p>
+              )}
+            </div>
+            <button
+              onClick={() => disconnectAccount(account.id)}
+              disabled={isPending}
+              className="shrink-0 p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+              title="Déconnecter ce compte"
+            >
+              {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2Off className="h-3.5 w-3.5" />}
+            </button>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="gap-2 text-xs font-medium text-blue-600 cursor-pointer"
+          onClick={() => apiClient.connectGoogle()}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Ajouter un compte Google
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function GBPListingsPageInner() {
   const { data: listings, isLoading } = useLocalListings()
-  const { data: googleStatus } = useGoogleStatus()
   const [showCreate, setShowCreate] = useState(false)
   const searchParams = useSearchParams()
 
@@ -339,21 +421,7 @@ function GBPListingsPageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {!googleStatus?.connected ? (
-              <Button
-                onClick={() => apiClient.connectGoogle()}
-                className="gap-2 text-sm font-medium text-white border-white/30 hover:bg-white/20"
-                style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.25)", backdropFilter: "blur(8px)" }}
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                Connecter avec Google
-              </Button>
-            ) : (
-              <div className="flex items-center gap-1.5 text-xs text-emerald-300 bg-emerald-400/10 border border-emerald-400/20 rounded-lg px-3 py-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span>Google connecté</span>
-              </div>
-            )}
+            <GoogleAccountsButton />
             <Button
               onClick={() => setShowCreate(true)}
               className="gap-1.5 text-sm font-medium btn-glow"
@@ -392,7 +460,7 @@ function GBPListingsPageInner() {
       </div>
 
       {/* Google non connecté — banner */}
-      {!googleStatus?.connected && items.length > 0 && (
+      {!googleConnected && items.length > 0 && (
         <div
           className="rounded-xl p-4 flex items-center gap-3"
           style={{ background: "linear-gradient(90deg, #fefce8, #fef9c3)", border: "1px solid #fde68a" }}
@@ -430,16 +498,14 @@ function GBPListingsPageInner() {
             Importez vos fiches depuis Google Business Profile ou créez-en une manuellement pour commencer.
           </p>
           <div className="flex items-center justify-center gap-3 flex-wrap">
-            {!googleStatus?.connected && (
-              <Button
-                onClick={() => apiClient.connectGoogle()}
-                className="gap-2"
-                style={{ background: "linear-gradient(135deg, #1e3a5f, #2563eb)", color: "white" }}
-              >
-                <svg className="h-4 w-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                Connecter avec Google
-              </Button>
-            )}
+            <Button
+              onClick={() => apiClient.connectGoogle()}
+              className="gap-2"
+              style={{ background: "linear-gradient(135deg, #1e3a5f, #2563eb)", color: "white" }}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+              Connecter avec Google
+            </Button>
             <Button variant="outline" onClick={() => setShowCreate(true)} className="gap-1.5 border-slate-200">
               <Plus className="h-4 w-4" />
               Créer manuellement
