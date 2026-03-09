@@ -48,26 +48,36 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     request.userId = session.user.id
     request.role = (session.user.role as "ADMIN" | "MEMBER" | "GUEST") || "MEMBER"
 
-    // Si l'utilisateur n'a pas de tenant, en créer un automatiquement
+    // Filet de sécurité : si l'utilisateur n'a toujours pas de tenant (le hook BetterAuth l'a déjà créé normalement)
     if (!session.user.tenantId) {
-      const slug = session.user.email.split("@")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-")
-      const uniqueSlug = `${slug}-${Date.now().toString(36)}`
-
-      const tenant = await prisma.tenant.create({
-        data: {
-          name: session.user.name || session.user.email.split("@")[0],
-          slug: uniqueSlug,
-          plan: "STARTER",
-        },
-      })
-
-      await prisma.user.update({
+      // Vérifier d'abord si un tenant existe déjà pour cet utilisateur (race condition)
+      const existingUser = await prisma.user.findUnique({
         where: { id: session.user.id },
-        data: { tenantId: tenant.id, role: "ADMIN" },
+        select: { tenantId: true },
       })
 
-      request.tenantId = tenant.id
-      request.role = "ADMIN"
+      if (existingUser?.tenantId) {
+        request.tenantId = existingUser.tenantId
+      } else {
+        const slug = session.user.email.split("@")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-")
+        const uniqueSlug = `${slug}-${Date.now().toString(36)}`
+
+        const tenant = await prisma.tenant.create({
+          data: {
+            name: session.user.name || session.user.email.split("@")[0],
+            slug: uniqueSlug,
+            plan: "STARTER",
+          },
+        })
+
+        await prisma.user.update({
+          where: { id: session.user.id },
+          data: { tenantId: tenant.id, role: "ADMIN" },
+        })
+
+        request.tenantId = tenant.id
+        request.role = "ADMIN"
+      }
     } else {
       request.tenantId = session.user.tenantId
     }

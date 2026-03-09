@@ -7,8 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { FileText, Download, ExternalLink } from "lucide-react"
 import { useAudits } from "@/hooks/useAudits"
 import { useActiveProject } from "@/contexts/ProjectContext"
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+import { apiClient } from "@/lib/api-client"
 
 function scoreColor(s: number) {
   return s >= 75 ? "#10b981" : s >= 50 ? "#f59e0b" : "#ef4444"
@@ -96,7 +95,10 @@ export default function ReportsPage() {
                     <Button
                       size="sm"
                       className="shrink-0 gap-1.5"
-                      onClick={() => window.open(`${API_URL}/api/audits/${audit.id}/pdf`, "_blank")}
+                      onClick={() => {
+                        const hostname = (() => { try { return new URL(audit.url).hostname } catch { return audit.id } })()
+                        apiClient.downloadAuditPdf(audit.id, hostname).catch(() => alert("Erreur génération PDF"))
+                      }}
                     >
                       <Download className="h-4 w-4" />
                       Télécharger PDF

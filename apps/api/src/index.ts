@@ -1,4 +1,11 @@
-import "dotenv/config"
+import { config } from "dotenv"
+import { resolve } from "path"
+
+// Charger le .env depuis le dossier de l'API (indépendant du cwd PM2)
+// __dirname pointe vers apps/api/src/, donc ../../.env = apps/api/.env
+config({ path: resolve(process.cwd(), "apps/api/.env") })
+// Fallback : si lancé depuis apps/api/
+config({ path: resolve(process.cwd(), ".env") })
 import Fastify from "fastify"
 import cors from "@fastify/cors"
 import cookie from "@fastify/cookie"

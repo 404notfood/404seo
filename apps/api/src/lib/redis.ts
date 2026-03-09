@@ -5,7 +5,9 @@ import type { CrawlJobData } from "@seo/shared"
 const connection = {
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
-  maxRetriesPerRequest: null as unknown as undefined,
+  // BullMQ requiert maxRetriesPerRequest: null (pas undefined)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  maxRetriesPerRequest: null as any,
 }
 
 export const crawlQueue = new Queue<CrawlJobData>("crawl", {

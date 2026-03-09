@@ -1,8 +1,8 @@
 // lib/api-client.ts — Client HTTP vers l'API Fastify
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
-function getSessionToken(): string | null {
+export function getSessionToken(): string | null {
   if (typeof document === "undefined") return null
   // BetterAuth utilise le préfixe __Secure- en HTTPS, sans préfixe en HTTP
   const match = document.cookie.match(/(?:__Secure-)?better-auth\.session_token=([^;]+)/)
@@ -70,6 +70,20 @@ export const apiClient = {
   getAuditKeywords: (id: string) => fetcher<AuditKeywords>(`/api/audits/${id}/keywords`),
   deleteAudit: (id: string) =>
     fetcher<void>(`/api/audits/${id}`, { method: "DELETE" }),
+  downloadAuditPdf: async (id: string, hostname: string) => {
+    const token = getSessionToken()
+    const res = await fetch(`${API_URL}/api/audits/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
+    })
+    if (!res.ok) throw new Error("Erreur génération PDF")
+    const blob = await res.blob()
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `audit-seo-${hostname}.pdf`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  },
 
   // Billing
   getBilling: () => fetcher<BillingInfo>("/api/billing"),

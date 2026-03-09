@@ -17,6 +17,7 @@ import { TopIssuesWidget } from "@/components/audit/TopIssuesWidget"
 import { ThematicSection } from "@/components/audit/ThematicSection"
 import { PagesTable } from "@/components/audit/PagesTable"
 import { KeywordsTab } from "@/components/audit/KeywordsTab"
+import { apiClient } from "@/lib/api-client"
 import type { PageResult } from "@/lib/api-client"
 
 interface Props {
@@ -176,24 +177,7 @@ export default function AuditDetailPage({ params }: Props) {
         </div>
         {audit.status === "COMPLETED" && (
           <Button variant="outline" size="sm" onClick={() => {
-            const token = document.cookie.match(/better-auth\.session_token=([^;]+)/)?.[1]?.split(".")[0]
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
-            const url = `${apiUrl}/api/audits/${id}/pdf`
-            fetch(url, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-              credentials: "include",
-            })
-              .then(res => {
-                if (!res.ok) throw new Error("Erreur génération PDF")
-                return res.blob()
-              })
-              .then(blob => {
-                const a = document.createElement("a")
-                a.href = URL.createObjectURL(blob)
-                a.download = `audit-seo-${new URL(audit.url).hostname}.pdf`
-                a.click()
-                URL.revokeObjectURL(a.href)
-              })
+            apiClient.downloadAuditPdf(id, new URL(audit.url).hostname)
               .catch(() => alert("Erreur lors de la génération du PDF"))
           }}>
             <Download className="h-4 w-4 mr-2" />

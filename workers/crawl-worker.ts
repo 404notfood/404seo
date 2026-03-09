@@ -1,5 +1,11 @@
 // workers/crawl-worker.ts — Worker BullMQ crawl + analyse + scoring
-import "dotenv/config"
+import { config } from "dotenv"
+import { resolve } from "path"
+
+// Charger le .env depuis le dossier workers/ (indépendant du cwd PM2)
+config({ path: resolve(process.cwd(), "workers/.env") })
+// Fallback : si lancé depuis workers/
+config({ path: resolve(process.cwd(), ".env") })
 import { Worker, Queue, Job } from "bullmq"
 import { PrismaClient } from "@prisma/client"
 import pino from "pino"
@@ -24,7 +30,9 @@ const logger = pino({
 const redisConnection = {
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
-  maxRetriesPerRequest: null as unknown as undefined,
+  // BullMQ requiert maxRetriesPerRequest: null (pas undefined)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  maxRetriesPerRequest: null as any,
 }
 
 const prisma = new PrismaClient()
