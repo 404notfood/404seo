@@ -115,7 +115,7 @@ model Tenant {
   audits            Audit[]
   subscription      Subscription?
   gbpListings       GBPListing[]
-  googleAccount     GoogleAccount?
+  googleAccounts    GoogleAccount[]
   rankedKeywords    RankedKeyword[]
   backlinks         Backlink[]
   competitors       Competitor[]
@@ -349,14 +349,16 @@ model GBPListing {
   googlePlaceId       String?       // "locations/123456789"
   googleLocationName  String?       // nom interne API GBP
   isGoogleConnected   Boolean       @default(false)
+  googleAccountId     String?       // compte Google utilisé pour cette fiche
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
-  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  reviews  GBPReview[]
-  posts    GBPPost[]
-  rankings GBPRanking[]
-  photos   GBPPhoto[]
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  googleAccount GoogleAccount? @relation(fields: [googleAccountId], references: [id], onDelete: SetNull)
+  reviews       GBPReview[]
+  posts         GBPPost[]
+  rankings      GBPRanking[]
+  photos        GBPPhoto[]
 
   @@index([tenantId])
   @@map("gbp_listings")
@@ -545,17 +547,19 @@ model AIVisibilityCheck {
 
 model GoogleAccount {
   id            String    @id @default(cuid())
-  tenantId      String    @unique   // 1 compte Google par tenant
+  tenantId      String                      // N comptes Google par tenant
   googleEmail   String
-  googleId      String              // sub Google
+  googleId      String                      // sub Google
   accessToken   String    @db.Text
   refreshToken  String    @db.Text
   tokenExpiry   DateTime
-  scopes        String[]            // scopes accordés
+  scopes        String[]                    // scopes accordés
+  label         String?                     // Libellé optionnel (ex: "Client Dupont")
   connectedAt   DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  listings GBPListing[] // fiches associées à ce compte Google
 
   @@index([tenantId])
   @@map("google_accounts")

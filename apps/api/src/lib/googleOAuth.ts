@@ -18,11 +18,12 @@ export function getOAuthClient() {
 }
 
 // Retourne un client OAuth2 configuré avec les credentials du tenant.
+// Prend le premier compte Google connecté (ou celui lié à la listingId si fourni).
 // Rafraîchit le token automatiquement si expiré.
-export async function getAuthenticatedClient(tenantId: string) {
-  const account = await prisma.googleAccount.findUnique({
-    where: { tenantId },
-  })
+export async function getAuthenticatedClient(tenantId: string, googleAccountId?: string) {
+  const account = googleAccountId
+    ? await prisma.googleAccount.findFirst({ where: { id: googleAccountId, tenantId } })
+    : await prisma.googleAccount.findFirst({ where: { tenantId }, orderBy: { connectedAt: "desc" } })
   if (!account) {
     throw new Error("Aucun compte Google connecté pour ce tenant")
   }
@@ -38,7 +39,7 @@ export async function getAuthenticatedClient(tenantId: string) {
   if (account.tokenExpiry.getTime() - Date.now() < 5 * 60 * 1000) {
     const { credentials } = await auth.refreshAccessToken()
     await prisma.googleAccount.update({
-      where: { tenantId },
+      where: { id: account.id },
       data: {
         accessToken: credentials.access_token!,
         tokenExpiry: new Date(credentials.expiry_date!),

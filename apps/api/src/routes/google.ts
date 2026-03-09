@@ -10,25 +10,31 @@ const STATE_TTL = 600 // 10 minutes
 
 const googleRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── GET /api/google/auth — Initier OAuth (AUTH REQUIS) ───────────────────
-  fastify.get("/api/google/auth", async (request, reply) => {
-    const state = randomUUID()
-    await redis.set(
-      `google_oauth_state:${state}`,
-      JSON.stringify({ tenantId: request.tenantId, userId: request.userId }),
-      "EX",
-      STATE_TTL
-    )
+  // ?listingId=xxx pour lier le compte à une fiche spécifique
+  // ?label=xxx pour nommer le compte (ex: "Client Dupont")
+  fastify.get<{ Querystring: { listingId?: string; label?: string } }>(
+    "/api/google/auth",
+    async (request, reply) => {
+      const { listingId, label } = request.query
+      const state = randomUUID()
+      await redis.set(
+        `google_oauth_state:${state}`,
+        JSON.stringify({ tenantId: request.tenantId, userId: request.userId, listingId, label }),
+        "EX",
+        STATE_TTL
+      )
 
-    const auth = getOAuthClient()
-    const authUrl = auth.generateAuthUrl({
-      access_type: "offline",
-      prompt: "consent",
-      scope: GOOGLE_SCOPES,
-      state,
-    })
+      const auth = getOAuthClient()
+      const authUrl = auth.generateAuthUrl({
+        access_type: "offline",
+        prompt: "consent",
+        scope: GOOGLE_SCOPES,
+        state,
+      })
 
-    return reply.redirect(authUrl)
-  })
+      return reply.redirect(authUrl)
+    }
+  )
 
   // ─── GET /api/google/callback — Callback Google (PUBLIC) ──────────────────
   fastify.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
@@ -50,9 +56,13 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       await redis.del(stateKey)
 
       let tenantId: string
+      let listingId: string | undefined
+      let label: string | undefined
       try {
-        const parsed = JSON.parse(stateData) as { tenantId: string; userId: string }
+        const parsed = JSON.parse(stateData) as { tenantId: string; userId: string; listingId?: string; label?: string }
         tenantId = parsed.tenantId
+        listingId = parsed.listingId
+        label = parsed.label
       } catch {
         return reply.redirect(`${appUrl}/settings?google=error`)
       }
@@ -89,90 +99,150 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
         // Non bloquant
       }
 
-      // Sauvegarder en DB
-      await prisma.googleAccount.upsert({
-        where: { tenantId },
-        create: {
-          tenantId,
-          googleEmail,
-          googleId,
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
-          tokenExpiry: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-          scopes: GOOGLE_SCOPES,
-        },
-        update: {
-          googleEmail,
-          googleId,
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
-          tokenExpiry: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-          scopes: GOOGLE_SCOPES,
-        },
+      // Créer ou mettre à jour le GoogleAccount pour ce tenant + cet email Google
+      // (évite les doublons si on reconnecte le même compte)
+      const existingAccount = await prisma.googleAccount.findFirst({
+        where: { tenantId, googleId },
       })
 
-      // Importer les fiches GBP automatiquement
+      let googleAccountId: string
+      if (existingAccount) {
+        await prisma.googleAccount.update({
+          where: { id: existingAccount.id },
+          data: {
+            googleEmail,
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token,
+            tokenExpiry: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
+            scopes: GOOGLE_SCOPES,
+            ...(label ? { label } : {}),
+          },
+        })
+        googleAccountId = existingAccount.id
+      } else {
+        const newAccount = await prisma.googleAccount.create({
+          data: {
+            tenantId,
+            googleEmail,
+            googleId,
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token,
+            tokenExpiry: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
+            scopes: GOOGLE_SCOPES,
+            label: label ?? googleEmail,
+          },
+        })
+        googleAccountId = newAccount.id
+      }
+
+      // Si une fiche spécifique est ciblée, la lier à ce compte
+      if (listingId) {
+        await prisma.gBPListing.update({
+          where: { id: listingId, tenantId },
+          data: { googleAccountId, isGoogleConnected: true },
+        })
+      }
+
+      // Importer/synchroniser les fiches GBP depuis Google
       try {
-        await importGBPListings(tenantId, auth)
+        await importGBPListings(tenantId, googleAccountId, auth)
       } catch (err) {
         fastify.log.warn({ err }, "Impossible d'importer les fiches GBP")
       }
 
-      return reply.redirect(`${appUrl}/settings?google=connected`)
+      const redirectTarget = listingId ? `/local/gbp` : `/settings`
+      return reply.redirect(`${appUrl}${redirectTarget}?google=connected`)
     }
   )
 
-  // ─── GET /api/google/status — Statut connexion (AUTH REQUIS) ─────────────
+  // ─── GET /api/google/status — Liste des comptes connectés (AUTH REQUIS) ───
   fastify.get("/api/google/status", async (request, reply) => {
-    const account = await prisma.googleAccount.findUnique({
+    const accounts = await prisma.googleAccount.findMany({
       where: { tenantId: request.tenantId },
       select: {
+        id: true,
         googleEmail: true,
+        label: true,
         scopes: true,
         connectedAt: true,
+        listings: { select: { id: true, businessName: true } },
       },
+      orderBy: { connectedAt: "desc" },
     })
 
-    if (!account) {
-      return reply.send({ connected: false, email: null, scopes: [], connectedAt: null })
+    if (accounts.length === 0) {
+      return reply.send({ connected: false, accounts: [] })
     }
 
     return reply.send({
       connected: true,
-      email: account.googleEmail,
-      scopes: account.scopes,
-      connectedAt: account.connectedAt,
+      // Compat rétro : email du premier compte
+      email: accounts[0]?.googleEmail ?? null,
+      accounts,
     })
   })
 
-  // ─── POST /api/google/disconnect — Déconnecter (AUTH REQUIS) ─────────────
+  // ─── POST /api/google/disconnect/:accountId — Déconnecter un compte ───────
+  fastify.post<{ Params: { accountId: string } }>(
+    "/api/google/disconnect/:accountId",
+    async (request, reply) => {
+      const account = await prisma.googleAccount.findFirst({
+        where: { id: request.params.accountId, tenantId: request.tenantId },
+      })
+
+      if (account) {
+        try {
+          const auth = getOAuthClient()
+          auth.setCredentials({ access_token: account.accessToken })
+          await auth.revokeCredentials()
+        } catch { /* Non bloquant */ }
+
+        await prisma.googleAccount.delete({ where: { id: account.id } })
+        // Les listings liées passent à isGoogleConnected: false via ON DELETE SET NULL + trigger ci-dessous
+        await prisma.gBPListing.updateMany({
+          where: { googleAccountId: account.id },
+          data: { isGoogleConnected: false },
+        })
+      }
+
+      return reply.send({ success: true })
+    }
+  )
+
+  // ─── POST /api/google/disconnect — Déconnecter TOUS les comptes (compat) ──
   fastify.post("/api/google/disconnect", async (request, reply) => {
-    const account = await prisma.googleAccount.findUnique({
+    const accounts = await prisma.googleAccount.findMany({
       where: { tenantId: request.tenantId },
     })
 
-    if (account) {
-      // Révoquer le token Google
+    for (const account of accounts) {
       try {
         const auth = getOAuthClient()
         auth.setCredentials({ access_token: account.accessToken })
         await auth.revokeCredentials()
-      } catch {
-        // Non bloquant si révocation échoue
-      }
-
-      // Supprimer le compte Google
-      await prisma.googleAccount.delete({ where: { tenantId: request.tenantId } })
-
-      // Marquer les fiches GBP comme déconnectées
-      await prisma.gBPListing.updateMany({
-        where: { tenantId: request.tenantId },
-        data: { isGoogleConnected: false },
-      })
+      } catch { /* Non bloquant */ }
     }
+
+    await prisma.googleAccount.deleteMany({ where: { tenantId: request.tenantId } })
+    await prisma.gBPListing.updateMany({
+      where: { tenantId: request.tenantId },
+      data: { isGoogleConnected: false, googleAccountId: null },
+    })
 
     return reply.send({ success: true })
   })
+
+  // ─── POST /api/google/listing/:listingId/disconnect — Délier une fiche ────
+  fastify.post<{ Params: { listingId: string } }>(
+    "/api/google/listing/:listingId/disconnect",
+    async (request, reply) => {
+      await prisma.gBPListing.updateMany({
+        where: { id: request.params.listingId, tenantId: request.tenantId },
+        data: { isGoogleConnected: false, googleAccountId: null },
+      })
+      return reply.send({ success: true })
+    }
+  )
 
   // ─── GET /api/google/analytics — Données GA4 (AUTH REQUIS) ───────────────
   fastify.get<{ Querystring: { propertyId?: string } }>(
@@ -315,7 +385,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
 }
 
 // ─── Helper : importer les fiches GBP depuis Google ──────────────────────────
-async function importGBPListings(tenantId: string, auth: Auth.OAuth2Client) {
+async function importGBPListings(tenantId: string, googleAccountId: string, auth: Auth.OAuth2Client) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const accountsClient = google.mybusinessaccountmanagement({ version: "v1", auth: auth as any })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -359,6 +429,7 @@ async function importGBPListings(tenantId: string, auth: Auth.OAuth2Client) {
             googlePlaceId,
             googleLocationName,
             isGoogleConnected: true,
+            googleAccountId,
             ...(phone ? { phone } : {}),
             ...(website ? { website } : {}),
           },
@@ -375,6 +446,7 @@ async function importGBPListings(tenantId: string, auth: Auth.OAuth2Client) {
             googlePlaceId,
             googleLocationName,
             isGoogleConnected: true,
+            googleAccountId,
             completionScore: 0,
             isVerified: false,
             status: "ACTIVE",
