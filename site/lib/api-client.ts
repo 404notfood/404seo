@@ -286,12 +286,20 @@ export const apiClient = {
 
   // Google OAuth
   getGoogleStatus: () => fetcher<GoogleAccountStatus>("/api/google/status"),
-  connectGoogle: () => {
+  connectGoogle: (opts?: { listingId?: string; label?: string }) => {
     if (typeof window !== "undefined") {
-      window.location.href = `${API_URL}/api/google/auth`
+      const sp = new URLSearchParams()
+      if (opts?.listingId) sp.set("listingId", opts.listingId)
+      if (opts?.label) sp.set("label", opts.label)
+      const qs = sp.toString()
+      window.location.href = `${API_URL}/api/google/auth${qs ? `?${qs}` : ""}`
     }
   },
   disconnectGoogle: () => fetcher<{ success: boolean }>("/api/google/disconnect", { method: "POST" }),
+  disconnectGoogleAccount: (accountId: string) =>
+    fetcher<{ success: boolean }>(`/api/google/disconnect/${accountId}`, { method: "POST" }),
+  disconnectGoogleListing: (listingId: string) =>
+    fetcher<{ success: boolean }>(`/api/google/listing/${listingId}/disconnect`, { method: "POST" }),
   getGA4Data: (propertyId: string) => fetcher<GA4Data>(`/api/google/analytics?propertyId=${encodeURIComponent(propertyId)}`),
   getGSCData: (siteUrl: string) => fetcher<GSCData>(`/api/google/search-console?siteUrl=${encodeURIComponent(siteUrl)}`),
 }
@@ -788,11 +796,19 @@ export interface CheckVisibilityInput {
 
 // ─── Types Google OAuth ───────────────────────
 
+export interface GoogleConnectedAccount {
+  id: string
+  googleEmail: string
+  label: string | null
+  scopes: string[]
+  connectedAt: string
+  listings: { id: string; businessName: string }[]
+}
+
 export interface GoogleAccountStatus {
   connected: boolean
-  email: string | null
-  scopes: string[]
-  connectedAt: string | null
+  email: string | null  // compat rétro : email du premier compte
+  accounts: GoogleConnectedAccount[]
 }
 
 export interface GA4TimelineEntry {

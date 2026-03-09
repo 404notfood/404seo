@@ -10,8 +10,16 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: "SEO Audit — Plateforme SaaS",
+  title: {
+    default: "404 SEO",
+    template: "%s — 404 SEO",
+  },
   description: "Auditez et optimisez le référencement de vos sites web",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 }
 
 export default function RootLayout({

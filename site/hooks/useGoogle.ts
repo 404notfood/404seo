@@ -10,6 +10,7 @@ export function useGoogleStatus() {
   })
 }
 
+// Déconnecter tous les comptes Google
 export function useDisconnectGoogle() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -17,7 +18,38 @@ export function useDisconnectGoogle() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["google-status"] })
       queryClient.invalidateQueries({ queryKey: ["local-listings"] })
+      toast.success("Tous les comptes Google déconnectés")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Erreur lors de la déconnexion")
+    },
+  })
+}
+
+// Déconnecter un compte Google spécifique
+export function useDisconnectGoogleAccount() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (accountId: string) => apiClient.disconnectGoogleAccount(accountId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["google-status"] })
+      queryClient.invalidateQueries({ queryKey: ["local-listings"] })
       toast.success("Compte Google déconnecté")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Erreur lors de la déconnexion")
+    },
+  })
+}
+
+// Délier Google d'une fiche GBP spécifique
+export function useDisconnectGoogleListing() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (listingId: string) => apiClient.disconnectGoogleListing(listingId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["local-listings"] })
+      toast.success("Fiche déliée de Google")
     },
     onError: (err: Error) => {
       toast.error(err.message || "Erreur lors de la déconnexion")
