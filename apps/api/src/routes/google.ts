@@ -1,17 +1,28 @@
-// routes/google.ts — OAuth Google unifié (GBP + GA4 + GSC)
+// routes/google.ts — OAuth Google unifié (GBP + GA4 + GSC) + sync GBP
 import type { FastifyPluginAsync } from "fastify"
 import { randomUUID } from "crypto"
 import { google, Auth } from "googleapis"
+import { z } from "zod"
 import { prisma } from "../lib/prisma.js"
 import { redis } from "../lib/redis.js"
 import { getOAuthClient, getAuthenticatedClient, GOOGLE_SCOPES, GOOGLE_ANALYTICS_SCOPES } from "../lib/googleOAuth.js"
+import { requireRole, requireFeature } from "../lib/guards.js"
+import {
+  listAccounts,
+  listLocations,
+  listReviews,
+  listLocalPosts,
+  replyToReview as gbpReplyToReview,
+  createLocalPost,
+  deleteLocalPost,
+  starRatingToNumber,
+  detectSentiment,
+} from "../lib/gbpApi.js"
 
 const STATE_TTL = 600 // 10 minutes
 
 const googleRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── GET /api/google/auth — Initier OAuth (AUTH REQUIS) ───────────────────
-  // ?listingId=xxx pour lier le compte à une fiche spécifique
-  // ?label=xxx pour nommer le compte (ex: "Client Dupont")
   fastify.get<{ Querystring: { listingId?: string; label?: string } }>(
     "/api/google/auth",
     async (request, reply) => {
@@ -129,14 +140,12 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       const scopesUsed = flow === "analytics" ? GOOGLE_ANALYTICS_SCOPES : GOOGLE_SCOPES
 
       // Créer ou mettre à jour le GoogleAccount pour ce tenant + cet email Google
-      // (évite les doublons si on reconnecte le même compte)
       const existingAccount = await prisma.googleAccount.findFirst({
         where: { tenantId, googleId },
       })
 
       let googleAccountId: string
       if (existingAccount) {
-        // Fusionner les scopes si le compte existe déjà (GBP + Analytics)
         const existingScopes = (existingAccount.scopes as string[] | null) ?? []
         const mergedScopes = [...new Set([...existingScopes, ...scopesUsed])]
         await prisma.googleAccount.update({
@@ -185,7 +194,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      const redirectTarget = flow === "analytics" ? `/settings?google=analytics-connected` : listingId ? `/local/gbp` : `/settings`
+      const redirectTarget = flow === "analytics" ? `/settings?google=analytics-connected` : listingId ? `/local/gbp` : `/local/gbp`
       return reply.redirect(`${appUrl}${redirectTarget}?google=connected`)
     }
   )
@@ -211,7 +220,6 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.send({
       connected: true,
-      // Compat rétro : email du premier compte
       email: accounts[0]?.googleEmail ?? null,
       accounts,
     })
@@ -233,7 +241,6 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
         } catch { /* Non bloquant */ }
 
         await prisma.googleAccount.delete({ where: { id: account.id } })
-        // Les listings liées passent à isGoogleConnected: false via ON DELETE SET NULL + trigger ci-dessous
         await prisma.gBPListing.updateMany({
           where: { googleAccountId: account.id },
           data: { isGoogleConnected: false },
@@ -278,6 +285,354 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.send({ success: true })
     }
   )
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SYNC GBP — Routes de synchronisation
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ─── POST /api/google/sync — Sync manuelle des fiches GBP ─────────────────
+  fastify.post(
+    "/api/google/sync",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const accounts = await prisma.googleAccount.findMany({
+        where: { tenantId: request.tenantId },
+      })
+
+      if (accounts.length === 0) {
+        return reply.status(400).send({ error: "Aucun compte Google connecté" })
+      }
+
+      let totalImported = 0
+      const errors: string[] = []
+
+      for (const account of accounts) {
+        try {
+          const auth = await getAuthenticatedClient(request.tenantId, account.id)
+          const count = await importGBPListings(request.tenantId, account.id, auth)
+          totalImported += count
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          errors.push(`${account.googleEmail}: ${msg}`)
+          fastify.log.error({ err, accountId: account.id }, `Sync GBP failed`)
+        }
+      }
+
+      return reply.send({ success: true, imported: totalImported, errors })
+    }
+  )
+
+  // ─── POST /api/google/sync/reviews — Sync des avis depuis Google ──────────
+  fastify.post<{ Querystring: { listingId?: string } }>(
+    "/api/google/sync/reviews",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const { listingId } = request.query as { listingId?: string }
+
+      // Récupérer les fiches connectées à Google
+      const where: { tenantId: string; isGoogleConnected: boolean; id?: string } = {
+        tenantId: request.tenantId,
+        isGoogleConnected: true,
+      }
+      if (listingId) where.id = listingId
+
+      const listings = await prisma.gBPListing.findMany({
+        where,
+        include: { googleAccount: true },
+      })
+
+      if (listings.length === 0) {
+        return reply.status(400).send({ error: "Aucune fiche connectée à Google" })
+      }
+
+      let totalSynced = 0
+      const errors: string[] = []
+
+      for (const listing of listings) {
+        if (!listing.googleAccount || !listing.googlePlaceId) continue
+
+        try {
+          const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccount.id)
+
+          // Trouver le nom du compte GBP pour cette fiche
+          const accountName = await findAccountForLocation(auth, listing.googlePlaceId)
+          if (!accountName) {
+            errors.push(`${listing.businessName}: compte GBP introuvable`)
+            continue
+          }
+
+          const reviews = await listReviews(auth, accountName, listing.googlePlaceId)
+
+          for (const review of reviews) {
+            const rating = starRatingToNumber(review.starRating)
+            const sentiment = detectSentiment(rating, review.comment)
+
+            // Upsert par googleReviewId pour éviter les doublons
+            await prisma.gBPReview.upsert({
+              where: { googleReviewId: review.name },
+              create: {
+                listingId: listing.id,
+                googleReviewId: review.name,
+                authorName: review.reviewer.displayName ?? "Anonyme",
+                rating,
+                text: review.comment ?? null,
+                sentiment,
+                replyText: review.reviewReply?.comment ?? null,
+                replyStatus: review.reviewReply ? "REPLIED" : "PENDING",
+                publishedAt: new Date(review.createTime),
+              },
+              update: {
+                authorName: review.reviewer.displayName ?? "Anonyme",
+                rating,
+                text: review.comment ?? null,
+                sentiment,
+                replyText: review.reviewReply?.comment ?? null,
+                replyStatus: review.reviewReply ? "REPLIED" : "PENDING",
+              },
+            })
+            totalSynced++
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          errors.push(`${listing.businessName}: ${msg}`)
+          fastify.log.error({ err, listingId: listing.id }, `Sync reviews failed`)
+        }
+      }
+
+      return reply.send({ success: true, synced: totalSynced, errors })
+    }
+  )
+
+  // ─── POST /api/google/sync/posts — Sync des posts depuis Google ───────────
+  fastify.post<{ Querystring: { listingId?: string } }>(
+    "/api/google/sync/posts",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const { listingId } = request.query as { listingId?: string }
+
+      const where: { tenantId: string; isGoogleConnected: boolean; id?: string } = {
+        tenantId: request.tenantId,
+        isGoogleConnected: true,
+      }
+      if (listingId) where.id = listingId
+
+      const listings = await prisma.gBPListing.findMany({
+        where,
+        include: { googleAccount: true },
+      })
+
+      if (listings.length === 0) {
+        return reply.status(400).send({ error: "Aucune fiche connectée à Google" })
+      }
+
+      let totalSynced = 0
+      const errors: string[] = []
+
+      for (const listing of listings) {
+        if (!listing.googleAccount || !listing.googlePlaceId) continue
+
+        try {
+          const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccount.id)
+          const accountName = await findAccountForLocation(auth, listing.googlePlaceId)
+          if (!accountName) {
+            errors.push(`${listing.businessName}: compte GBP introuvable`)
+            continue
+          }
+
+          const posts = await listLocalPosts(auth, accountName, listing.googlePlaceId)
+
+          for (const post of posts) {
+            const topicType = post.topicType === "OFFER" ? "OFFER" : post.topicType === "EVENT" ? "EVENT" : "UPDATE"
+
+            await prisma.gBPPost.upsert({
+              where: { googlePostName: post.name },
+              create: {
+                listingId: listing.id,
+                googlePostName: post.name,
+                content: post.summary ?? "",
+                type: topicType as "UPDATE" | "EVENT" | "OFFER",
+                status: post.state === "LIVE" ? "PUBLISHED" : "DRAFT",
+                ctaType: post.callToAction?.actionType ?? null,
+                ctaUrl: post.callToAction?.url ?? null,
+                imageUrl: post.media?.[0]?.googleUrl ?? null,
+                publishedAt: new Date(post.createTime),
+                views: 0,
+                clicks: 0,
+              },
+              update: {
+                content: post.summary ?? "",
+                status: post.state === "LIVE" ? "PUBLISHED" : "DRAFT",
+                ctaType: post.callToAction?.actionType ?? null,
+                ctaUrl: post.callToAction?.url ?? null,
+                imageUrl: post.media?.[0]?.googleUrl ?? null,
+              },
+            })
+            totalSynced++
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          errors.push(`${listing.businessName}: ${msg}`)
+          fastify.log.error({ err, listingId: listing.id }, `Sync posts failed`)
+        }
+      }
+
+      return reply.send({ success: true, synced: totalSynced, errors })
+    }
+  )
+
+  // ─── POST /api/google/listings/:id/publish-post — Publier un post vers Google ─
+  fastify.post<{ Params: { id: string } }>(
+    "/api/google/listings/:id/publish-post",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const body = z.object({
+        content: z.string().min(1).max(1500),
+        type: z.enum(["UPDATE", "EVENT", "OFFER"]).optional(),
+        ctaType: z.string().optional(),
+        ctaUrl: z.string().url().optional(),
+        imageUrl: z.string().url().optional(),
+      }).safeParse(request.body)
+
+      if (!body.success) {
+        return reply.status(400).send({ error: "Données invalides", details: body.error.flatten() })
+      }
+
+      const listing = await prisma.gBPListing.findFirst({
+        where: { id: request.params.id, tenantId: request.tenantId, isGoogleConnected: true },
+        include: { googleAccount: true },
+      })
+
+      if (!listing || !listing.googleAccount || !listing.googlePlaceId) {
+        return reply.status(400).send({ error: "Fiche non connectée à Google" })
+      }
+
+      const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccount.id)
+      const accountName = await findAccountForLocation(auth, listing.googlePlaceId)
+      if (!accountName) {
+        return reply.status(400).send({ error: "Compte GBP introuvable pour cette fiche" })
+      }
+
+      const googlePost = await createLocalPost(auth, accountName, listing.googlePlaceId, {
+        summary: body.data.content,
+        topicType: body.data.type === "OFFER" ? "OFFER" : body.data.type === "EVENT" ? "EVENT" : "STANDARD",
+        ...(body.data.ctaType && body.data.ctaUrl ? {
+          callToAction: { actionType: body.data.ctaType, url: body.data.ctaUrl },
+        } : {}),
+        ...(body.data.imageUrl ? {
+          media: [{ mediaFormat: "PHOTO", sourceUrl: body.data.imageUrl }],
+        } : {}),
+      })
+
+      // Sauvegarder en base
+      const post = await prisma.gBPPost.create({
+        data: {
+          listingId: listing.id,
+          googlePostName: googlePost.name,
+          content: body.data.content,
+          type: (body.data.type as "UPDATE" | "EVENT" | "OFFER") ?? "UPDATE",
+          status: "PUBLISHED",
+          ctaType: body.data.ctaType ?? null,
+          ctaUrl: body.data.ctaUrl ?? null,
+          imageUrl: body.data.imageUrl ?? null,
+          publishedAt: new Date(),
+          views: 0,
+          clicks: 0,
+        },
+      })
+
+      return reply.status(201).send(post)
+    }
+  )
+
+  // ─── POST /api/google/listings/:id/reviews/:reviewId/reply — Répondre sur Google ─
+  fastify.post<{ Params: { id: string; reviewId: string } }>(
+    "/api/google/listings/:id/reviews/:reviewId/reply",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const body = z.object({
+        replyText: z.string().min(1).max(4096),
+      }).safeParse(request.body)
+
+      if (!body.success) {
+        return reply.status(400).send({ error: "Réponse requise" })
+      }
+
+      const listing = await prisma.gBPListing.findFirst({
+        where: { id: request.params.id, tenantId: request.tenantId, isGoogleConnected: true },
+        include: { googleAccount: true },
+      })
+
+      if (!listing || !listing.googleAccount) {
+        return reply.status(400).send({ error: "Fiche non connectée à Google" })
+      }
+
+      const review = await prisma.gBPReview.findFirst({
+        where: { id: request.params.reviewId, listingId: listing.id },
+      })
+
+      if (!review) {
+        return reply.status(404).send({ error: "Avis introuvable" })
+      }
+
+      // Si l'avis a un googleReviewId, publier la réponse sur Google
+      if (review.googleReviewId) {
+        const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccount.id)
+        await gbpReplyToReview(auth, review.googleReviewId, body.data.replyText)
+      }
+
+      // Mettre à jour en base
+      const updated = await prisma.gBPReview.update({
+        where: { id: review.id },
+        data: {
+          replyText: body.data.replyText,
+          replyStatus: "REPLIED",
+        },
+      })
+
+      return reply.send(updated)
+    }
+  )
+
+  // ─── DELETE /api/google/listings/:id/posts/:postId — Supprimer un post sur Google ─
+  fastify.delete<{ Params: { id: string; postId: string } }>(
+    "/api/google/listings/:id/posts/:postId",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const listing = await prisma.gBPListing.findFirst({
+        where: { id: request.params.id, tenantId: request.tenantId },
+        include: { googleAccount: true },
+      })
+
+      if (!listing) {
+        return reply.status(404).send({ error: "Fiche introuvable" })
+      }
+
+      const post = await prisma.gBPPost.findFirst({
+        where: { id: request.params.postId, listingId: listing.id },
+      })
+
+      if (!post) {
+        return reply.status(404).send({ error: "Post introuvable" })
+      }
+
+      // Supprimer sur Google si connecté
+      if (post.googlePostName && listing.googleAccount) {
+        try {
+          const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccount.id)
+          await deleteLocalPost(auth, post.googlePostName)
+        } catch (err) {
+          fastify.log.warn({ err, postId: post.id }, "Échec suppression post Google (supprimé localement)")
+        }
+      }
+
+      await prisma.gBPPost.delete({ where: { id: post.id } })
+      return reply.send({ success: true })
+    }
+  )
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Analytics & Search Console
+  // ═══════════════════════════════════════════════════════════════════════════
 
   // ─── GET /api/google/analytics — Données GA4 (AUTH REQUIS) ───────────────
   fastify.get<{ Querystring: { propertyId?: string } }>(
@@ -419,79 +774,73 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
   )
 }
 
-// ─── Helper : importer les fiches GBP depuis Google ──────────────────────────
-async function importGBPListings(tenantId: string, googleAccountId: string, auth: Auth.OAuth2Client) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const accountsClient = google.mybusinessaccountmanagement({ version: "v1", auth: auth as any })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const mybusiness = google.mybusinessbusinessinformation({ version: "v1", auth: auth as any })
+// ═══════════════════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════════════════
 
-  // Récupérer les comptes GBP (avec pagination)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let allAccounts: any[] = []
-  let pageToken: string | undefined
-  try {
-    do {
-      const accountsRes = await accountsClient.accounts.list({
-        pageSize: 20,
-        ...(pageToken ? { pageToken } : {}),
-      })
-      const accounts = accountsRes.data.accounts ?? []
-      allAccounts = allAccounts.concat(accounts)
-      pageToken = accountsRes.data.nextPageToken ?? undefined
-    } while (pageToken)
-  } catch (err: unknown) {
-    // Détecter le cas quota = 0 (API GBP non approuvée par Google)
-    const isQuotaZero = err instanceof Error && err.message.includes("Quota exceeded") && err.message.includes("mybusinessaccountmanagement")
-    if (isQuotaZero) {
-      console.error("[GBP Import] L'accès à l'API GBP n'a pas encore été approuvé par Google (quota = 0). Soumettez une demande sur https://support.google.com/business/contact/api_default")
-      return
+// Cache en mémoire pour le mapping location → account (évite les appels API en boucle)
+const locationAccountCache = new Map<string, { accountName: string; expiresAt: number }>()
+
+async function findAccountForLocation(auth: Auth.OAuth2Client, locationId: string): Promise<string | null> {
+  // Vérifier le cache (TTL 5 min)
+  const cached = locationAccountCache.get(locationId)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.accountName
+  }
+
+  const accounts = await listAccounts(auth)
+  for (const account of accounts) {
+    if (!account.name) continue
+    try {
+      const locations = await listLocations(auth, account.name)
+      for (const loc of locations) {
+        if (loc.name === locationId) {
+          locationAccountCache.set(locationId, { accountName: account.name, expiresAt: Date.now() + 5 * 60_000 })
+          return account.name
+        }
+      }
+    } catch {
+      continue
     }
-    throw err
   }
 
-  if (allAccounts.length === 0) {
+  return null
+}
+
+async function importGBPListings(tenantId: string, googleAccountId: string, auth: Auth.OAuth2Client): Promise<number> {
+  let totalImported = 0
+
+  const accounts = await listAccounts(auth)
+
+  if (accounts.length === 0) {
     console.warn("[GBP Import] Aucun compte GBP trouvé pour ce compte Google")
-    return
+    return 0
   }
 
-  for (const account of allAccounts) {
+  for (const account of accounts) {
     if (!account.name) continue
 
-    // Récupérer les fiches de chaque compte (avec pagination + gestion d'erreur par compte)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let allLocations: any[] = []
-    let locPageToken: string | undefined
+    let locations: Awaited<ReturnType<typeof listLocations>>
     try {
-      do {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const locationsRes = await (mybusiness.accounts as any).locations.list({
-          parent: account.name,
-          pageSize: 100,
-          readMask: "name,title,storefrontAddress,phoneNumbers,websiteUri,primaryCategory",
-          ...(locPageToken ? { pageToken: locPageToken } : {}),
-        })
-        const locations = locationsRes.data?.locations ?? []
-        allLocations = allLocations.concat(locations)
-        locPageToken = locationsRes.data?.nextPageToken ?? undefined
-      } while (locPageToken)
+      locations = await listLocations(auth, account.name)
     } catch (err) {
-      // Continuer avec les autres comptes si un échoue (ex: permissions insuffisantes)
-      console.warn(`[GBP Import] Erreur lors de la récupération des fiches pour ${account.name}:`, err instanceof Error ? err.message : err)
+      console.warn(`[GBP Import] Erreur fiches pour ${account.name}:`, err instanceof Error ? err.message : err)
       continue
     }
 
-    for (const location of allLocations) {
-      const googlePlaceId = location.name as string | undefined
-      const googleLocationName = location.title as string | undefined
-      const address = (location.storefrontAddress?.addressLines as string[] | undefined)?.join(", ") ?? ""
-      const phone = (location.phoneNumbers?.primaryPhone as string | undefined) ?? null
-      const website = (location.websiteUri as string | undefined) ?? null
-      const category = (location.primaryCategory?.displayName as string | undefined) ?? "Non catégorisé"
+    for (const location of locations) {
+      const googlePlaceId = location.name
+      const googleLocationName = location.title
+      const address = location.storefrontAddress?.addressLines?.join(", ") ?? ""
+      const phone = location.phoneNumbers?.primaryPhone ?? null
+      const website = location.websiteUri ?? null
+      const category = location.primaryCategory?.displayName ?? "Non catégorisé"
 
       if (!googlePlaceId) continue
 
-      // Chercher une fiche existante pour éviter les doublons
+      // Cache le mapping location → account
+      locationAccountCache.set(googlePlaceId, { accountName: account.name, expiresAt: Date.now() + 5 * 60_000 })
+
       const existing = await prisma.gBPListing.findFirst({
         where: { tenantId, googlePlaceId },
         select: { id: true },
@@ -505,6 +854,9 @@ async function importGBPListings(tenantId: string, googleAccountId: string, auth
             googleLocationName,
             isGoogleConnected: true,
             googleAccountId,
+            businessName: googleLocationName ?? undefined,
+            address: address || undefined,
+            category,
             ...(phone ? { phone } : {}),
             ...(website ? { website } : {}),
           },
@@ -528,8 +880,11 @@ async function importGBPListings(tenantId: string, googleAccountId: string, auth
           },
         })
       }
+      totalImported++
     }
   }
+
+  return totalImported
 }
 
 export default googleRoutes
