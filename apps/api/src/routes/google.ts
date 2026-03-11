@@ -430,15 +430,25 @@ async function importGBPListings(tenantId: string, googleAccountId: string, auth
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let allAccounts: any[] = []
   let pageToken: string | undefined
-  do {
-    const accountsRes = await accountsClient.accounts.list({
-      pageSize: 20,
-      ...(pageToken ? { pageToken } : {}),
-    })
-    const accounts = accountsRes.data.accounts ?? []
-    allAccounts = allAccounts.concat(accounts)
-    pageToken = accountsRes.data.nextPageToken ?? undefined
-  } while (pageToken)
+  try {
+    do {
+      const accountsRes = await accountsClient.accounts.list({
+        pageSize: 20,
+        ...(pageToken ? { pageToken } : {}),
+      })
+      const accounts = accountsRes.data.accounts ?? []
+      allAccounts = allAccounts.concat(accounts)
+      pageToken = accountsRes.data.nextPageToken ?? undefined
+    } while (pageToken)
+  } catch (err: unknown) {
+    // Détecter le cas quota = 0 (API GBP non approuvée par Google)
+    const isQuotaZero = err instanceof Error && err.message.includes("Quota exceeded") && err.message.includes("mybusinessaccountmanagement")
+    if (isQuotaZero) {
+      console.error("[GBP Import] L'accès à l'API GBP n'a pas encore été approuvé par Google (quota = 0). Soumettez une demande sur https://support.google.com/business/contact/api_default")
+      return
+    }
+    throw err
+  }
 
   if (allAccounts.length === 0) {
     console.warn("[GBP Import] Aucun compte GBP trouvé pour ce compte Google")
