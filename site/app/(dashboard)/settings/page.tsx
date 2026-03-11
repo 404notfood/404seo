@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Palette, Image, Building2, Link2, Link2Off, CheckCircle2, Plus } from "lucide-react"
+import { Loader2, Palette, Image, Building2, Link2, Link2Off, CheckCircle2, Plus, BarChart3 } from "lucide-react"
 import { useSession } from "@/lib/auth-client"
 import { useTenant, useUpdateBranding } from "@/hooks/useTenant"
 import { useRole } from "@/hooks/useMe"
@@ -196,19 +196,29 @@ function GoogleConnectionCard() {
           <p className="text-sm text-slate-500">Aucun compte Google connecté</p>
         )}
 
-        {/* Bouton ajouter un compte */}
-        <Button
-          onClick={() => apiClient.connectGoogle()}
-          className="w-full btn-glow gap-1.5"
-          style={{ background: "#4285F4" }}
-          variant={accounts.length === 0 ? "default" : "outline"}
-        >
-          {accounts.length === 0 ? (
-            <><Link2 className="h-3.5 w-3.5" />Connecter avec Google</>
-          ) : (
-            <><Plus className="h-3.5 w-3.5" />Ajouter un autre compte Google</>
-          )}
-        </Button>
+        {/* Boutons connexion */}
+        <div className="flex flex-col gap-2">
+          <Button
+            onClick={() => apiClient.connectGoogle()}
+            className="w-full btn-glow gap-1.5"
+            style={{ background: "#4285F4" }}
+            variant={accounts.length === 0 ? "default" : "outline"}
+          >
+            {accounts.length === 0 ? (
+              <><Link2 className="h-3.5 w-3.5" />Connecter Google (GBP)</>
+            ) : (
+              <><Plus className="h-3.5 w-3.5" />Ajouter un compte GBP</>
+            )}
+          </Button>
+          <Button
+            onClick={() => apiClient.connectGoogleAnalytics()}
+            variant="outline"
+            className="w-full gap-1.5"
+          >
+            <BarChart3 className="h-3.5 w-3.5" style={{ color: "#0F9D58" }} />
+            Connecter Analytics + Search Console
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )

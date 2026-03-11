@@ -18,7 +18,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
   fastify.addHook("preHandler", async (request: FastifyRequest, reply) => {
     // Routes publiques
-    const publicPaths = ["/health", "/api/auth", "/api/billing/webhook", "/api/google/callback"]
+    const publicPaths = ["/health", "/api/auth", "/api/billing/webhook", "/api/google/callback", "/api/reports/"]
     if (publicPaths.some((p) => request.url.startsWith(p))) return
 
     const authHeader = request.headers.authorization
@@ -38,7 +38,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     // Vérifier le token de session BetterAuth dans la DB
     const session = await prisma.session.findUnique({
       where: { token: sessionToken },
-      include: { user: { select: { id: true, tenantId: true, role: true, email: true, name: true } } },
+      include: { user: { select: { id: true, tenantId: true, role: true, email: true, name: true, isBanned: true } } },
     })
 
     if (!session || session.expiresAt < new Date()) {
@@ -80,6 +80,26 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       }
     } else {
       request.tenantId = session.user.tenantId
+    }
+
+    // Bloquer les comptes suspendus
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: request.tenantId },
+      select: { isSuspended: true },
+    })
+    if (tenant?.isSuspended) {
+      return reply.status(403).send({
+        error: "Compte suspendu",
+        message: "Votre compte a été suspendu. Contactez le support.",
+      })
+    }
+
+    // Bloquer les utilisateurs bannis
+    if (session.user.isBanned) {
+      return reply.status(403).send({
+        error: "Compte banni",
+        message: "Votre compte a été banni.",
+      })
     }
   })
 }

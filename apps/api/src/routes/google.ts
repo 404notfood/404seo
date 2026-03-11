@@ -4,7 +4,7 @@ import { randomUUID } from "crypto"
 import { google, Auth } from "googleapis"
 import { prisma } from "../lib/prisma.js"
 import { redis } from "../lib/redis.js"
-import { getOAuthClient, getAuthenticatedClient, GOOGLE_SCOPES } from "../lib/googleOAuth.js"
+import { getOAuthClient, getAuthenticatedClient, GOOGLE_SCOPES, GOOGLE_ANALYTICS_SCOPES } from "../lib/googleOAuth.js"
 
 const STATE_TTL = 600 // 10 minutes
 
@@ -36,6 +36,30 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
     }
   )
 
+  // ─── GET /api/google/auth/analytics — OAuth pour Analytics + Search Console ─
+  fastify.get(
+    "/api/google/auth/analytics",
+    async (request, reply) => {
+      const state = randomUUID()
+      await redis.set(
+        `google_oauth_state:${state}`,
+        JSON.stringify({ tenantId: request.tenantId, userId: request.userId, flow: "analytics" }),
+        "EX",
+        STATE_TTL
+      )
+
+      const auth = getOAuthClient()
+      const authUrl = auth.generateAuthUrl({
+        access_type: "offline",
+        prompt: "consent",
+        scope: GOOGLE_ANALYTICS_SCOPES,
+        state,
+      })
+
+      return reply.redirect(authUrl)
+    }
+  )
+
   // ─── GET /api/google/callback — Callback Google (PUBLIC) ──────────────────
   fastify.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     "/api/google/callback",
@@ -58,11 +82,13 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       let tenantId: string
       let listingId: string | undefined
       let label: string | undefined
+      let flow: string | undefined
       try {
-        const parsed = JSON.parse(stateData) as { tenantId: string; userId: string; listingId?: string; label?: string }
+        const parsed = JSON.parse(stateData) as { tenantId: string; userId: string; listingId?: string; label?: string; flow?: string }
         tenantId = parsed.tenantId
         listingId = parsed.listingId
         label = parsed.label
+        flow = parsed.flow
       } catch {
         return reply.redirect(`${appUrl}/settings?google=error`)
       }
@@ -99,6 +125,9 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
         // Non bloquant
       }
 
+      // Déterminer les scopes utilisés selon le flow
+      const scopesUsed = flow === "analytics" ? GOOGLE_ANALYTICS_SCOPES : GOOGLE_SCOPES
+
       // Créer ou mettre à jour le GoogleAccount pour ce tenant + cet email Google
       // (évite les doublons si on reconnecte le même compte)
       const existingAccount = await prisma.googleAccount.findFirst({
@@ -107,6 +136,9 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
 
       let googleAccountId: string
       if (existingAccount) {
+        // Fusionner les scopes si le compte existe déjà (GBP + Analytics)
+        const existingScopes = (existingAccount.scopes as string[] | null) ?? []
+        const mergedScopes = [...new Set([...existingScopes, ...scopesUsed])]
         await prisma.googleAccount.update({
           where: { id: existingAccount.id },
           data: {
@@ -114,7 +146,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
             accessToken: tokens.access_token,
             refreshToken: tokens.refresh_token,
             tokenExpiry: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-            scopes: GOOGLE_SCOPES,
+            scopes: mergedScopes,
             ...(label ? { label } : {}),
           },
         })
@@ -128,7 +160,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
             accessToken: tokens.access_token,
             refreshToken: tokens.refresh_token,
             tokenExpiry: new Date(tokens.expiry_date ?? Date.now() + 3600_000),
-            scopes: GOOGLE_SCOPES,
+            scopes: scopesUsed,
             label: label ?? googleEmail,
           },
         })
@@ -143,14 +175,17 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      // Importer/synchroniser les fiches GBP depuis Google
-      try {
-        await importGBPListings(tenantId, googleAccountId, auth)
-      } catch (err) {
-        fastify.log.warn({ err }, "Impossible d'importer les fiches GBP")
+      // Importer/synchroniser les fiches GBP depuis Google (sauf pour le flow analytics)
+      if (flow !== "analytics") {
+        try {
+          await importGBPListings(tenantId, googleAccountId, auth)
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          fastify.log.error({ err, tenantId, googleAccountId }, `Échec import GBP: ${errMsg}`)
+        }
       }
 
-      const redirectTarget = listingId ? `/local/gbp` : `/settings`
+      const redirectTarget = flow === "analytics" ? `/settings?google=analytics-connected` : listingId ? `/local/gbp` : `/settings`
       return reply.redirect(`${appUrl}${redirectTarget}?google=connected`)
     }
   )
@@ -391,22 +426,52 @@ async function importGBPListings(tenantId: string, googleAccountId: string, auth
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mybusiness = google.mybusinessbusinessinformation({ version: "v1", auth: auth as any })
 
-  // Récupérer les comptes GBP
-  const accountsRes = await accountsClient.accounts.list({})
-  const accounts = accountsRes.data.accounts ?? []
+  // Récupérer les comptes GBP (avec pagination)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let allAccounts: any[] = []
+  let pageToken: string | undefined
+  do {
+    const accountsRes = await accountsClient.accounts.list({
+      pageSize: 20,
+      ...(pageToken ? { pageToken } : {}),
+    })
+    const accounts = accountsRes.data.accounts ?? []
+    allAccounts = allAccounts.concat(accounts)
+    pageToken = accountsRes.data.nextPageToken ?? undefined
+  } while (pageToken)
 
-  for (const account of accounts) {
+  if (allAccounts.length === 0) {
+    console.warn("[GBP Import] Aucun compte GBP trouvé pour ce compte Google")
+    return
+  }
+
+  for (const account of allAccounts) {
     if (!account.name) continue
 
-    // Récupérer les fiches de chaque compte
+    // Récupérer les fiches de chaque compte (avec pagination + gestion d'erreur par compte)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const locationsRes = await (mybusiness.accounts as any).locations.list({
-      parent: account.name,
-    })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const locations: any[] = locationsRes.data?.locations ?? []
+    let allLocations: any[] = []
+    let locPageToken: string | undefined
+    try {
+      do {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const locationsRes = await (mybusiness.accounts as any).locations.list({
+          parent: account.name,
+          pageSize: 100,
+          readMask: "name,title,storefrontAddress,phoneNumbers,websiteUri,primaryCategory",
+          ...(locPageToken ? { pageToken: locPageToken } : {}),
+        })
+        const locations = locationsRes.data?.locations ?? []
+        allLocations = allLocations.concat(locations)
+        locPageToken = locationsRes.data?.nextPageToken ?? undefined
+      } while (locPageToken)
+    } catch (err) {
+      // Continuer avec les autres comptes si un échoue (ex: permissions insuffisantes)
+      console.warn(`[GBP Import] Erreur lors de la récupération des fiches pour ${account.name}:`, err instanceof Error ? err.message : err)
+      continue
+    }
 
-    for (const location of locations) {
+    for (const location of allLocations) {
       const googlePlaceId = location.name as string | undefined
       const googleLocationName = location.title as string | undefined
       const address = (location.storefrontAddress?.addressLines as string[] | undefined)?.join(", ") ?? ""

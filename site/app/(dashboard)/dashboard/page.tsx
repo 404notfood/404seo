@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
 import { Search, TrendingUp, AlertTriangle, CheckCircle, Clock, ArrowRight, Activity } from "lucide-react"
+import OnboardingWizard from "@/components/dashboard/OnboardingWizard"
 import { formatDistanceToNow } from "@/lib/date"
 import type { AuditStatus } from "@/lib/api-client"
 
@@ -232,29 +233,8 @@ export default function DashboardPage() {
         </div>
 
       ) : !isLoading ? (
-        /* Empty state premium */
-        <div className="flex flex-col items-center justify-center py-24">
-          <div className="relative mb-8">
-            <div className="h-24 w-24 rounded-full flex items-center justify-center" style={{ background: "rgba(37,99,235,0.08)", border: "1px solid rgba(37,99,235,0.15)" }}>
-              <Search className="h-10 w-10" style={{ color: "#2563eb" }} />
-            </div>
-            <div className="absolute -top-1 -right-1 h-6 w-6 rounded-full flex items-center justify-center" style={{ background: "#06b6d4" }}>
-              <span className="text-white text-xs font-bold">+</span>
-            </div>
-          </div>
-          <h2 className="text-2xl font-bold mb-3 tracking-tight" style={{ color: "#0f172a" }}>
-            Lancez votre premier audit
-          </h2>
-          <p className="text-slate-400 text-sm mb-8 text-center max-w-sm leading-relaxed">
-            Analysez les performances SEO de votre site et obtenez un plan d&apos;action priorisé en moins de 60 secondes.
-          </p>
-          <Button asChild size="lg" className="btn-glow" style={{ background: "#2563eb" }}>
-            <Link href="/audits">
-              <Search className="h-4 w-4 mr-2" />
-              Démarrer un audit
-            </Link>
-          </Button>
-        </div>
+        /* Onboarding wizard pour les nouveaux utilisateurs */
+        <OnboardingWizard />
       ) : null}
     </div>
   )

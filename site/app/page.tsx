@@ -115,9 +115,99 @@ const STATS = [
   { value: "< 30s", label: "Premier résultat" },
 ]
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://seo.404notfood.fr/#organization",
+      name: "404 SEO",
+      url: "https://seo.404notfood.fr",
+      logo: "https://seo.404notfood.fr/logo.png",
+      description: "Plateforme SaaS d'audit SEO technique avec IA",
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://seo.404notfood.fr/#website",
+      url: "https://seo.404notfood.fr",
+      name: "404 SEO",
+      publisher: { "@id": "https://seo.404notfood.fr/#organization" },
+    },
+    {
+      "@type": "SoftwareApplication",
+      name: "404 SEO",
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      url: "https://seo.404notfood.fr",
+      description:
+        "Auditez, analysez et optimisez le SEO de vos sites web avec l'IA. Audit technique complet, suivi de positions, backlinks, rapports PDF marque blanche.",
+      offers: [
+        { "@type": "Offer", name: "Starter", price: "0", priceCurrency: "EUR", description: "Plan gratuit" },
+        { "@type": "Offer", name: "Pro", price: "29", priceCurrency: "EUR", description: "Plan Pro" },
+        { "@type": "Offer", name: "Agency", price: "79", priceCurrency: "EUR", description: "Plan Agency" },
+      ],
+      aggregateRating: {
+        "@type": "AggregateRating",
+        ratingValue: "4.9",
+        reviewCount: "200",
+        bestRating: "5",
+      },
+    },
+    {
+      "@type": "FAQPage",
+      mainEntity: [
+        {
+          "@type": "Question",
+          name: "Ai-je besoin d'acces a mon serveur ou CMS ?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Non. 404 SEO crawle votre site comme Googlebot, depuis l'exterieur. Aucune installation de plugin ni acces FTP requis.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Combien de temps dure un audit ?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Un audit de 100 pages prend generalement moins de 30 secondes. Pour des sites plus larges, comptez quelques minutes.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Puis-je annuler mon abonnement a tout moment ?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Oui, sans engagement. Vous pouvez annuler depuis votre espace client a tout moment, sans frais.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "Les rapports PDF sont-ils personnalisables ?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Sur les plans Pro et Agency, vous pouvez activer la marque blanche pour apposer votre logo et vos couleurs sur les PDF.",
+          },
+        },
+        {
+          "@type": "Question",
+          name: "L'API est-elle disponible ?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "L'acces a l'API REST est inclus dans le plan Agency. Elle permet d'integrer les audits dans vos propres outils.",
+          },
+        },
+      ],
+    },
+  ],
+}
+
 export default function HomePage() {
   return (
     <div className="min-h-screen bg-white text-slate-900" style={{ fontFamily: "Inter, sans-serif" }}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
 
       {/* ── Navbar ── */}
       <header
@@ -192,7 +282,7 @@ export default function HomePage() {
               className="block"
               style={{ background: "linear-gradient(90deg, #2563eb, #06b6d4)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
             >
-              avec l`&apos;`IA
+              avec l&apos;IA
             </span>
           </h1>
 

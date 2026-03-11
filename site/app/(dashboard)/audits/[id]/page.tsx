@@ -6,7 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, ExternalLink, Download, AlertTriangle, XCircle, CheckCircle, Gauge, Globe, ImageIcon, LinkIcon, Link2, ShieldCheck, Search } from "lucide-react"
+import { ArrowLeft, ExternalLink, Download, Share2, AlertTriangle, XCircle, CheckCircle, Gauge, Globe, ImageIcon, LinkIcon, Link2, ShieldCheck, Search } from "lucide-react"
+import { toast } from "sonner"
 import { useAudit, useAuditBreakdown } from "@/hooks/useAudits"
 import { ScoreGauge } from "@/components/audit/ScoreGauge"
 import { ScoreRadar } from "@/components/audit/ScoreRadar"
@@ -176,13 +177,26 @@ export default function AuditDetailPage({ params }: Props) {
           </p>
         </div>
         {audit.status === "COMPLETED" && (
-          <Button variant="outline" size="sm" onClick={() => {
-            apiClient.downloadAuditPdf(id, new URL(audit.url).hostname)
-              .catch(() => alert("Erreur lors de la génération du PDF"))
-          }}>
-            <Download className="h-4 w-4 mr-2" />
-            Télécharger PDF
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => {
+              apiClient.shareAudit(id)
+                .then(({ shareUrl }) => {
+                  navigator.clipboard.writeText(shareUrl)
+                  toast.success("Lien de partage copié !")
+                })
+                .catch(() => toast.error("Erreur lors du partage"))
+            }}>
+              <Share2 className="h-4 w-4 mr-2" />
+              Partager
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              apiClient.downloadAuditPdf(id, new URL(audit.url).hostname)
+                .catch(() => toast.error("Erreur lors de la génération du PDF"))
+            }}>
+              <Download className="h-4 w-4 mr-2" />
+              PDF
+            </Button>
+          </div>
         )}
       </div>
 

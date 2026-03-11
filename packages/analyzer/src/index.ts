@@ -181,6 +181,50 @@ export function analyzeTechnical(page: PageData): CheckResult[] {
     })
   }
 
+  // Hreflang (international SEO)
+  const hreflangCount = page.hreflangTags?.length ?? 0
+  if (hreflangCount > 0) {
+    const hasSelfRef = page.hreflangTags!.some((t) => t.href === page.url || t.lang === "x-default")
+    results.push({
+      category: "TECHNICAL",
+      checkName: "hreflang",
+      status: hasSelfRef ? "PASS" : "WARN",
+      score: hasSelfRef ? 100 : 60,
+      value: `${hreflangCount} balise(s) hreflang`,
+      expected: "Hreflang avec auto-référence",
+      message: hasSelfRef
+        ? `${hreflangCount} balise(s) hreflang correctement configurée(s).`
+        : `${hreflangCount} balise(s) hreflang détectée(s) mais pas d'auto-référence. Ajoutez hreflang pour la page elle-même.`,
+      priority: "MEDIUM",
+      effort: "LOW",
+    })
+  }
+
+  // Security headers
+  if (page.responseHeaders) {
+    const headers = page.responseHeaders
+    const secHeaders = [
+      { key: "strict-transport-security", label: "HSTS" },
+      { key: "x-content-type-options", label: "X-Content-Type-Options" },
+      { key: "x-frame-options", label: "X-Frame-Options" },
+    ]
+    const present = secHeaders.filter((h) => headers[h.key])
+    const score = Math.round((present.length / secHeaders.length) * 100)
+    results.push({
+      category: "TECHNICAL",
+      checkName: "security_headers",
+      status: present.length === secHeaders.length ? "PASS" : present.length > 0 ? "WARN" : "FAIL",
+      score,
+      value: present.length > 0 ? present.map((h) => h.label).join(", ") : "Aucun",
+      expected: "HSTS + X-Content-Type-Options + X-Frame-Options",
+      message: present.length === secHeaders.length
+        ? "Tous les headers de sécurité essentiels sont présents."
+        : `${present.length}/${secHeaders.length} headers de sécurité. Manquant : ${secHeaders.filter((h) => !headers[h.key]).map((h) => h.label).join(", ")}.`,
+      priority: present.length === 0 ? "HIGH" : "MEDIUM",
+      effort: "LOW",
+    })
+  }
+
   return results
 }
 
@@ -348,7 +392,95 @@ export function analyzeOnPage(page: PageData): CheckResult[] {
     effort: "MEDIUM",
   })
 
+  // Twitter Cards
+  const tc = page.twitterCard
+  const tcFields = [tc?.card, tc?.title, tc?.description].filter(Boolean).length
+  const tcScore = Math.round((tcFields / 3) * 100)
+  results.push({
+    category: "ON_PAGE",
+    checkName: "twitter_cards",
+    status: tcFields === 3 ? "PASS" : tcFields > 0 ? "WARN" : "FAIL",
+    score: tcScore,
+    value: `${tcFields}/3 balises Twitter Card`,
+    expected: "twitter:card + twitter:title + twitter:description",
+    message: tcFields === 3
+      ? "Toutes les balises Twitter Card sont présentes."
+      : tcFields > 0
+        ? `Twitter Cards incomplet : ${tcFields}/3 balises. Complétez pour un meilleur partage sur X/Twitter.`
+        : "Aucune balise Twitter Card. Le partage sur X/Twitter sera mal optimisé.",
+    priority: tcFields === 0 ? "MEDIUM" : "LOW",
+    effort: "LOW",
+  })
+
+  // Keyword density (basé sur les top keywords extraits)
+  if (page.topKeywords && page.topKeywords.length > 0 && page.wordCount && page.wordCount > 0) {
+    const topKw = page.topKeywords[0]
+    const density = (topKw.count / page.wordCount) * 100
+    const densityOk = density >= 0.5 && density <= 3
+    const tooHigh = density > 3
+    results.push({
+      category: "ON_PAGE",
+      checkName: "keyword_density",
+      status: densityOk ? "PASS" : tooHigh ? "WARN" : "WARN",
+      score: densityOk ? 100 : tooHigh ? 40 : 60,
+      value: `"${topKw.term}" : ${density.toFixed(1)}% (${topKw.count}x sur ${page.wordCount} mots)`,
+      expected: "0.5% — 3% pour le mot-clé principal",
+      message: densityOk
+        ? `Densité du mot-clé principal "${topKw.term}" optimale : ${density.toFixed(1)}%.`
+        : tooHigh
+          ? `Densité trop élevée pour "${topKw.term}" (${density.toFixed(1)}%). Risque de keyword stuffing.`
+          : `Densité faible pour "${topKw.term}" (${density.toFixed(1)}%). Augmentez les occurrences naturelles.`,
+      priority: tooHigh ? "MEDIUM" : "LOW",
+      effort: "LOW",
+    })
+  }
+
+  // Content readability (Flesch-Kincaid adapté français)
+  if (page.bodyText && page.wordCount && page.wordCount >= 100) {
+    const sentences = page.bodyText.split(/[.!?]+/).filter((s) => s.trim().length > 0).length
+    const words = page.wordCount
+    const syllables = estimateSyllablesFr(page.bodyText)
+    // Formule Flesch adaptée FR : 207 - 1.015 * (words/sentences) - 73.6 * (syllables/words)
+    const avgWordsPerSentence = sentences > 0 ? words / sentences : words
+    const avgSyllablesPerWord = words > 0 ? syllables / words : 2
+    const fleschFr = Math.max(0, Math.min(100, 207 - 1.015 * avgWordsPerSentence - 73.6 * avgSyllablesPerWord))
+    const readScore = Math.round(fleschFr)
+    const readStatus: CheckStatus = readScore >= 60 ? "PASS" : readScore >= 30 ? "WARN" : "FAIL"
+    results.push({
+      category: "ON_PAGE",
+      checkName: "content_readability",
+      status: readStatus,
+      score: readScore,
+      value: `Score Flesch : ${readScore}/100`,
+      expected: "> 60 (facile à lire)",
+      message: readScore >= 60
+        ? `Contenu facile à lire (score ${readScore}/100).`
+        : readScore >= 30
+          ? `Contenu assez difficile à lire (score ${readScore}/100). Simplifiez les phrases.`
+          : `Contenu très difficile à lire (score ${readScore}/100). Phrases trop longues ou vocabulaire complexe.`,
+      priority: readStatus === "FAIL" ? "MEDIUM" : "LOW",
+      effort: "MEDIUM",
+    })
+  }
+
   return results
+}
+
+// Estimation du nombre de syllabes en français (heuristique)
+function estimateSyllablesFr(text: string): number {
+  const words = text.toLowerCase().split(/\s+/).filter((w) => w.length > 0)
+  let total = 0
+  for (const word of words) {
+    // Compter les groupes de voyelles (approximation FR)
+    const vowelGroups = word.match(/[aeiouyàâäéèêëïîôùûüœæ]+/gi)
+    let count = vowelGroups ? vowelGroups.length : 1
+    // Le "e" muet en fin de mot ne compte pas
+    if (word.endsWith("e") && count > 1) count--
+    if (word.endsWith("es") && count > 1) count--
+    if (word.endsWith("ent") && count > 1 && word.length > 4) count--
+    total += Math.max(1, count)
+  }
+  return total
 }
 
 // ─────────────────────────────────────────────
@@ -537,6 +669,29 @@ export function analyzePerformance(page: PageData): CheckResult[] {
     priority: "LOW",
     effort: "LOW",
   })
+
+  // Image lazy loading
+  const totalImgs = page.images.length
+  if (totalImgs > 1) {
+    const lazyCount = page.imagesLazyCount ?? 0
+    // La première image ne devrait PAS être lazy (LCP), les autres oui
+    const expectedLazy = totalImgs - 1
+    const lazyRatio = expectedLazy > 0 ? (lazyCount / expectedLazy) * 100 : 100
+    const lazyStatus: CheckStatus = lazyRatio >= 80 ? "PASS" : lazyRatio >= 50 ? "WARN" : "FAIL"
+    results.push({
+      category: "PERFORMANCE",
+      checkName: "image_lazy_loading",
+      status: lazyStatus,
+      score: Math.round(lazyRatio),
+      value: `${lazyCount}/${totalImgs} images en lazy loading`,
+      expected: "Images below the fold en loading='lazy'",
+      message: lazyStatus === "PASS"
+        ? `${lazyCount} image(s) sur ${totalImgs} utilisent le lazy loading.`
+        : `Seulement ${lazyCount}/${totalImgs} images utilisent loading="lazy". Ajoutez-le aux images hors viewport initial.`,
+      priority: lazyStatus === "FAIL" ? "MEDIUM" : "LOW",
+      effort: "LOW",
+    })
+  }
 
   // Ressources HTTPS (vérification des liens)
   const allLinks = [...page.internalLinks, ...page.externalLinks]

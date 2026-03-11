@@ -2,8 +2,14 @@
 import { google } from "googleapis"
 import { prisma } from "./prisma"
 
+// Scopes GBP uniquement (non sensibles → pas d'écran d'avertissement Google)
 export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/business.manage",
+  "https://www.googleapis.com/auth/userinfo.email",
+]
+
+// Scopes Analytics + Search Console (sensibles → nécessite vérification Google)
+export const GOOGLE_ANALYTICS_SCOPES = [
   "https://www.googleapis.com/auth/analytics.readonly",
   "https://www.googleapis.com/auth/webmasters.readonly",
   "https://www.googleapis.com/auth/userinfo.email",

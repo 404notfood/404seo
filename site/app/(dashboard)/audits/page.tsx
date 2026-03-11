@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -36,9 +37,12 @@ export default function AuditsPage() {
   const [maxDepth, setMaxDepth] = useState(5)
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop")
 
+  const router = useRouter()
   const { activeProjectId, activeProject } = useActiveProject()
   const { data: audits, isLoading } = useAudits(activeProjectId)
-  const { mutate: launchAudit, isPending } = useLaunchAudit()
+  const { mutate: launchAudit, isPending } = useLaunchAudit({
+    onAuditCreated: (auditId) => router.push(`/audits/${auditId}`),
+  })
   const { mutate: deleteAudit } = useDeleteAudit()
   const { isMember, isAdmin } = useRole()
 

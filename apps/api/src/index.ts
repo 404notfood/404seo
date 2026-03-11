@@ -25,6 +25,8 @@ import backlinksRoutes from "./routes/backlinks"
 import competitorsRoutes from "./routes/competitors"
 import aiVisibilityRoutes from "./routes/ai-visibility"
 import adminRoutes from "./routes/admin"
+import scheduledRoutes from "./routes/scheduled"
+import { captureError } from "./lib/monitoring"
 
 const isDev = process.env.NODE_ENV !== "production"
 
@@ -99,6 +101,20 @@ async function start() {
   await fastify.register(competitorsRoutes)
   await fastify.register(aiVisibilityRoutes)
   await fastify.register(adminRoutes)
+  await fastify.register(scheduledRoutes)
+
+  // Monitoring d'erreurs global
+  fastify.setErrorHandler(async (error: { statusCode?: number; message: string }, request, reply) => {
+    captureError(error instanceof Error ? error : new Error(error.message), {
+      route: `${request.method} ${request.url}`,
+      userId: request.userId,
+      tenantId: request.tenantId,
+    })
+    const statusCode = error.statusCode ?? 500
+    reply.status(statusCode).send({
+      error: statusCode >= 500 ? "Erreur interne du serveur" : error.message,
+    })
+  })
 
   // Health check
   fastify.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))
@@ -111,4 +127,16 @@ async function start() {
 start().catch((err) => {
   fastify.log.error(err)
   process.exit(1)
+})
+
+// Capture des erreurs non gérées globalement
+process.on("uncaughtException", (err) => {
+  captureError(err, { extra: { type: "uncaughtException" } })
+  console.error("Uncaught Exception:", err)
+  process.exit(1)
+})
+
+process.on("unhandledRejection", (reason) => {
+  captureError(reason instanceof Error ? reason : new Error(String(reason)), { extra: { type: "unhandledRejection" } })
+  console.error("Unhandled Rejection:", reason)
 })
