@@ -182,8 +182,8 @@ function CollapsibleSection({
         className="w-full flex items-center justify-between px-3 pb-1.5 pt-0.5 group cursor-pointer"
       >
         <span
-          className="text-[10px] font-semibold uppercase tracking-[0.12em] transition-colors group-hover:text-slate-400"
-          style={{ color: "#475569" }}
+          className="text-[10px] font-semibold uppercase tracking-[0.12em] transition-colors group-hover:text-slate-300"
+          style={{ color: "#ffffff" }}
         >
           {section.title}
         </span>
@@ -232,12 +232,14 @@ function NavItems({ items, pathname }: { items: NavItem[]; pathname: string }) {
               "flex items-center gap-2.5 px-3 py-[7px] rounded-lg text-[13px] font-medium transition-all duration-150",
               active
                 ? "text-white"
-                : "text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"
+                : "hover:text-slate-200 hover:bg-white/[0.04]"
             )}
             style={active ? {
               background: "rgba(37,99,235,0.15)",
               boxShadow: "inset 3px 0 0 #2563eb",
-            } : undefined}
+            } : {
+              color: "lab(95 -32.16 116.44)",
+            }}
           >
             <Icon
               className="h-[18px] w-[18px] shrink-0 transition-colors"
@@ -420,7 +422,7 @@ export function Sidebar() {
           ) : (
             <div key={section.title}>
               <div className="px-3 pb-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#475569" }}>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#ffffff" }}>
                   {section.title}
                 </span>
               </div>
