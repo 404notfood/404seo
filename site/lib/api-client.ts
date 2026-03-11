@@ -302,6 +302,32 @@ export const apiClient = {
     fetcher<{ success: boolean }>(`/api/google/listing/${listingId}/disconnect`, { method: "POST" }),
   getGA4Data: (propertyId: string) => fetcher<GA4Data>(`/api/google/analytics?propertyId=${encodeURIComponent(propertyId)}`),
   getGSCData: (siteUrl: string) => fetcher<GSCData>(`/api/google/search-console?siteUrl=${encodeURIComponent(siteUrl)}`),
+  connectGoogleAnalytics: () => {
+    if (typeof window !== "undefined") {
+      window.location.href = `${API_URL}/api/google/auth/analytics`
+    }
+  },
+
+  // Comparaison d'audits
+  compareAudits: (id1: string, id2: string) =>
+    fetcher<AuditComparison>(`/api/audits/compare?ids=${id1},${id2}`),
+
+  // Partage de rapport
+  shareAudit: (id: string) =>
+    fetcher<{ shareUrl: string; token: string; expiresAt: string }>(`/api/audits/${id}/share`, { method: "POST" }),
+
+  // Rapport public (pas d'auth)
+  getPublicReport: (token: string) =>
+    fetcher<PublicReport>(`/api/reports/${token}`),
+
+  // Audits planifiés
+  getScheduledAudits: () => fetcher<ScheduledAudit[]>("/api/scheduled"),
+  createScheduledAudit: (data: { projectId: string; frequency: string; options?: Record<string, unknown> }) =>
+    fetcher<ScheduledAudit>("/api/scheduled", { method: "POST", body: JSON.stringify(data) }),
+  updateScheduledAudit: (id: string, data: { isActive?: boolean; frequency?: string }) =>
+    fetcher<ScheduledAudit>(`/api/scheduled/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteScheduledAudit: (id: string) =>
+    fetcher<void>(`/api/scheduled/${id}`, { method: "DELETE" }),
 }
 
 export interface BillingInfo {
@@ -919,4 +945,49 @@ export interface PlanConfig {
   featureBacklinks: boolean
   isActive: boolean
   sortOrder: number
+}
+
+// ─── Comparaison d'audits ───────────────────
+export interface AuditComparison {
+  before: {
+    id: string; url: string; createdAt: string
+    project: { name: string; domain: string }
+    report: AuditReport | null
+  }
+  after: {
+    id: string; url: string; createdAt: string
+    project: { name: string; domain: string }
+    report: AuditReport | null
+  }
+  delta: {
+    global: number; technical: number; onPage: number
+    performance: number; ux: number
+  }
+  resolved: string[]
+  newIssues: string[]
+}
+
+// ─── Rapport public ─────────────────────────
+export interface PublicReport {
+  url: string
+  createdAt: string
+  project: { name: string; domain: string }
+  tenant: { name: string; brandColor: string | null; logoUrl: string | null }
+  report: AuditReport | null
+  expiresAt: string
+}
+
+// ─── Audits planifiés ───────────────────────
+export interface ScheduledAudit {
+  id: string
+  tenantId: string
+  userId: string
+  projectId: string
+  frequency: string
+  options: Record<string, unknown> | null
+  isActive: boolean
+  lastRunAt: string | null
+  nextRunAt: string | null
+  createdAt: string
+  project: { name: string; domain: string }
 }

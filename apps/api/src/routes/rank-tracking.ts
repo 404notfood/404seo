@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { chromium } from "playwright"
 import { prisma } from "../lib/prisma.js"
-import { requireRole, assertProjectOwner } from "../lib/guards.js"
+import { requireRole, requireFeature, assertProjectOwner } from "../lib/guards.js"
 
 const AddKeywordSchema = z.object({
   keyword: z.string().min(1).max(200),
@@ -162,7 +162,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/rank-tracking — Ajouter un mot-clé
   fastify.post(
     "/api/rank-tracking",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("rank_tracking")] },
     async (request, reply) => {
       const parse = AddKeywordSchema.safeParse(request.body)
       if (!parse.success) return reply.status(400).send({ error: "Données invalides" })

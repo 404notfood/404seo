@@ -6,6 +6,7 @@ import { isValidPublicUrl } from "@seo/crawler"
 import { generatePDF, type ReportData } from "@seo/reporter"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import { requireRole, assertProjectOwner } from "../lib/guards"
+import { requireAuditQuota } from "../lib/quotas"
 
 const LaunchAuditSchema = z.object({
   projectId: z.string().cuid(),
@@ -21,7 +22,7 @@ const LaunchAuditSchema = z.object({
 const auditsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/audits — Lancer un audit (MEMBER+ requis)
   fastify.post("/api/audits", {
-    preHandler: [requireRole("MEMBER")],
+    preHandler: [requireRole("MEMBER"), requireAuditQuota()],
     config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
   }, async (request, reply) => {
     const parse = LaunchAuditSchema.safeParse(request.body)
@@ -426,6 +427,143 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
     }))
 
     return reply.send({ siteKeywords, pageKeywords })
+  })
+
+  // GET /api/audits/compare?ids=id1,id2 — Comparer 2 audits
+  fastify.get("/api/audits/compare", async (request, reply) => {
+    const { ids } = request.query as { ids?: string }
+    if (!ids) return reply.status(400).send({ error: "Paramètre ids requis (id1,id2)" })
+
+    const auditIds = ids.split(",").map((s) => s.trim()).filter(Boolean)
+    if (auditIds.length !== 2) return reply.status(400).send({ error: "Exactement 2 IDs requis" })
+
+    const audits = await prisma.audit.findMany({
+      where: {
+        id: { in: auditIds },
+        tenantId: request.tenantId,
+        userId: request.userId,
+        status: "COMPLETED",
+        deletedAt: null,
+      },
+      include: {
+        report: true,
+        project: { select: { name: true, domain: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    })
+
+    if (audits.length !== 2) return reply.status(404).send({ error: "Les 2 audits doivent exister et être complétés" })
+
+    const [before, after] = audits
+
+    // Issues par audit pour calculer les nouvelles/résolues
+    const [issuesBefore, issuesAfter] = await Promise.all([
+      prisma.pageResult.groupBy({
+        by: ["checkName", "status"],
+        where: { page: { auditId: before.id }, status: { not: "PASS" } },
+        _count: { _all: true },
+      }),
+      prisma.pageResult.groupBy({
+        by: ["checkName", "status"],
+        where: { page: { auditId: after.id }, status: { not: "PASS" } },
+        _count: { _all: true },
+      }),
+    ])
+
+    const beforeChecks = new Set(issuesBefore.map((i) => i.checkName))
+    const afterChecks = new Set(issuesAfter.map((i) => i.checkName))
+
+    const resolved = [...beforeChecks].filter((c) => !afterChecks.has(c))
+    const newIssues = [...afterChecks].filter((c) => !beforeChecks.has(c))
+
+    return reply.send({
+      before: {
+        id: before.id,
+        url: before.url,
+        createdAt: before.createdAt,
+        project: before.project,
+        report: before.report,
+      },
+      after: {
+        id: after.id,
+        url: after.url,
+        createdAt: after.createdAt,
+        project: after.project,
+        report: after.report,
+      },
+      delta: {
+        global: (after.report?.scoreGlobal ?? 0) - (before.report?.scoreGlobal ?? 0),
+        technical: (after.report?.scoreTechnical ?? 0) - (before.report?.scoreTechnical ?? 0),
+        onPage: (after.report?.scoreOnPage ?? 0) - (before.report?.scoreOnPage ?? 0),
+        performance: (after.report?.scorePerformance ?? 0) - (before.report?.scorePerformance ?? 0),
+        ux: (after.report?.scoreUX ?? 0) - (before.report?.scoreUX ?? 0),
+      },
+      resolved,
+      newIssues,
+    })
+  })
+
+  // POST /api/audits/:id/share — Générer un lien de partage public
+  fastify.post<{ Params: { id: string } }>("/api/audits/:id/share", { preHandler: [requireRole("MEMBER")] }, async (request, reply) => {
+    const audit = await prisma.audit.findFirst({
+      where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId, status: "COMPLETED", deletedAt: null },
+    })
+    if (!audit) return reply.status(404).send({ error: "Audit introuvable ou non terminé" })
+
+    // Générer un token unique
+    const token = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 jours
+
+    await prisma.sharedReport.create({
+      data: {
+        token,
+        auditId: audit.id,
+        tenantId: request.tenantId,
+        expiresAt,
+      },
+    })
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://seo.404notfood.fr"
+    return reply.send({
+      shareUrl: `${appUrl}/report/${token}`,
+      token,
+      expiresAt,
+    })
+  })
+
+  // GET /api/reports/:token — Rapport public (pas d'auth requise, géré dans le plugin auth)
+  fastify.get<{ Params: { token: string } }>("/api/reports/:token", async (request, reply) => {
+    const shared = await prisma.sharedReport.findUnique({
+      where: { token: request.params.token },
+      include: {
+        audit: {
+          include: {
+            report: true,
+            project: { select: { name: true, domain: true } },
+            tenant: { select: { name: true, brandColor: true, logoUrl: true } },
+          },
+        },
+      },
+    })
+
+    if (!shared || shared.expiresAt < new Date()) {
+      return reply.status(404).send({ error: "Lien de partage expiré ou introuvable" })
+    }
+
+    // Incrémenter le compteur de vues
+    await prisma.sharedReport.update({
+      where: { id: shared.id },
+      data: { viewCount: { increment: 1 } },
+    })
+
+    return reply.send({
+      url: shared.audit.url,
+      createdAt: shared.audit.createdAt,
+      project: shared.audit.project,
+      tenant: shared.audit.tenant,
+      report: shared.audit.report,
+      expiresAt: shared.expiresAt,
+    })
   })
 
   // DELETE /api/audits/:id — MEMBER+ (soft delete)

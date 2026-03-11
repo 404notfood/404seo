@@ -32,8 +32,9 @@ model User {
   role          Role      @default(MEMBER)
   tenantId      String?
   tenant        Tenant?   @relation(fields: [tenantId], references: [id])
-  projects      Project[]
-  audits        Audit[]
+  projects        Project[]
+  audits          Audit[]
+  scheduledAudits ScheduledAudit[]
 
   // Admin
   isBanned      Boolean   @default(false)
@@ -121,6 +122,8 @@ model Tenant {
   competitors       Competitor[]
   aiVisibilityChecks AIVisibilityCheck[]
   tenantFeatures    TenantFeature[]
+  sharedReports     SharedReport[]
+  scheduledAudits   ScheduledAudit[]
 
   @@map("tenants")
 }
@@ -141,10 +144,11 @@ model Project {
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user           User            @relation(fields: [userId], references: [id])
-  audits         Audit[]
-  rankedKeywords RankedKeyword[]
-  backlinks      Backlink[]
-  competitors    Competitor[]
+  audits          Audit[]
+  rankedKeywords  RankedKeyword[]
+  backlinks       Backlink[]
+  competitors     Competitor[]
+  scheduledAudits ScheduledAudit[]
 
   @@index([tenantId])
   @@map("projects")
@@ -166,9 +170,10 @@ model Audit {
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user     User      @relation(fields: [userId], references: [id])
   project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  pages    AuditPage[]
-  report   AuditReport?
-  jobs     AuditJob[]
+  pages          AuditPage[]
+  report         AuditReport?
+  jobs           AuditJob[]
+  sharedReports  SharedReport[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -715,6 +720,57 @@ enum GBPPostType {
   UPDATE
   EVENT
   OFFER
+}
+
+// ─────────────────────────────────────────────
+// RAPPORT PARTAGÉ (lien public)
+// ─────────────────────────────────────────────
+
+model SharedReport {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  auditId   String
+  tenantId  String
+  expiresAt DateTime
+  viewCount Int      @default(0)
+  createdAt DateTime @default(now())
+
+  audit  Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("shared_reports")
+}
+
+// ─────────────────────────────────────────────
+// AUDITS PLANIFIÉS (scheduled)
+// ─────────────────────────────────────────────
+
+model ScheduledAudit {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  projectId String
+  frequency String   @default("weekly") // "weekly" | "monthly"
+  options   Json?    // mêmes options que Audit (maxPages, maxDepth, device)
+  isActive  Boolean  @default(true)
+  lastRunAt DateTime?
+  nextRunAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([nextRunAt, isActive])
+  @@map("scheduled_audits")
+}
+
+enum ScheduleFrequency {
+  WEEKLY
+  MONTHLY
 }
 
 enum GBPPostStatus {

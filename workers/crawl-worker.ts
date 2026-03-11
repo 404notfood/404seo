@@ -371,13 +371,54 @@ const reportWorker = new Worker<ReportJobData>(
       data: { status: "COMPLETED", completedAt: new Date() },
     })
 
-    // Déduire les pages crawlées du quota
-    const audit = await prisma.audit.findUnique({ where: { id: auditId }, select: { tenantId: true } })
+    // Déduire les pages crawlées du quota + notifier par email
+    const audit = await prisma.audit.findUnique({
+      where: { id: auditId },
+      select: { tenantId: true, url: true, userId: true },
+    })
     if (audit?.tenantId) {
       await prisma.subscription.updateMany({
         where: { tenantId: audit.tenantId },
         data: { pagesUsed: { increment: totalPages } },
       })
+
+      // Envoyer email de notification si Resend configuré
+      try {
+        const user = await prisma.user.findUnique({
+          where: { id: audit.userId },
+          select: { email: true },
+        })
+        if (user?.email && process.env.RESEND_API_KEY) {
+          const scoreColor = score.global >= 80 ? "#22c55e" : score.global >= 50 ? "#f59e0b" : "#ef4444"
+          const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://seo.404notfood.fr"
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${process.env.RESEND_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: process.env.EMAIL_FROM || "404 SEO <noreply@seo.404notfood.fr>",
+              to: user.email,
+              subject: `Audit terminé : ${audit.url} — Score ${score.global}/100`,
+              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:40px 20px;background:#0f172a;color:#f1f5f9;">
+                <h1 style="color:#2563eb;">404 SEO</h1>
+                <h2>Votre audit est terminé !</h2>
+                <p style="color:#94a3b8;">Résultats pour <strong style="color:#f1f5f9;">${audit.url}</strong></p>
+                <div style="text-align:center;margin:32px 0;">
+                  <span style="font-size:48px;font-weight:bold;color:${scoreColor};">${score.global}/100</span>
+                  <p style="color:${scoreColor};font-size:20px;">Grade ${score.grade}</p>
+                </div>
+                <div style="text-align:center;margin:32px 0;">
+                  <a href="${appUrl}/audits/${auditId}" style="display:inline-block;padding:12px 32px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Voir les détails</a>
+                </div>
+              </div>`,
+            }),
+          }).catch((err) => logger.error({ err }, "Erreur envoi email notification"))
+        }
+      } catch (err) {
+        logger.error({ err }, "Erreur envoi email notification audit")
+      }
     }
 
     return { score: score.global, grade: score.grade }

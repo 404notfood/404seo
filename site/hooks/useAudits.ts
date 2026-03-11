@@ -14,6 +14,15 @@ export function useAudits(projectId?: string | null) {
   return useQuery({
     queryKey: ["audits", projectId ?? null],
     queryFn: () => apiClient.getAudits(projectId),
+    // Poll toutes les 5s tant qu'un audit est en cours
+    refetchInterval: (query) => {
+      const audits = query.state.data
+      if (!audits) return false
+      const hasRunning = audits.some((a) =>
+        ["PENDING", "CRAWLING", "ANALYZING", "SCORING", "GENERATING_REPORT"].includes(a.status)
+      )
+      return hasRunning ? 5000 : false
+    },
   })
 }
 
@@ -29,13 +38,14 @@ export function useAudit(id: string) {
   })
 }
 
-export function useLaunchAudit() {
+export function useLaunchAudit(opts?: { onAuditCreated?: (auditId: string) => void }) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: LaunchAuditInput) => apiClient.launchAudit(data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["audits"] })
       toast.success("Audit lancé avec succès !")
+      opts?.onAuditCreated?.(data.auditId)
     },
     onError: (err: Error) => {
       toast.error(err.message || "Erreur lors du lancement")

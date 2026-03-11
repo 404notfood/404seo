@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma.js"
-import { requireRole, assertProjectOwner } from "../lib/guards.js"
+import { requireRole, requireFeature, assertProjectOwner } from "../lib/guards.js"
 
 const AddCompetitorSchema = z.object({
   domain: z.string().min(3),
@@ -150,7 +150,7 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/competitors — Ajouter un concurrent
   fastify.post(
     "/api/competitors",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("competitors")] },
     async (request, reply) => {
       const parse = AddCompetitorSchema.safeParse(request.body)
       if (!parse.success) return reply.status(400).send({ error: "Données invalides" })
@@ -184,7 +184,7 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/competitors/:id
   fastify.delete<{ Params: { id: string } }>(
     "/api/competitors/:id",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("competitors")] },
     async (request, reply) => {
       const comp = await prisma.competitor.findFirst({
         where: {

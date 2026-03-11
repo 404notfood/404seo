@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma.js"
-import { requireRole } from "../lib/guards.js"
+import { requireRole, requireFeature } from "../lib/guards.js"
 
 const CheckVisibilitySchema = z.object({
   domain: z.string().min(3),
@@ -131,7 +131,7 @@ const aiVisibilityRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/ai-visibility/check — Lancer des vérifications
   fastify.post(
     "/api/ai-visibility/check",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("ai")] },
     async (request, reply) => {
       if (!process.env.ANTHROPIC_API_KEY) {
         return reply.status(400).send({ error: "ANTHROPIC_API_KEY non configurée" })
@@ -186,7 +186,7 @@ const aiVisibilityRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/ai-visibility/:id
   fastify.delete<{ Params: { id: string } }>(
     "/api/ai-visibility/:id",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("ai")] },
     async (request, reply) => {
       const check = await prisma.aIVisibilityCheck.findFirst({
         where: { id: request.params.id, tenantId: request.tenantId },

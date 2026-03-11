@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma.js"
-import { requireRole, assertProjectOwner } from "../lib/guards.js"
+import { requireRole, requireFeature, assertProjectOwner } from "../lib/guards.js"
 
 const FetchBacklinksSchema = z.object({
   domain: z.string().min(3),
@@ -147,7 +147,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/backlinks/fetch — Importer les backlinks depuis OpenLinkProfiler
   fastify.post(
     "/api/backlinks/fetch",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("backlinks")] },
     async (request, reply) => {
       const parse = FetchBacklinksSchema.safeParse(request.body)
       if (!parse.success) return reply.status(400).send({ error: "Données invalides" })
@@ -204,7 +204,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/backlinks — Ajouter un backlink manuellement
   fastify.post(
     "/api/backlinks",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("backlinks")] },
     async (request, reply) => {
       const schema = z.object({
         sourceUrl: z.string().url(),
@@ -246,7 +246,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
   // DELETE /api/backlinks/:id — Supprimer un backlink
   fastify.delete<{ Params: { id: string } }>(
     "/api/backlinks/:id",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("backlinks")] },
     async (request, reply) => {
       const bl = await prisma.backlink.findFirst({
         where: { id: request.params.id, tenantId: request.tenantId },

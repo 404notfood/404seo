@@ -161,6 +161,28 @@ function parsePageContent(
     ? { title: ogTitle, description: ogDescription, image: ogImage, type: ogType }
     : undefined
 
+  // Twitter Card tags
+  const tcCard = $('meta[name="twitter:card"]').attr("content")?.trim()
+  const tcTitle = $('meta[name="twitter:title"]').attr("content")?.trim()
+  const tcDesc = $('meta[name="twitter:description"]').attr("content")?.trim()
+  const twitterCard = (tcCard || tcTitle || tcDesc)
+    ? { card: tcCard, title: tcTitle, description: tcDesc }
+    : undefined
+
+  // Hreflang tags
+  const hreflangTags: { lang: string; href: string }[] = []
+  $('link[rel="alternate"][hreflang]').each((_, el) => {
+    const lang = $(el).attr("hreflang")?.trim()
+    const href = $(el).attr("href")?.trim()
+    if (lang && href) hreflangTags.push({ lang, href })
+  })
+
+  // Lazy-loaded images count
+  let imagesLazyCount = 0
+  $("img").each((_, el) => {
+    if ($(el).attr("loading") === "lazy") imagesLazyCount++
+  })
+
   // Word count
   const bodyText = $("body").text().replace(/\s+/g, " ").trim()
   const wordCount = bodyText ? bodyText.split(/\s+/).length : 0
@@ -180,6 +202,9 @@ function parsePageContent(
     hasViewport,
     lang,
     ogTags,
+    twitterCard,
+    hreflangTags: hreflangTags.length > 0 ? hreflangTags : undefined,
+    imagesLazyCount,
     wordCount,
     bodyText,
   }
@@ -249,6 +274,13 @@ export class SEOCrawler {
       const pageSize = Buffer.byteLength(html, "utf-8")
       const parsed = parsePageContent(html, finalUrl)
 
+      // Capture response headers (sécurité)
+      const rawHeaders = response?.headers() ?? {}
+      const responseHeaders: Record<string, string> = {}
+      for (const key of ["strict-transport-security", "x-content-type-options", "x-frame-options", "content-security-policy", "referrer-policy", "permissions-policy"]) {
+        if (rawHeaders[key]) responseHeaders[key] = rawHeaders[key]
+      }
+
       // Keywords extraction
       const topKeywords = extractPageKeywords(
         parsed.title,
@@ -292,6 +324,7 @@ export class SEOCrawler {
         ...parsed,
         bodyText: undefined, // Don't persist bodyText
         topKeywords,
+        responseHeaders,
         hasResponsiveMeta: mobileMetrics.hasResponsiveMeta,
         smallTapTargets: mobileMetrics.smallTapTargets,
         smallFontSizes: mobileMetrics.smallFontSizes,

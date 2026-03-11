@@ -28,6 +28,8 @@ import {
   Target,
   Lightbulb,
   PenTool,
+  GitCompare,
+  CalendarDays,
   MapPin,
   Store,
   Star,
@@ -84,6 +86,8 @@ const sections: NavSection[] = [
     defaultOpen: true,
     items: [
       { href: "/audits", label: "Audits de site", icon: Radar },
+      { href: "/audits/compare", label: "Comparer", icon: GitCompare },
+      { href: "/scheduled", label: "Audits planifiés", icon: CalendarDays },
       { href: "/issues", label: "Problèmes & Erreurs", icon: Bug },
       { href: "/performance", label: "Vitesse & Performance", icon: Gauge },
       { href: "/on-page", label: "Analyse on-page", icon: FileSearch },

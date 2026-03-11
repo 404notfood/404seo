@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma"
 import { requireRole } from "../lib/guards"
+import { requireProjectQuota } from "../lib/quotas"
 
 const CreateProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -23,7 +24,7 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // POST /api/projects — MEMBER+ requis
-  fastify.post("/api/projects", { preHandler: [requireRole("MEMBER")] }, async (request, reply) => {
+  fastify.post("/api/projects", { preHandler: [requireRole("MEMBER"), requireProjectQuota()] }, async (request, reply) => {
     const parse = CreateProjectSchema.safeParse(request.body)
     if (!parse.success) {
       return reply.status(400).send({ error: "Données invalides", details: parse.error.flatten() })

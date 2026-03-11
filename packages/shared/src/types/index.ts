@@ -46,6 +46,10 @@ export interface PageData {
   hasResponsiveMeta?: boolean
   smallTapTargets?: number
   smallFontSizes?: number
+  twitterCard?: { card?: string; title?: string; description?: string }
+  hreflangTags?: { lang: string; href: string }[]
+  responseHeaders?: Record<string, string>
+  imagesLazyCount?: number
   error?: string
 }
 

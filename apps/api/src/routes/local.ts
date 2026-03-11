@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma"
-import { requireRole } from "../lib/guards"
+import { requireRole, requireFeature } from "../lib/guards"
 
 const CreateListingSchema = z.object({
   businessName: z.string().min(1),
@@ -68,7 +68,7 @@ const localRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // POST /api/local/listings — Créer une fiche
-  fastify.post("/api/local/listings", { preHandler: [requireRole("MEMBER")] }, async (request, reply) => {
+  fastify.post("/api/local/listings", { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] }, async (request, reply) => {
     const parse = CreateListingSchema.safeParse(request.body)
     if (!parse.success) {
       return reply.status(400).send({ error: "Données invalides", details: parse.error.flatten() })
@@ -155,7 +155,7 @@ const localRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/local/listings/:id/reviews/:reviewId/reply — Répondre à un avis
   fastify.post<{ Params: { id: string; reviewId: string } }>(
     "/api/local/listings/:id/reviews/:reviewId/reply",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
     async (request, reply) => {
       const body = request.body as { replyText: string }
       if (!body.replyText?.trim()) return reply.status(400).send({ error: "Réponse requise" })
@@ -234,7 +234,7 @@ Commence directement par la réponse, sans introduction ni meta-commentaire.`
   // POST /api/local/listings/:id/posts — Créer un post Google
   fastify.post<{ Params: { id: string } }>(
     "/api/local/listings/:id/posts",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
     async (request, reply) => {
       const body = request.body as {
         content: string
