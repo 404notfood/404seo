@@ -11,10 +11,10 @@ import { Badge } from "@/components/ui/badge"
 import {
   Store, MapPin, Phone, Globe, Clock, CheckCircle2, Plus, X,
   Link2, Link2Off, Star, MessageSquare, FileText, TrendingUp, ExternalLink,
-  Settings, BarChart3, Shield, Zap, ChevronDown, Loader2
+  Settings, BarChart3, Shield, Zap, ChevronDown, Loader2, RefreshCw
 } from "lucide-react"
 import { useLocalListings, useCreateListing } from "@/hooks/useLocal"
-import { useGoogleStatus, useDisconnectGoogleListing, useDisconnectGoogleAccount } from "@/hooks/useGoogle"
+import { useGoogleStatus, useDisconnectGoogleListing, useDisconnectGoogleAccount, useSyncGBPListings, useSyncGBPReviews, useSyncGBPPosts } from "@/hooks/useGoogle"
 import { apiClient } from "@/lib/api-client"
 import { toast } from "sonner"
 import Link from "next/link"
@@ -362,6 +362,77 @@ function GoogleAccountsButton() {
   )
 }
 
+function SyncButton() {
+  const { mutate: syncListings, isPending: isSyncingListings } = useSyncGBPListings()
+  const { mutate: syncReviews, isPending: isSyncingReviews } = useSyncGBPReviews()
+  const { mutate: syncPosts, isPending: isSyncingPosts } = useSyncGBPPosts()
+  const { data: googleStatus } = useGoogleStatus()
+
+  if (!googleStatus?.connected) return null
+
+  const isSyncing = isSyncingListings || isSyncingReviews || isSyncingPosts
+
+  function handleFullSync() {
+    syncListings(undefined, {
+      onSuccess: () => {
+        syncReviews()
+        syncPosts()
+      },
+    })
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          disabled={isSyncing}
+          className="gap-1.5 text-sm font-medium text-white border-white/30 hover:bg-white/20"
+          style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.25)", backdropFilter: "blur(8px)" }}
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+          {isSyncing ? "Sync…" : "Synchroniser"}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel className="text-xs font-medium text-slate-500">Synchroniser avec Google</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={handleFullSync}
+          disabled={isSyncing}
+          className="gap-2 text-xs cursor-pointer"
+        >
+          <RefreshCw className="h-3.5 w-3.5 text-blue-500" />
+          Tout synchroniser
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => syncListings()}
+          disabled={isSyncing}
+          className="gap-2 text-xs cursor-pointer"
+        >
+          <Store className="h-3.5 w-3.5 text-slate-500" />
+          Fiches uniquement
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => syncReviews()}
+          disabled={isSyncing}
+          className="gap-2 text-xs cursor-pointer"
+        >
+          <MessageSquare className="h-3.5 w-3.5 text-amber-500" />
+          Avis uniquement
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => syncPosts()}
+          disabled={isSyncing}
+          className="gap-2 text-xs cursor-pointer"
+        >
+          <FileText className="h-3.5 w-3.5 text-cyan-500" />
+          Posts uniquement
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function GBPListingsPageInner() {
   const { data: listings, isLoading } = useLocalListings()
   const [showCreate, setShowCreate] = useState(false)
@@ -422,6 +493,7 @@ function GBPListingsPageInner() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <GoogleAccountsButton />
+            <SyncButton />
             <Button
               onClick={() => setShowCreate(true)}
               className="gap-1.5 text-sm font-medium btn-glow"

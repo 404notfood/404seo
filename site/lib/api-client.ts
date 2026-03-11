@@ -308,6 +308,32 @@ export const apiClient = {
     }
   },
 
+  // Google GBP Sync
+  syncGBPListings: () =>
+    fetcher<{ success: boolean; imported: number; errors: string[] }>("/api/google/sync", { method: "POST" }),
+  syncGBPReviews: (listingId?: string) =>
+    fetcher<{ success: boolean; synced: number; errors: string[] }>(
+      `/api/google/sync/reviews${listingId ? `?listingId=${listingId}` : ""}`,
+      { method: "POST" },
+    ),
+  syncGBPPosts: (listingId?: string) =>
+    fetcher<{ success: boolean; synced: number; errors: string[] }>(
+      `/api/google/sync/posts${listingId ? `?listingId=${listingId}` : ""}`,
+      { method: "POST" },
+    ),
+  publishGooglePost: (listingId: string, data: { content: string; type?: string; ctaType?: string; ctaUrl?: string; imageUrl?: string }) =>
+    fetcher<unknown>(`/api/google/listings/${listingId}/publish-post`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  replyToGoogleReview: (listingId: string, reviewId: string, replyText: string) =>
+    fetcher<unknown>(`/api/google/listings/${listingId}/reviews/${reviewId}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ replyText }),
+    }),
+  deleteGooglePost: (listingId: string, postId: string) =>
+    fetcher<{ success: boolean }>(`/api/google/listings/${listingId}/posts/${postId}`, { method: "DELETE" }),
+
   // Comparaison d'audits
   compareAudits: (id1: string, id2: string) =>
     fetcher<AuditComparison>(`/api/audits/compare?ids=${id1},${id2}`),

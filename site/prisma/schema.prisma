@@ -372,6 +372,7 @@ model GBPListing {
 model GBPReview {
   id               String          @id @default(cuid())
   listingId        String
+  googleReviewId   String?         @unique // "accounts/x/locations/y/reviews/z"
   authorName       String
   rating           Int             // 1-5
   text             String?         @db.Text
@@ -389,20 +390,21 @@ model GBPReview {
 }
 
 model GBPPost {
-  id          String        @id @default(cuid())
-  listingId   String
-  type        GBPPostType   @default(UPDATE)
-  content     String        @db.Text
-  imageUrl    String?
-  ctaType     String?
-  ctaUrl      String?
-  status      GBPPostStatus @default(DRAFT)
-  scheduledAt DateTime?
-  publishedAt DateTime?
-  views       Int           @default(0)
-  clicks      Int           @default(0)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  listingId       String
+  googlePostName  String?       @unique // "accounts/x/locations/y/localPosts/z"
+  type            GBPPostType   @default(UPDATE)
+  content         String        @db.Text
+  imageUrl        String?
+  ctaType         String?
+  ctaUrl          String?
+  status          GBPPostStatus @default(DRAFT)
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  views           Int           @default(0)
+  clicks          Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
