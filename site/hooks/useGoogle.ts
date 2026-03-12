@@ -168,6 +168,26 @@ export function useDeleteGooglePost(listingId: string | null) {
   })
 }
 
+// GBP Performance metrics
+export function useGBPPerformance(listingId: string | null, days = 30) {
+  return useQuery({
+    queryKey: ["gbp-performance", listingId, days],
+    queryFn: () => apiClient.getGBPPerformance(listingId!, days),
+    enabled: !!listingId,
+    staleTime: 5 * 60_000,
+  })
+}
+
+// GBP Search keywords
+export function useGBPKeywords(listingId: string | null, months = 3) {
+  return useQuery({
+    queryKey: ["gbp-keywords", listingId, months],
+    queryFn: () => apiClient.getGBPKeywords(listingId!, months),
+    enabled: !!listingId,
+    staleTime: 10 * 60_000,
+  })
+}
+
 export function useGA4Data(propertyId: string | null) {
   return useQuery({
     queryKey: ["ga4-data", propertyId],
