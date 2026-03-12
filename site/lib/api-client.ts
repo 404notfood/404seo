@@ -334,6 +334,12 @@ export const apiClient = {
   deleteGooglePost: (listingId: string, postId: string) =>
     fetcher<{ success: boolean }>(`/api/google/listings/${listingId}/posts/${postId}`, { method: "DELETE" }),
 
+  // GBP Performance
+  getGBPPerformance: (listingId: string, days = 30) =>
+    fetcher<GBPPerformanceData>(`/api/google/listings/${listingId}/performance?days=${days}`),
+  getGBPKeywords: (listingId: string, months = 3) =>
+    fetcher<GBPKeywordsData>(`/api/google/listings/${listingId}/keywords?months=${months}`),
+
   // Comparaison d'audits
   compareAudits: (id1: string, id2: string) =>
     fetcher<AuditComparison>(`/api/audits/compare?ids=${id1},${id2}`),
@@ -894,6 +900,31 @@ export interface GSCData {
     impressions: number
     avgPosition: number
   }
+}
+
+// ─── Types GBP Performance ───────────────────
+
+export interface GBPPerformanceData {
+  totals: {
+    impressionsDesktopMaps: number
+    impressionsDesktopSearch: number
+    impressionsMobileMaps: number
+    impressionsMobileSearch: number
+    totalImpressions: number
+    directionRequests: number
+    callClicks: number
+    websiteClicks: number
+  }
+  timeline: Array<{ date: string; impressions: number }>
+  metrics: Array<{ metric: string; data: Array<{ date: string; value: number }> }>
+  period: { startDate: unknown; endDate: unknown; days: number }
+}
+
+export interface GBPKeywordsData {
+  keywords: Array<{ keyword: string; impressions: number }>
+  total: number
+  totalImpressions: number
+  period: { startMonth: unknown; endMonth: unknown; months: number }
 }
 
 // ─── Types Admin ──────────────────────────────

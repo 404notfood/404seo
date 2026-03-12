@@ -253,4 +253,127 @@ export function detectSentiment(rating: number, text?: string | null): "POSITIVE
   return "NEUTRAL"
 }
 
-export type { GBPAccount, GBPLocation, GBPReview, GBPLocalPost }
+// ─── Performance API v1 (businessprofileperformance.googleapis.com) ─────
+
+type DailyMetric =
+  | "BUSINESS_IMPRESSIONS_DESKTOP_MAPS"
+  | "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"
+  | "BUSINESS_IMPRESSIONS_MOBILE_MAPS"
+  | "BUSINESS_IMPRESSIONS_MOBILE_SEARCH"
+  | "BUSINESS_DIRECTION_REQUESTS"
+  | "CALL_CLICKS"
+  | "WEBSITE_CLICKS"
+  | "BUSINESS_BOOKINGS"
+  | "BUSINESS_FOOD_ORDERS"
+  | "BUSINESS_CONVERSATIONS"
+
+interface DateProto { year: number; month: number; day: number }
+
+interface DatedValue {
+  date: DateProto
+  value?: string // stringified number
+}
+
+interface TimeSeries {
+  datedValues?: DatedValue[]
+}
+
+interface MultiDailyMetricTimeSeries {
+  dailyMetric?: string
+  timeSeries?: TimeSeries
+}
+
+interface FetchMultiDailyMetricsResponse {
+  multiDailyMetricTimeSeries?: MultiDailyMetricTimeSeries[]
+}
+
+interface SearchKeywordCount {
+  searchKeyword?: string
+  insightsValue?: { value?: string; threshold?: string }
+}
+
+interface ListSearchKeywordsResponse {
+  searchKeywordsCounts?: SearchKeywordCount[]
+  nextPageToken?: string
+}
+
+/**
+ * Fetch multiple daily performance metrics for a location over a date range.
+ * Uses the Business Profile Performance API v1.
+ */
+export async function fetchPerformanceMetrics(
+  auth: Auth.OAuth2Client,
+  locationId: string, // "locations/123456789"
+  metrics: DailyMetric[],
+  startDate: DateProto,
+  endDate: DateProto,
+): Promise<{ metric: string; data: Array<{ date: string; value: number }> }[]> {
+  const token = await getAccessToken(auth)
+
+  const qs = new URLSearchParams()
+  for (const m of metrics) qs.append("dailyMetrics", m)
+  qs.set("dailyRange.startDate.year", String(startDate.year))
+  qs.set("dailyRange.startDate.month", String(startDate.month))
+  qs.set("dailyRange.startDate.day", String(startDate.day))
+  qs.set("dailyRange.endDate.year", String(endDate.year))
+  qs.set("dailyRange.endDate.month", String(endDate.month))
+  qs.set("dailyRange.endDate.day", String(endDate.day))
+
+  const res = await gbpFetch<FetchMultiDailyMetricsResponse>(
+    `https://businessprofileperformance.googleapis.com/v1/${locationId}:fetchMultiDailyMetricsTimeSeries?${qs}`,
+    token,
+  )
+
+  return (res.multiDailyMetricTimeSeries ?? []).map((ts) => ({
+    metric: ts.dailyMetric ?? "UNKNOWN",
+    data: (ts.timeSeries?.datedValues ?? []).map((dv) => ({
+      date: `${dv.date.year}-${String(dv.date.month).padStart(2, "0")}-${String(dv.date.day).padStart(2, "0")}`,
+      value: parseInt(dv.value ?? "0"),
+    })),
+  }))
+}
+
+/**
+ * Fetch search keywords that led users to discover the business (monthly impressions).
+ */
+export async function fetchSearchKeywords(
+  auth: Auth.OAuth2Client,
+  locationId: string, // "locations/123456789"
+  startMonth: DateProto,
+  endMonth: DateProto,
+  pageSize = 100,
+): Promise<{ keyword: string; impressions: number }[]> {
+  const token = await getAccessToken(auth)
+  const allKeywords: { keyword: string; impressions: number }[] = []
+  let pageToken: string | undefined
+
+  do {
+    const qs = new URLSearchParams({ pageSize: String(pageSize) })
+    qs.set("monthlyRange.startMonth.year", String(startMonth.year))
+    qs.set("monthlyRange.startMonth.month", String(startMonth.month))
+    qs.set("monthlyRange.startMonth.day", "1")
+    qs.set("monthlyRange.endMonth.year", String(endMonth.year))
+    qs.set("monthlyRange.endMonth.month", String(endMonth.month))
+    qs.set("monthlyRange.endMonth.day", "1")
+    if (pageToken) qs.set("pageToken", pageToken)
+
+    const data = await gbpFetch<ListSearchKeywordsResponse>(
+      `https://businessprofileperformance.googleapis.com/v1/${locationId}/searchkeywords/impressions/monthly?${qs}`,
+      token,
+    )
+
+    for (const kw of data.searchKeywordsCounts ?? []) {
+      if (kw.searchKeyword) {
+        allKeywords.push({
+          keyword: kw.searchKeyword,
+          impressions: parseInt(kw.insightsValue?.value ?? "0"),
+        })
+      }
+    }
+    pageToken = data.nextPageToken
+  } while (pageToken)
+
+  return allKeywords
+}
+
+export type { GBPAccount, GBPLocation, GBPReview, GBPLocalPost, DailyMetric, DateProto }

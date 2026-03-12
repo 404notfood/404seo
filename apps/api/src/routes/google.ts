@@ -17,6 +17,9 @@ import {
   deleteLocalPost,
   starRatingToNumber,
   detectSentiment,
+  fetchPerformanceMetrics,
+  fetchSearchKeywords,
+  type DailyMetric,
 } from "../lib/gbpApi.js"
 
 const STATE_TTL = 600 // 10 minutes
@@ -293,7 +296,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── POST /api/google/sync — Sync manuelle des fiches GBP ─────────────────
   fastify.post(
     "/api/google/sync",
-    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    { preHandler: [requireRole("MEMBER")] },
     async (request, reply) => {
       const accounts = await prisma.googleAccount.findMany({
         where: { tenantId: request.tenantId },
@@ -325,7 +328,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── POST /api/google/sync/reviews — Sync des avis depuis Google ──────────
   fastify.post<{ Querystring: { listingId?: string } }>(
     "/api/google/sync/reviews",
-    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    { preHandler: [requireRole("MEMBER")] },
     async (request, reply) => {
       const { listingId } = request.query as { listingId?: string }
 
@@ -406,7 +409,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── POST /api/google/sync/posts — Sync des posts depuis Google ───────────
   fastify.post<{ Querystring: { listingId?: string } }>(
     "/api/google/sync/posts",
-    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    { preHandler: [requireRole("MEMBER")] },
     async (request, reply) => {
       const { listingId } = request.query as { listingId?: string }
 
@@ -627,6 +630,131 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
 
       await prisma.gBPPost.delete({ where: { id: post.id } })
       return reply.send({ success: true })
+    }
+  )
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GBP Performance API v1
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ─── GET /api/google/listings/:id/performance — Métriques de performance ──
+  fastify.get<{ Params: { id: string }; Querystring: { days?: string } }>(
+    "/api/google/listings/:id/performance",
+    async (request, reply) => {
+      const daysBack = Math.min(parseInt(request.query.days ?? "30") || 30, 90)
+
+      const listing = await prisma.gBPListing.findFirst({
+        where: { id: request.params.id, tenantId: request.tenantId, isGoogleConnected: true },
+        include: { googleAccount: true },
+      })
+
+      if (!listing || !listing.googleAccount || !listing.googlePlaceId) {
+        return reply.status(400).send({ error: "Fiche non connectée à Google" })
+      }
+
+      const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccount.id)
+
+      const now = new Date()
+      const start = new Date(now.getTime() - daysBack * 24 * 3600_000)
+      const startDate = { year: start.getFullYear(), month: start.getMonth() + 1, day: start.getDate() }
+      const endDate = { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() }
+
+      const metrics: DailyMetric[] = [
+        "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
+        "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
+        "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
+        "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
+        "BUSINESS_DIRECTION_REQUESTS",
+        "CALL_CLICKS",
+        "WEBSITE_CLICKS",
+      ]
+
+      try {
+        const results = await fetchPerformanceMetrics(auth, listing.googlePlaceId, metrics, startDate, endDate)
+
+        // Aggregate totals
+        const totals: Record<string, number> = {}
+        for (const r of results) {
+          totals[r.metric] = r.data.reduce((sum, d) => sum + d.value, 0)
+        }
+
+        // Build daily timeline (aggregate all impressions)
+        const impressionMetrics = results.filter((r) => r.metric.startsWith("BUSINESS_IMPRESSIONS_"))
+        const dateMap = new Map<string, number>()
+        for (const im of impressionMetrics) {
+          for (const d of im.data) {
+            dateMap.set(d.date, (dateMap.get(d.date) ?? 0) + d.value)
+          }
+        }
+        const timeline = [...dateMap.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, impressions]) => ({ date, impressions }))
+
+        return reply.send({
+          totals: {
+            impressionsDesktopMaps: totals["BUSINESS_IMPRESSIONS_DESKTOP_MAPS"] ?? 0,
+            impressionsDesktopSearch: totals["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"] ?? 0,
+            impressionsMobileMaps: totals["BUSINESS_IMPRESSIONS_MOBILE_MAPS"] ?? 0,
+            impressionsMobileSearch: totals["BUSINESS_IMPRESSIONS_MOBILE_SEARCH"] ?? 0,
+            totalImpressions: (totals["BUSINESS_IMPRESSIONS_DESKTOP_MAPS"] ?? 0) +
+              (totals["BUSINESS_IMPRESSIONS_DESKTOP_SEARCH"] ?? 0) +
+              (totals["BUSINESS_IMPRESSIONS_MOBILE_MAPS"] ?? 0) +
+              (totals["BUSINESS_IMPRESSIONS_MOBILE_SEARCH"] ?? 0),
+            directionRequests: totals["BUSINESS_DIRECTION_REQUESTS"] ?? 0,
+            callClicks: totals["CALL_CLICKS"] ?? 0,
+            websiteClicks: totals["WEBSITE_CLICKS"] ?? 0,
+          },
+          timeline,
+          metrics: results,
+          period: { startDate, endDate, days: daysBack },
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Erreur Performance API"
+        fastify.log.error({ err, listingId: listing.id }, "GBP Performance API error")
+        return reply.status(500).send({ error: msg })
+      }
+    }
+  )
+
+  // ─── GET /api/google/listings/:id/keywords — Mots-clés de découverte ──────
+  fastify.get<{ Params: { id: string }; Querystring: { months?: string } }>(
+    "/api/google/listings/:id/keywords",
+    async (request, reply) => {
+      const monthsBack = Math.min(parseInt(request.query.months ?? "3") || 3, 12)
+
+      const listing = await prisma.gBPListing.findFirst({
+        where: { id: request.params.id, tenantId: request.tenantId, isGoogleConnected: true },
+        include: { googleAccount: true },
+      })
+
+      if (!listing || !listing.googleAccount || !listing.googlePlaceId) {
+        return reply.status(400).send({ error: "Fiche non connectée à Google" })
+      }
+
+      const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccount.id)
+
+      const now = new Date()
+      const start = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1)
+      const startMonth = { year: start.getFullYear(), month: start.getMonth() + 1, day: 1 }
+      const endMonth = { year: now.getFullYear(), month: now.getMonth() + 1, day: 1 }
+
+      try {
+        const keywords = await fetchSearchKeywords(auth, listing.googlePlaceId, startMonth, endMonth)
+
+        // Sort by impressions desc
+        keywords.sort((a, b) => b.impressions - a.impressions)
+
+        return reply.send({
+          keywords,
+          total: keywords.length,
+          totalImpressions: keywords.reduce((sum, kw) => sum + kw.impressions, 0),
+          period: { startMonth, endMonth, months: monthsBack },
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Erreur Search Keywords API"
+        fastify.log.error({ err, listingId: listing.id }, "GBP Keywords API error")
+        return reply.status(500).send({ error: msg })
+      }
     }
   )
 
