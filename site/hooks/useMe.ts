@@ -16,6 +16,7 @@ export function useRole() {
     role: user?.role ?? "GUEST",
     plan: user?.tenant?.plan ?? "STARTER",
     isAdmin: user?.role === "ADMIN",
+    isSuperAdmin: user?.isSuperAdmin === true,
     isMember: user?.role === "ADMIN" || user?.role === "MEMBER",
     isGuest: user?.role === "GUEST",
   }

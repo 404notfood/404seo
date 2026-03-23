@@ -363,7 +363,7 @@ export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const { data: session } = useSession()
-  const { role, plan } = useRole()
+  const { role, plan, isSuperAdmin } = useRole()
 
   const { data: billing } = useQuery({
     queryKey: ["billing"],
@@ -432,7 +432,7 @@ export function Sidebar() {
         ))}
 
         {/* ── Section admin (ADMIN seulement) ── */}
-        {role === "ADMIN" && (
+        {isSuperAdmin && (
           <div>
             <div className="px-3 pb-1.5 pt-1 flex items-center gap-2">
               <ShieldAlert className="h-3 w-3" style={{ color: "#06b6d4" }} />

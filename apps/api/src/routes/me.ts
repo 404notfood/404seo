@@ -12,6 +12,7 @@ const meRoutes: FastifyPluginAsync = async (fastify) => {
         email: true,
         image: true,
         role: true,
+        isSuperAdmin: true,
         tenantId: true,
         tenant: {
           select: {

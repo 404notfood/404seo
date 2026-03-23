@@ -84,13 +84,12 @@ export function requireNotSuspended() {
 }
 
 /**
- * Guard super-admin — le user doit être ADMIN et ne pas avoir de tenantId propre
- * (ou être marqué comme admin global de la plateforme).
- * Pour simplifier : vérifie juste le rôle ADMIN.
+ * Guard super-admin — vérifie que le user a le flag isSuperAdmin.
+ * Le rôle ADMIN signifie "propriétaire du tenant", pas admin de la plateforme.
  */
 export function requireSuperAdmin() {
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    if (request.role !== "ADMIN") {
+    if (!request.isSuperAdmin) {
       return reply.status(403).send({
         error: "Accès refusé",
         message: "Réservé aux administrateurs de la plateforme.",

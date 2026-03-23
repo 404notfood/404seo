@@ -38,6 +38,7 @@ export interface UserMe {
   email: string
   image: string | null
   role: "ADMIN" | "MEMBER" | "GUEST"
+  isSuperAdmin: boolean
   tenantId: string | null
   tenant: {
     id: string
