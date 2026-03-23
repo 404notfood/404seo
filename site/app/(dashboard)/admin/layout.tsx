@@ -18,13 +18,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter()
   const pathname = usePathname()
   const { isLoading } = useMe()
-  const { role } = useRole()
+  const { isSuperAdmin } = useRole()
 
   useEffect(() => {
-    if (!isLoading && role !== "ADMIN") {
+    if (!isLoading && !isSuperAdmin) {
       router.replace("/dashboard")
     }
-  }, [role, isLoading, router])
+  }, [isSuperAdmin, isLoading, router])
 
   if (isLoading) {
     return (
@@ -34,7 +34,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     )
   }
 
-  if (role !== "ADMIN") return null
+  if (!isSuperAdmin) return null
 
   return (
     <div className="flex flex-col gap-6">

@@ -103,6 +103,10 @@ export const auth = betterAuth({
         type: "string",
         defaultValue: "MEMBER",
       },
+      isSuperAdmin: {
+        type: "boolean",
+        defaultValue: false,
+      },
       tenantId: {
         type: "string",
         defaultValue: null,

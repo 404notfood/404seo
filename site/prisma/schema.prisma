@@ -37,6 +37,7 @@ model User {
   scheduledAudits ScheduledAudit[]
 
   // Admin
+  isSuperAdmin  Boolean   @default(false)
   isBanned      Boolean   @default(false)
   bannedAt      DateTime?
   bannedBy      String?

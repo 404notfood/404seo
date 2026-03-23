@@ -8,6 +8,7 @@ declare module "fastify" {
     userId: string
     tenantId: string
     role: "ADMIN" | "MEMBER" | "GUEST"
+    isSuperAdmin: boolean
   }
 }
 
@@ -15,6 +16,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.decorateRequest("userId", "")
   fastify.decorateRequest("tenantId", "")
   fastify.decorateRequest("role", "MEMBER")
+  fastify.decorateRequest("isSuperAdmin", false)
 
   fastify.addHook("preHandler", async (request: FastifyRequest, reply) => {
     // Routes publiques
@@ -38,7 +40,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     // Vérifier le token de session BetterAuth dans la DB
     const session = await prisma.session.findUnique({
       where: { token: sessionToken },
-      include: { user: { select: { id: true, tenantId: true, role: true, email: true, name: true, isBanned: true } } },
+      include: { user: { select: { id: true, tenantId: true, role: true, isSuperAdmin: true, email: true, name: true, isBanned: true } } },
     })
 
     if (!session || session.expiresAt < new Date()) {
@@ -47,6 +49,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
     request.userId = session.user.id
     request.role = (session.user.role as "ADMIN" | "MEMBER" | "GUEST") || "MEMBER"
+    request.isSuperAdmin = session.user.isSuperAdmin === true
 
     // Filet de sécurité : si l'utilisateur n'a toujours pas de tenant (le hook BetterAuth l'a déjà créé normalement)
     if (!session.user.tenantId) {
