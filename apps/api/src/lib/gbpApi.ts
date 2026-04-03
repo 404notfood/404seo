@@ -69,6 +69,8 @@ async function gbpFetch<T>(url: string, token: string, init?: RequestInit): Prom
 
   if (!res.ok) {
     const body = await res.text().catch(() => "")
+    const shortUrl = url.replace(/\?.*/, "")
+    console.error(`[GBP API] ${init?.method ?? "GET"} ${shortUrl} → ${res.status}: ${body.slice(0, 500)}`)
     throw new Error(`GBP API ${res.status}: ${body.slice(0, 500)}`)
   }
 

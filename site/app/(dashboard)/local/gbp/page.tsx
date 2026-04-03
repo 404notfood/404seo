@@ -440,7 +440,15 @@ function GBPListingsPageInner() {
 
   useEffect(() => {
     if (searchParams.get("google") === "connected") {
-      toast.success("Compte Google connecté ! Vos fiches ont été importées.")
+      const gbpError = searchParams.get("gbp_error")
+      const gbpImported = searchParams.get("gbp_imported")
+      if (gbpError) {
+        toast.error(`Compte Google connecté mais import GBP échoué : ${decodeURIComponent(gbpError)}`)
+      } else if (gbpImported === "0") {
+        toast.warning("Compte Google connecté mais aucune fiche GBP trouvée. Vérifiez que votre compte Google a accès à des fiches Google Business Profile.")
+      } else {
+        toast.success(`Compte Google connecté ! ${gbpImported ?? ""} fiche(s) importée(s).`)
+      }
       window.history.replaceState({}, "", window.location.pathname)
     }
   }, [searchParams])
