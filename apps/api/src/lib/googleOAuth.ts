@@ -43,15 +43,21 @@ export async function getAuthenticatedClient(tenantId: string, googleAccountId?:
 
   // Rafraîchir si le token expire dans moins de 5 minutes
   if (account.tokenExpiry.getTime() - Date.now() < 5 * 60 * 1000) {
-    const { credentials } = await auth.refreshAccessToken()
-    await prisma.googleAccount.update({
-      where: { id: account.id },
-      data: {
-        accessToken: credentials.access_token!,
-        tokenExpiry: new Date(credentials.expiry_date!),
-      },
-    })
-    auth.setCredentials(credentials)
+    try {
+      const { credentials } = await auth.refreshAccessToken()
+      await prisma.googleAccount.update({
+        where: { id: account.id },
+        data: {
+          accessToken: credentials.access_token!,
+          tokenExpiry: new Date(credentials.expiry_date!),
+        },
+      })
+      auth.setCredentials(credentials)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[Google OAuth] Échec refresh token pour compte ${account.id}:`, msg)
+      throw new Error(`Token Google expiré et impossible à rafraîchir. Reconnectez votre compte Google. (${msg})`)
+    }
   }
 
   return auth

@@ -188,17 +188,23 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Importer/synchroniser les fiches GBP depuis Google (sauf pour le flow analytics)
+      let importCount = 0
+      let importError = ""
       if (flow !== "analytics") {
         try {
-          await importGBPListings(tenantId, googleAccountId, auth)
+          importCount = await importGBPListings(tenantId, googleAccountId, auth)
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
           fastify.log.error({ err, tenantId, googleAccountId }, `Échec import GBP: ${errMsg}`)
+          importError = encodeURIComponent(errMsg)
         }
       }
 
       const redirectTarget = flow === "analytics" ? `/settings?google=analytics-connected` : listingId ? `/local/gbp` : `/local/gbp`
-      return reply.redirect(`${appUrl}${redirectTarget}?google=connected`)
+      const qs = importError
+        ? `?google=connected&gbp_error=${importError}`
+        : `?google=connected&gbp_imported=${importCount}`
+      return reply.redirect(`${appUrl}${redirectTarget}${qs}`)
     }
   )
 
@@ -937,8 +943,18 @@ async function findAccountForLocation(auth: Auth.OAuth2Client, locationId: strin
 
 async function importGBPListings(tenantId: string, googleAccountId: string, auth: Auth.OAuth2Client): Promise<number> {
   let totalImported = 0
+  const importErrors: string[] = []
 
-  const accounts = await listAccounts(auth)
+  let accounts: Awaited<ReturnType<typeof listAccounts>>
+  try {
+    accounts = await listAccounts(auth)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error(`[GBP Import] Échec listAccounts:`, msg)
+    throw new Error(`Impossible de lister les comptes GBP: ${msg}`)
+  }
+
+  console.log(`[GBP Import] ${accounts.length} compte(s) GBP trouvé(s):`, accounts.map(a => `${a.name} (${a.accountName ?? "sans nom"})`).join(", "))
 
   if (accounts.length === 0) {
     console.warn("[GBP Import] Aucun compte GBP trouvé pour ce compte Google")
@@ -952,9 +968,13 @@ async function importGBPListings(tenantId: string, googleAccountId: string, auth
     try {
       locations = await listLocations(auth, account.name)
     } catch (err) {
-      console.warn(`[GBP Import] Erreur fiches pour ${account.name}:`, err instanceof Error ? err.message : err)
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error(`[GBP Import] Erreur listLocations pour ${account.name}:`, msg)
+      importErrors.push(`${account.accountName ?? account.name}: ${msg}`)
       continue
     }
+
+    console.log(`[GBP Import] ${locations.length} fiche(s) trouvée(s) pour ${account.name}:`, locations.map(l => `${l.name} (${l.title})`).join(", "))
 
     for (const location of locations) {
       const googlePlaceId = location.name
