@@ -214,6 +214,11 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
                 currentPeriodEnd: periodEnd,
               },
             }),
+            // Promotion: tout utilisateur GUEST du tenant devient MEMBER après paiement confirmé.
+            prisma.user.updateMany({
+              where: { tenantId, role: "GUEST" },
+              data: { role: "MEMBER" },
+            }),
           ])
           break
         }
@@ -253,7 +258,17 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
           // Mettre à jour le plan sur le tenant aussi
           const record = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: sub.id } })
           if (record) {
-            await prisma.tenant.update({ where: { id: record.tenantId }, data: { plan } })
+            await prisma.$transaction([
+              prisma.tenant.update({ where: { id: record.tenantId }, data: { plan } }),
+              ...(isActive
+                ? [
+                    prisma.user.updateMany({
+                      where: { tenantId: record.tenantId, role: "GUEST" },
+                      data: { role: "MEMBER" },
+                    }),
+                  ]
+                : []),
+            ])
           }
           break
         }

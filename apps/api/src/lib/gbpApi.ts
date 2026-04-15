@@ -51,6 +51,59 @@ interface GBPLocalPost {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+class GbpRateLimiter {
+  private nextAllowedAt = 0
+
+  constructor(private readonly minIntervalMs: number) {}
+
+  async waitTurn(): Promise<void> {
+    const now = Date.now()
+    const waitMs = this.nextAllowedAt - now
+    if (waitMs > 0) {
+      await sleep(waitMs)
+    }
+    this.nextAllowedAt = Date.now() + this.minIntervalMs
+  }
+}
+
+class GbpRetryPolicy {
+  constructor(
+    private readonly maxAttempts: number,
+    private readonly baseDelayMs: number,
+    private readonly maxDelayMs: number,
+  ) {}
+
+  computeDelay(attempt: number, retryAfterMs?: number): number {
+    if (retryAfterMs && retryAfterMs > 0) {
+      return Math.min(retryAfterMs, this.maxDelayMs)
+    }
+    const exp = this.baseDelayMs * Math.pow(2, Math.max(0, attempt - 1))
+    const jitter = Math.floor(Math.random() * 300)
+    return Math.min(exp + jitter, this.maxDelayMs)
+  }
+
+  canRetry(attempt: number): boolean {
+    return attempt < this.maxAttempts
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function parseRetryAfterMs(retryAfterHeader: string | null): number | undefined {
+  if (!retryAfterHeader) return undefined
+  const asNumber = Number(retryAfterHeader)
+  if (!Number.isNaN(asNumber)) return Math.max(0, asNumber * 1000)
+
+  const asDate = Date.parse(retryAfterHeader)
+  if (Number.isNaN(asDate)) return undefined
+  return Math.max(0, asDate - Date.now())
+}
+
+const gbpRateLimiter = new GbpRateLimiter(350) // ~3 req/sec max on this process
+const gbpRetryPolicy = new GbpRetryPolicy(5, 1000, 20000)
+
 async function getAccessToken(auth: Auth.OAuth2Client): Promise<string> {
   const { token } = await auth.getAccessToken()
   if (!token) throw new Error("Impossible d'obtenir un access token Google")
@@ -58,24 +111,42 @@ async function getAccessToken(auth: Auth.OAuth2Client): Promise<string> {
 }
 
 async function gbpFetch<T>(url: string, token: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
-  })
+  let attempt = 1
+  while (true) {
+    await gbpRateLimiter.waitTurn()
 
-  if (!res.ok) {
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    })
+
+    if (res.ok) {
+      if (res.status === 204) return {} as T
+      return res.json() as Promise<T>
+    }
+
     const body = await res.text().catch(() => "")
     const shortUrl = url.replace(/\?.*/, "")
+    const isRetriable = res.status === 429 || res.status >= 500
+
+    if (isRetriable && gbpRetryPolicy.canRetry(attempt)) {
+      const retryAfterMs = parseRetryAfterMs(res.headers.get("retry-after"))
+      const waitMs = gbpRetryPolicy.computeDelay(attempt, retryAfterMs)
+      console.warn(
+        `[GBP API] ${init?.method ?? "GET"} ${shortUrl} → ${res.status} (attempt ${attempt}), retry in ${waitMs}ms`,
+      )
+      await sleep(waitMs)
+      attempt += 1
+      continue
+    }
+
     console.error(`[GBP API] ${init?.method ?? "GET"} ${shortUrl} → ${res.status}: ${body.slice(0, 500)}`)
     throw new Error(`GBP API ${res.status}: ${body.slice(0, 500)}`)
   }
-
-  if (res.status === 204) return {} as T
-  return res.json() as Promise<T>
 }
 
 // ─── Accounts & Locations (v1 APIs) ─────────────────────────────────────────
