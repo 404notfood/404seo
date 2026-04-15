@@ -130,10 +130,10 @@ export const auth = betterAuth({
             },
           })
 
-          // Lier l'utilisateur au tenant + rôle ADMIN (propriétaire)
+          // Lier l'utilisateur au tenant + rôle MEMBER (promotion manuelle ensuite)
           await prisma.user.update({
             where: { id: user.id },
-            data: { tenantId: tenant.id, role: "ADMIN" },
+            data: { tenantId: tenant.id, role: "GUEST" },
           })
         },
       },

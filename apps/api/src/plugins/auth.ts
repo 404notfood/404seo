@@ -40,49 +40,75 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     // Vérifier le token de session BetterAuth dans la DB
     const session = await prisma.session.findUnique({
       where: { token: sessionToken },
-      include: { user: { select: { id: true, tenantId: true, role: true, isSuperAdmin: true, email: true, name: true, isBanned: true } } },
     })
 
     if (!session || session.expiresAt < new Date()) {
       return reply.status(401).send({ error: "Session expirée ou invalide" })
     }
 
-    request.userId = session.user.id
-    request.role = (session.user.role as "ADMIN" | "MEMBER" | "GUEST") || "MEMBER"
-    request.isSuperAdmin = session.user.isSuperAdmin === true
+    // Charger l'utilisateur séparément pour rester robuste même si la relation Prisma Session->User
+    // n'est pas typée dans le client généré courant.
+    const user = (await prisma.user.findUnique({
+      where: { id: session.userId },
+      select: {
+        id: true,
+        tenantId: true,
+        role: true,
+        email: true,
+        name: true,
+        isBanned: true,
+        isSuperAdmin: true,
+      } as never,
+    })) as {
+      id: string
+      tenantId: string | null
+      role: "ADMIN" | "MEMBER" | "GUEST" | null
+      email: string
+      name: string | null
+      isBanned: boolean
+      isSuperAdmin?: boolean
+    } | null
+
+    if (!user) {
+      return reply.status(401).send({ error: "Session invalide (utilisateur introuvable)" })
+    }
+
+    request.userId = user.id
+    request.role = (user.role as "ADMIN" | "MEMBER" | "GUEST") || "MEMBER"
+    request.isSuperAdmin = user.isSuperAdmin === true
 
     // Filet de sécurité : si l'utilisateur n'a toujours pas de tenant (le hook BetterAuth l'a déjà créé normalement)
-    if (!session.user.tenantId) {
+    if (!user.tenantId) {
       // Vérifier d'abord si un tenant existe déjà pour cet utilisateur (race condition)
       const existingUser = await prisma.user.findUnique({
-        where: { id: session.user.id },
+        where: { id: user.id },
         select: { tenantId: true },
       })
 
       if (existingUser?.tenantId) {
         request.tenantId = existingUser.tenantId
       } else {
-        const slug = session.user.email.split("@")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-")
+        const slug = user.email.split("@")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-")
         const uniqueSlug = `${slug}-${Date.now().toString(36)}`
 
         const tenant = await prisma.tenant.create({
           data: {
-            name: session.user.name || session.user.email.split("@")[0],
+            name: user.name || user.email.split("@")[0],
             slug: uniqueSlug,
             plan: "STARTER",
           },
         })
 
         await prisma.user.update({
-          where: { id: session.user.id },
-          data: { tenantId: tenant.id, role: "ADMIN" },
+          where: { id: user.id },
+          data: { tenantId: tenant.id, role: "GUEST" },
         })
 
         request.tenantId = tenant.id
-        request.role = "ADMIN"
+        request.role = "GUEST"
       }
     } else {
-      request.tenantId = session.user.tenantId
+      request.tenantId = user.tenantId
     }
 
     // Bloquer les comptes suspendus
@@ -98,7 +124,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     }
 
     // Bloquer les utilisateurs bannis
-    if (session.user.isBanned) {
+    if (user.isBanned) {
       return reply.status(403).send({
         error: "Compte banni",
         message: "Votre compte a été banni.",
