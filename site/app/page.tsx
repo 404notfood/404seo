@@ -4,19 +4,19 @@ import {
   BarChart3,
   Globe,
   Zap,
-  Shield,
   TrendingUp,
   Search,
   CheckCircle,
   ArrowRight,
-  Star,
   MapPin,
   Link2,
   Bot,
 } from "lucide-react"
 import { Footer } from "@/components/layout/Footer"
+import { BrandConfig } from "@/lib/config"
 
-// ── Features ──────────────────────────────────────────────────────────────────
+const brand = BrandConfig.getInstance()
+
 const FEATURES = [
   {
     icon: Search,
@@ -62,57 +62,11 @@ const FEATURES = [
   },
 ]
 
-// ── Plans ─────────────────────────────────────────────────────────────────────
-const PLANS = [
-  {
-    name: "Starter",
-    price: "Gratuit",
-    period: "",
-    desc: "Pour tester la plateforme",
-    features: ["5 audits / mois", "100 pages / audit", "3 projets", "Backlinks inclus"],
-    cta: "Commencer gratuitement",
-    highlight: false,
-  },
-  {
-    name: "Pro",
-    price: "99",
-    period: "€ / mois",
-    desc: "Pour les indépendants et freelances",
-    features: [
-      "100 audits / mois",
-      "10 000 pages / audit",
-      "20 projets",
-      "Suivi de positions",
-      "Recommandations IA",
-      "Analyse concurrents",
-    ],
-    cta: "Choisir Pro",
-    highlight: true,
-  },
-  {
-    name: "Agency",
-    price: "249",
-    period: "€ / mois",
-    desc: "Pour les agences et équipes",
-    features: [
-      "Audits illimités",
-      "100 000 pages / audit",
-      "Projets illimités",
-      "SEO Local & GBP",
-      "Accès API REST",
-      "PDF marque blanche",
-    ],
-    cta: "Choisir Agency",
-    highlight: false,
-  },
-]
-
-// ── Stats ─────────────────────────────────────────────────────────────────────
-const STATS = [
-  { value: "+2 000", label: "Sites audités" },
-  { value: "98%", label: "Satisfaction client" },
-  { value: "4,9 / 5", label: "Note moyenne" },
+const FACTUAL_STATS = [
   { value: "< 30s", label: "Premier résultat" },
+  { value: "100%", label: "RGPD & Limited Use" },
+  { value: "0 cookie", label: "Tracking publicitaire" },
+  { value: "Multi-tenant", label: "Isolation par défaut" },
 ]
 
 const jsonLd = {
@@ -120,48 +74,44 @@ const jsonLd = {
   "@graph": [
     {
       "@type": "Organization",
-      "@id": "https://seo.404notfood.fr/#organization",
-      name: "404 SEO",
-      url: "https://seo.404notfood.fr",
-      logo: "https://seo.404notfood.fr/logo.png",
-      description: "Plateforme SaaS d'audit SEO technique avec IA",
+      "@id": `${brand.siteUrl}/#organization`,
+      name: brand.productName,
+      url: brand.siteUrl,
+      logo: `${brand.siteUrl}${brand.logoPath}`,
+      description: brand.productTagline,
     },
     {
       "@type": "WebSite",
-      "@id": "https://seo.404notfood.fr/#website",
-      url: "https://seo.404notfood.fr",
-      name: "404 SEO",
-      publisher: { "@id": "https://seo.404notfood.fr/#organization" },
+      "@id": `${brand.siteUrl}/#website`,
+      url: brand.siteUrl,
+      name: brand.productName,
+      publisher: { "@id": `${brand.siteUrl}/#organization` },
     },
     {
       "@type": "SoftwareApplication",
-      name: "404 SEO",
+      name: brand.productName,
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
-      url: "https://seo.404notfood.fr",
+      url: brand.siteUrl,
       description:
         "Auditez, analysez et optimisez le SEO de vos sites web avec l'IA. Audit technique complet, suivi de positions, backlinks, rapports PDF marque blanche.",
-      offers: [
-        { "@type": "Offer", name: "Starter", price: "0", priceCurrency: "EUR", description: "Plan gratuit" },
-        { "@type": "Offer", name: "Pro", price: "29", priceCurrency: "EUR", description: "Plan Pro" },
-        { "@type": "Offer", name: "Agency", price: "79", priceCurrency: "EUR", description: "Plan Agency" },
-      ],
-      aggregateRating: {
-        "@type": "AggregateRating",
-        ratingValue: "4.9",
-        reviewCount: "200",
-        bestRating: "5",
-      },
+      offers: brand.plans.map((p) => ({
+        "@type": "Offer",
+        name: p.name,
+        price: String(p.priceEur),
+        priceCurrency: p.currency,
+        description: p.description,
+      })),
     },
     {
       "@type": "FAQPage",
       mainEntity: [
         {
           "@type": "Question",
-          name: "Ai-je besoin d'acces a mon serveur ou CMS ?",
+          name: "Ai-je besoin d'accès à mon serveur ou CMS ?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "Non. 404 SEO crawle votre site comme Googlebot, depuis l'exterieur. Aucune installation de plugin ni acces FTP requis.",
+            text: `Non. ${brand.productName} crawle votre site comme Googlebot, depuis l'extérieur. Aucune installation de plugin ni accès FTP requis.`,
           },
         },
         {
@@ -169,15 +119,15 @@ const jsonLd = {
           name: "Combien de temps dure un audit ?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "Un audit de 100 pages prend generalement moins de 30 secondes. Pour des sites plus larges, comptez quelques minutes.",
+            text: "Un audit de 100 pages prend généralement moins de 30 secondes. Pour des sites plus larges, comptez quelques minutes.",
           },
         },
         {
           "@type": "Question",
-          name: "Puis-je annuler mon abonnement a tout moment ?",
+          name: "Puis-je annuler mon abonnement à tout moment ?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "Oui, sans engagement. Vous pouvez annuler depuis votre espace client a tout moment, sans frais.",
+            text: "Oui, sans engagement. Vous pouvez annuler depuis votre espace client à tout moment, sans frais.",
           },
         },
         {
@@ -193,7 +143,7 @@ const jsonLd = {
           name: "L'API est-elle disponible ?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "L'acces a l'API REST est inclus dans le plan Agency. Elle permet d'integrer les audits dans vos propres outils.",
+            text: "L'accès à l'API REST est inclus dans le plan Agency. Elle permet d'intégrer les audits dans vos propres outils.",
           },
         },
       ],
@@ -215,11 +165,19 @@ export default function HomePage() {
         style={{ background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)" }}
       >
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Image src="/logo.png" alt="404 SEO" width={120} height={36} className="h-9 w-auto" priority />
+          <Image
+            src={brand.logoPath}
+            alt={brand.productName}
+            width={120}
+            height={36}
+            className="h-9 w-auto"
+            priority
+          />
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
             <a href="#features" className="hover:text-slate-900 transition-colors">Fonctionnalités</a>
             <a href="#pricing" className="hover:text-slate-900 transition-colors">Tarifs</a>
             <a href="#faq" className="hover:text-slate-900 transition-colors">FAQ</a>
+            <Link href="/about" className="hover:text-slate-900 transition-colors">À propos</Link>
           </nav>
           <div className="flex items-center gap-3">
             <Link
@@ -247,7 +205,6 @@ export default function HomePage() {
           minHeight: "600px",
         }}
       >
-        {/* Grille décorative */}
         <div
           className="absolute inset-0 opacity-10"
           style={{
@@ -256,20 +213,18 @@ export default function HomePage() {
             backgroundSize: "60px 60px",
           }}
         />
-        {/* Glow bleu */}
         <div
           className="absolute -top-32 left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full opacity-20 blur-3xl"
           style={{ background: "radial-gradient(circle, #2563eb 0%, transparent 70%)" }}
         />
-        {/* Glow cyan */}
         <div
           className="absolute top-1/2 right-0 w-[400px] h-[400px] rounded-full opacity-10 blur-3xl"
           style={{ background: "radial-gradient(circle, #06b6d4 0%, transparent 70%)" }}
         />
 
         <div className="relative max-w-6xl mx-auto px-6 py-24 text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border mb-8 text-sm font-medium animate-pulse-cyan"
+          <div
+            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border mb-8 text-sm font-medium animate-pulse-cyan"
             style={{ background: "rgba(6,182,212,0.1)", borderColor: "rgba(6,182,212,0.3)", color: "#22d3ee" }}
           >
             <Zap className="h-3.5 w-3.5" />
@@ -280,7 +235,11 @@ export default function HomePage() {
             Dominez Google
             <span
               className="block"
-              style={{ background: "linear-gradient(90deg, #2563eb, #06b6d4)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}
+              style={{
+                background: "linear-gradient(90deg, #2563eb, #06b6d4)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
             >
               avec l&apos;IA
             </span>
@@ -303,40 +262,23 @@ export default function HomePage() {
             <a
               href="#features"
               className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl text-base font-semibold transition-all"
-              style={{ background: "rgba(255,255,255,0.08)", color: "white", border: "1px solid rgba(255,255,255,0.15)" }}
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                color: "white",
+                border: "1px solid rgba(255,255,255,0.15)",
+              }}
             >
               Voir les fonctionnalités
             </a>
           </div>
-
-          {/* Social proof mini */}
-          <div className="mt-12 flex items-center justify-center gap-2 text-slate-400 text-sm">
-            <div className="flex -space-x-2">
-              {["#2563eb", "#06b6d4", "#7c3aed", "#059669"].map((c, i) => (
-                <div
-                  key={i}
-                  className="w-8 h-8 rounded-full border-2 border-slate-700 flex items-center justify-center text-xs font-bold text-white"
-                  style={{ background: c }}
-                >
-                  {String.fromCharCode(65 + i)}
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-1">
-              {[...Array(5)].map((_, i) => (
-                <Star key={i} className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-              ))}
-            </div>
-            <span>Noté 4,9/5 par +200 utilisateurs</span>
-          </div>
         </div>
       </section>
 
-      {/* ── Stats ── */}
+      {/* ── Stats factuelles ── */}
       <section className="border-b border-slate-100">
         <div className="max-w-6xl mx-auto px-6 py-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            {STATS.map((s) => (
+            {FACTUAL_STATS.map((s) => (
               <div key={s.label} className="text-center">
                 <p className="text-3xl font-black text-slate-900 mb-1">{s.value}</p>
                 <p className="text-sm text-slate-500">{s.label}</p>
@@ -350,14 +292,18 @@ export default function HomePage() {
       <section id="features" className="py-24 bg-slate-50">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-16">
-            <p className="text-sm font-semibold uppercase tracking-widest mb-3" style={{ color: "#2563eb" }}>
+            <p
+              className="text-sm font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "#2563eb" }}
+            >
               Fonctionnalités
             </p>
             <h2 className="text-4xl font-black text-slate-900 mb-4">
               Tout ce dont vous avez besoin
             </h2>
             <p className="text-lg text-slate-500 max-w-xl mx-auto">
-              Une plateforme complète pour auditer, surveiller et optimiser votre présence sur les moteurs de recherche.
+              Une plateforme complète pour auditer, surveiller et optimiser votre présence sur les
+              moteurs de recherche.
             </p>
           </div>
 
@@ -378,6 +324,16 @@ export default function HomePage() {
               </div>
             ))}
           </div>
+
+          <div className="mt-12 flex justify-center">
+            <Link
+              href="/integrations/google-business-profile"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              En savoir plus sur l&apos;intégration Google Business Profile
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -385,7 +341,10 @@ export default function HomePage() {
       <section className="py-24">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-16">
-            <p className="text-sm font-semibold uppercase tracking-widest mb-3" style={{ color: "#2563eb" }}>
+            <p
+              className="text-sm font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "#2563eb" }}
+            >
               En 3 étapes
             </p>
             <h2 className="text-4xl font-black text-slate-900 mb-4">Comment ça marche ?</h2>
@@ -434,7 +393,10 @@ export default function HomePage() {
       <section id="pricing" className="py-24 bg-slate-50">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-16">
-            <p className="text-sm font-semibold uppercase tracking-widest mb-3" style={{ color: "#2563eb" }}>
+            <p
+              className="text-sm font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "#2563eb" }}
+            >
               Tarifs
             </p>
             <h2 className="text-4xl font-black text-slate-900 mb-4">Simple et transparent</h2>
@@ -444,7 +406,7 @@ export default function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {PLANS.map((plan) => (
+            {brand.plans.map((plan) => (
               <div
                 key={plan.name}
                 className="relative rounded-2xl p-6 flex flex-col"
@@ -452,9 +414,7 @@ export default function HomePage() {
                   background: plan.highlight
                     ? "linear-gradient(135deg, #0f172a, #1e3a5f)"
                     : "white",
-                  border: plan.highlight
-                    ? "1px solid #2563eb"
-                    : "1px solid #e2e8f0",
+                  border: plan.highlight ? "1px solid #2563eb" : "1px solid #e2e8f0",
                   boxShadow: plan.highlight
                     ? "0 20px 60px rgba(37,99,235,0.25)"
                     : "0 1px 3px rgba(0,0,0,0.05)",
@@ -478,19 +438,25 @@ export default function HomePage() {
                   >
                     {plan.name}
                   </h3>
-                  <p className="text-sm mb-4" style={{ color: plan.highlight ? "#94a3b8" : "#64748b" }}>
-                    {plan.desc}
+                  <p
+                    className="text-sm mb-4"
+                    style={{ color: plan.highlight ? "#94a3b8" : "#64748b" }}
+                  >
+                    {plan.description}
                   </p>
                   <div className="flex items-baseline gap-1">
                     <span
                       className="text-4xl font-black"
                       style={{ color: plan.highlight ? "white" : "#0f172a" }}
                     >
-                      {plan.price}
+                      {plan.formatPrice()}
                     </span>
-                    {plan.period && (
-                      <span className="text-sm" style={{ color: plan.highlight ? "#94a3b8" : "#64748b" }}>
-                        {plan.period}
+                    {!plan.isFree() && (
+                      <span
+                        className="text-sm"
+                        style={{ color: plan.highlight ? "#94a3b8" : "#64748b" }}
+                      >
+                        {plan.formatPeriod()}
                       </span>
                     )}
                   </div>
@@ -536,7 +502,10 @@ export default function HomePage() {
       <section id="faq" className="py-24">
         <div className="max-w-3xl mx-auto px-6">
           <div className="text-center mb-16">
-            <p className="text-sm font-semibold uppercase tracking-widest mb-3" style={{ color: "#2563eb" }}>
+            <p
+              className="text-sm font-semibold uppercase tracking-widest mb-3"
+              style={{ color: "#2563eb" }}
+            >
               FAQ
             </p>
             <h2 className="text-4xl font-black text-slate-900">Questions fréquentes</h2>
@@ -546,7 +515,7 @@ export default function HomePage() {
             {[
               {
                 q: "Ai-je besoin d'accès à mon serveur ou CMS ?",
-                a: "Non. 404 SEO crawle votre site comme Googlebot, depuis l'extérieur. Aucune installation de plugin ni accès FTP requis.",
+                a: `Non. ${brand.productName} crawle votre site comme Googlebot, depuis l'extérieur. Aucune installation de plugin ni accès FTP requis.`,
               },
               {
                 q: "Combien de temps dure un audit ?",
@@ -564,6 +533,10 @@ export default function HomePage() {
                 q: "L'API est-elle disponible ?",
                 a: "L'accès à l'API REST est inclus dans le plan Agency. Elle permet d'intégrer les audits dans vos propres outils.",
               },
+              {
+                q: "Comment fonctionne la connexion Google Business Profile ?",
+                a: "Via OAuth standard. Vous gardez la main à tout moment et pouvez révoquer l'accès depuis vos paramètres ou depuis votre compte Google. Aucune action n'est effectuée sans votre déclenchement explicite.",
+              },
             ].map((item) => (
               <details
                 key={item.q}
@@ -571,7 +544,9 @@ export default function HomePage() {
               >
                 <summary className="flex items-center justify-between px-6 py-4 cursor-pointer font-semibold text-slate-900 hover:bg-slate-50 transition-colors">
                   {item.q}
-                  <span className="ml-4 text-slate-400 text-lg group-open:rotate-45 transition-transform">+</span>
+                  <span className="ml-4 text-slate-400 text-lg group-open:rotate-45 transition-transform">
+                    +
+                  </span>
                 </summary>
                 <div className="px-6 pb-5 text-slate-500 text-sm leading-relaxed border-t border-slate-100">
                   <div className="pt-4">{item.a}</div>
@@ -586,13 +561,16 @@ export default function HomePage() {
       <section className="py-24" style={{ background: "linear-gradient(135deg, #0f172a, #1e3a5f)" }}>
         <div className="max-w-3xl mx-auto px-6 text-center">
           <div className="mb-6 flex justify-center">
-            <Image src="/logo.png" alt="404 SEO" width={100} height={30} className="h-10 w-auto brightness-0 invert" />
+            <Image
+              src={brand.logoPath}
+              alt={brand.productName}
+              width={100}
+              height={30}
+              className="h-10 w-auto brightness-0 invert"
+            />
           </div>
-          <h2 className="text-4xl font-black text-white mb-4">
-            Prêt à propulser votre SEO ?
-          </h2>
+          <h2 className="text-4xl font-black text-white mb-4">Prêt à propulser votre SEO ?</h2>
           <p className="text-lg text-slate-300 mb-10">
-            Rejoignez des centaines de professionnels qui font confiance à 404 SEO.
             Commencez gratuitement, sans carte bancaire.
           </p>
           <Link
@@ -606,7 +584,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── Footer ── */}
       <Footer />
     </div>
   )

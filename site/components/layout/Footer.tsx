@@ -1,22 +1,42 @@
 import Image from "next/image"
 import Link from "next/link"
+import { BrandConfig, CompanyConfig } from "@/lib/config"
 
 export function Footer() {
+  const brand = BrandConfig.getInstance()
+  const company = CompanyConfig.getInstance()
+
   return (
     <footer className="border-t border-slate-200 py-10">
       <div className="max-w-6xl mx-auto px-6">
         {/* Ligne principale */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          <Image src="/logo.png" alt="404 SEO" width={100} height={30} className="h-8 w-auto" />
+          <Image
+            src={brand.logoPath}
+            alt={brand.productName}
+            width={100}
+            height={30}
+            className="h-8 w-auto"
+          />
           <p className="text-sm text-slate-400">
-            © {new Date().getFullYear()} 404 SEO · Tous droits réservés ·{" "}
-            <a href="mailto:laurentbwa@gmail.com" className="hover:text-slate-600 transition-colors">
+            © {new Date().getFullYear()} {brand.productName} · Tous droits réservés ·{" "}
+            <a
+              href={`mailto:${company.contactEmail}`}
+              className="hover:text-slate-600 transition-colors"
+            >
               Contact
             </a>
           </p>
           <div className="flex items-center gap-5 text-sm text-slate-400">
-            <Link href="/login" className="hover:text-slate-600 transition-colors">Connexion</Link>
-            <Link href="/register" className="hover:text-slate-600 transition-colors">Inscription</Link>
+            <Link href="/about" className="hover:text-slate-600 transition-colors">
+              À propos
+            </Link>
+            <Link href="/login" className="hover:text-slate-600 transition-colors">
+              Connexion
+            </Link>
+            <Link href="/register" className="hover:text-slate-600 transition-colors">
+              Inscription
+            </Link>
           </div>
         </div>
 
@@ -33,6 +53,12 @@ export function Footer() {
           </Link>
           <Link href="/legal/cookies" className="hover:text-slate-600 transition-colors">
             Cookies
+          </Link>
+          <Link
+            href="/integrations/google-business-profile"
+            className="hover:text-slate-600 transition-colors"
+          >
+            Intégration Google
           </Link>
         </div>
       </div>

@@ -1,9 +1,13 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { CompanyConfig, BrandConfig } from "@/lib/config"
+
+const brand = BrandConfig.getInstance()
+const company = CompanyConfig.getInstance()
 
 export const metadata: Metadata = {
-  title: "Politique des cookies — 404 SEO",
-  description: "Politique des cookies de la plateforme 404 SEO.",
+  title: `Politique des cookies — ${brand.productName}`,
+  description: `Politique des cookies de la plateforme ${brand.productName}.`,
 }
 
 export default function CookiePolicyPage() {
@@ -12,7 +16,6 @@ export default function CookiePolicyPage() {
       <h1 className="text-3xl font-bold text-slate-900 mb-2">Politique des cookies</h1>
       <p className="text-sm text-slate-400 mb-10">Dernière mise à jour : 7 mars 2026</p>
 
-      {/* 1. Qu'est-ce qu'un cookie ? */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
           1. Qu&apos;est-ce qu&apos;un cookie ?
@@ -25,14 +28,13 @@ export default function CookiePolicyPage() {
         </p>
       </section>
 
-      {/* 2. Cookies utilisés */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          2. Cookies utilisés par 404 SEO
+          2. Cookies utilisés par {brand.productName}
         </h2>
         <p className="text-slate-600 leading-relaxed mb-6">
-          404 SEO utilise <strong>uniquement des cookies strictement nécessaires</strong> au
-          fonctionnement du service. Nous n&apos;utilisons aucun cookie publicitaire, de suivi
+          {brand.productName} utilise <strong>uniquement des cookies strictement nécessaires</strong>{" "}
+          au fonctionnement du service. Nous n&apos;utilisons aucun cookie publicitaire, de suivi
           comportemental ni d&apos;analyse tierce.
         </p>
 
@@ -82,7 +84,6 @@ export default function CookiePolicyPage() {
         </p>
       </section>
 
-      {/* 3. Cookies strictement nécessaires */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
           3. Cookies strictement nécessaires
@@ -104,18 +105,16 @@ export default function CookiePolicyPage() {
         </p>
       </section>
 
-      {/* 4. Cookies tiers */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          4. Cookies tiers
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">4. Cookies tiers</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
-          404 SEO n&apos;utilise <strong>aucun cookie tiers</strong> (pas de Google Analytics, pas
-          de Facebook Pixel, pas de cookies publicitaires).
+          {brand.productName} n&apos;utilise <strong>aucun cookie tiers</strong> (pas de Google
+          Analytics, pas de Facebook Pixel, pas de cookies publicitaires).
         </p>
         <p className="text-slate-600 leading-relaxed mb-4">
           Lors du processus de paiement, vous pouvez être redirigé vers Stripe qui peut utiliser ses
-          propres cookies dans le cadre de la sécurisation du paiement. Ces cookies sont régis par la{" "}
+          propres cookies dans le cadre de la sécurisation du paiement. Ces cookies sont régis par
+          la{" "}
           <a
             href="https://stripe.com/fr/cookie-settings"
             className="text-blue-600 hover:underline"
@@ -128,11 +127,8 @@ export default function CookiePolicyPage() {
         </p>
       </section>
 
-      {/* 5. Gestion des cookies */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          5. Comment gérer les cookies
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">5. Comment gérer les cookies</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Vous pouvez configurer votre navigateur pour refuser les cookies. Veuillez noter que la
           désactivation des cookies de session <strong>empêchera votre connexion</strong> au service.
@@ -150,8 +146,7 @@ export default function CookiePolicyPage() {
             données de sites
           </li>
           <li>
-            <strong>Safari :</strong> Préférences → Confidentialité → Gérer les données de sites
-            web
+            <strong>Safari :</strong> Préférences → Confidentialité → Gérer les données de sites web
           </li>
           <li>
             <strong>Microsoft Edge :</strong> Paramètres → Cookies et autorisations de sites →
@@ -160,12 +155,8 @@ export default function CookiePolicyPage() {
         </ul>
       </section>
 
-      {/* 6. En savoir plus */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">6. En savoir plus</h2>
-        <p className="text-slate-600 leading-relaxed mb-4">
-          Pour plus d&apos;informations sur les cookies et vos droits, consultez :
-        </p>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>
             Le site de la{" "}
@@ -187,13 +178,12 @@ export default function CookiePolicyPage() {
         </ul>
       </section>
 
-      {/* 7. Contact */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">7. Contact</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Pour toute question relative aux cookies, contactez-nous à{" "}
-          <a href="mailto:laurentbwa@gmail.com" className="text-blue-600 hover:underline">
-            laurentbwa@gmail.com
+          <a href={`mailto:${company.contactEmail}`} className="text-blue-600 hover:underline">
+            {company.contactEmail}
           </a>
           .
         </p>
