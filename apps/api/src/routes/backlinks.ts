@@ -252,7 +252,10 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
         where: { id: request.params.id, tenantId: request.tenantId },
       })
       if (!bl) return reply.status(404).send({ error: "Backlink introuvable" })
-      await prisma.backlink.delete({ where: { id: bl.id } })
+      await prisma.backlink.update({
+        where: { id: bl.id },
+        data: { isActive: false, lastChecked: new Date() },
+      })
       return reply.status(204).send()
     }
   )

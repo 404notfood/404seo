@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma"
 import { crawlQueue } from "../lib/redis"
-import { isValidPublicUrl } from "@seo/crawler"
+import { isValidPublicUrlWithDns } from "@seo/crawler"
 import { generatePDF, type ReportData } from "@seo/reporter"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import { requireRole, assertProjectOwner } from "../lib/guards"
@@ -40,7 +40,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
 
     const url = project.domain
 
-    if (!isValidPublicUrl(url)) {
+    if (!(await isValidPublicUrlWithDns(url))) {
       return reply.status(400).send({ error: "URL du projet invalide ou non autorisée" })
     }
 
@@ -73,7 +73,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       data: { auditId: audit.id, type: "CRAWL", status: "QUEUED" },
     })
 
-    const job = await crawlQueue.add("crawl" as never, {
+    const job = await crawlQueue.add("crawl", {
       auditId: audit.id,
       url,
       options: options ?? {},

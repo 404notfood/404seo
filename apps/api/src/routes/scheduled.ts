@@ -32,7 +32,7 @@ const scheduledRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/scheduled — Liste des audits planifiés
   fastify.get("/api/scheduled", async (request, reply) => {
     const schedules = await prisma.scheduledAudit.findMany({
-      where: { tenantId: request.tenantId, userId: request.userId },
+      where: { tenantId: request.tenantId, userId: request.userId, isActive: true },
       include: {
         project: { select: { name: true, domain: true } },
       },
@@ -124,7 +124,10 @@ const scheduledRoutes: FastifyPluginAsync = async (fastify) => {
       })
       if (!schedule) return reply.status(404).send({ error: "Planification introuvable" })
 
-      await prisma.scheduledAudit.delete({ where: { id: schedule.id } })
+      await prisma.scheduledAudit.update({
+        where: { id: schedule.id },
+        data: { isActive: false, nextRunAt: null },
+      })
       return reply.status(204).send()
     }
   )

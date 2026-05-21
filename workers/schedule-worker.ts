@@ -6,8 +6,11 @@ config({ path: resolve(process.cwd(), "workers/.env") })
 config({ path: resolve(process.cwd(), ".env") })
 
 import { Queue } from "bullmq"
+import type { RedisOptions } from "ioredis"
 import { PrismaClient } from "@prisma/client"
 import pino from "pino"
+import { isValidPublicUrlWithDns } from "@seo/crawler"
+import type { CrawlJobData } from "@seo/shared"
 
 const logger = pino({
   level: process.env.LOG_LEVEL || "info",
@@ -19,12 +22,11 @@ const logger = pino({
 const redisConnection = {
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  maxRetriesPerRequest: null as any,
-}
+  maxRetriesPerRequest: null,
+} satisfies RedisOptions
 
 const prisma = new PrismaClient()
-const crawlQueue = new Queue("crawl", { connection: redisConnection })
+const crawlQueue = new Queue<CrawlJobData>("crawl", { connection: redisConnection })
 
 async function checkScheduledAudits() {
   const now = new Date()
@@ -47,7 +49,15 @@ async function checkScheduledAudits() {
   for (const schedule of due) {
     try {
       const options = (schedule.options as Record<string, unknown>) ?? {}
-      const maxPages = (options.maxPages as number) ?? 100
+      const crawlOptions: CrawlJobData["options"] = {}
+      if (typeof options.maxPages === "number") crawlOptions.maxPages = options.maxPages
+      if (typeof options.maxDepth === "number") crawlOptions.maxDepth = options.maxDepth
+      if (options.device === "mobile" || options.device === "desktop") crawlOptions.device = options.device
+      const maxPages = crawlOptions.maxPages ?? 100
+      if (!(await isValidPublicUrlWithDns(schedule.project.domain))) {
+        logger.warn({ scheduleId: schedule.id, domain: schedule.project.domain }, "URL planifiée invalide, skip")
+        continue
+      }
 
       // Vérifier le quota pages
       const subscription = await prisma.subscription.findUnique({
@@ -68,7 +78,7 @@ async function checkScheduledAudits() {
           projectId: schedule.projectId,
           url: schedule.project.domain,
           status: "PENDING",
-          options: schedule.options ?? {},
+          options: crawlOptions,
         },
       })
 
@@ -76,10 +86,10 @@ async function checkScheduledAudits() {
         data: { auditId: audit.id, type: "CRAWL", status: "QUEUED" },
       })
 
-      await crawlQueue.add("crawl" as never, {
+      await crawlQueue.add("crawl", {
         auditId: audit.id,
         url: schedule.project.domain,
-        options: schedule.options ?? {},
+        options: crawlOptions,
       })
 
       // Calculer le prochain run
@@ -160,6 +170,8 @@ async function listGA4Properties(accessToken: string): Promise<string | null> {
 
 // Appel GSC via fetch HTTP
 async function fetchGSCQueries(accessToken: string, siteUrl: string, startDate: string, endDate: string) {
+  type GSCQueryRow = { keys?: string[]; clicks?: number; impressions?: number; position?: number }
+
   const res = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
     method: "POST",
     headers: {
@@ -174,9 +186,8 @@ async function fetchGSCQueries(accessToken: string, siteUrl: string, startDate: 
     }),
   })
   if (!res.ok) return []
-  const data = await res.json()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data.rows ?? []).map((row: any) => ({
+  const data = await res.json() as { rows?: GSCQueryRow[] }
+  return (data.rows ?? []).map((row) => ({
     query: row.keys?.[0] ?? "",
     clicks: row.clicks ?? 0,
     impressions: row.impressions ?? 0,

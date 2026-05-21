@@ -7,10 +7,11 @@ config({ path: resolve(process.cwd(), "workers/.env") })
 // Fallback : si lancé depuis workers/
 config({ path: resolve(process.cwd(), ".env") })
 import { Worker, Queue, Job } from "bullmq"
+import type { RedisOptions } from "ioredis"
 import { PrismaClient } from "@prisma/client"
 import pino from "pino"
 import { SEOCrawler } from "@seo/crawler"
-import { analyzePage } from "@seo/analyzer"
+import { analyzePage, type AnalysisResult, type CheckResult } from "@seo/analyzer"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import type { CrawlJobData, AnalyzeJobData, ReportJobData } from "@seo/shared"
 import { aggregateSiteKeywords } from "@seo/shared"
@@ -30,10 +31,8 @@ const logger = pino({
 const redisConnection = {
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
-  // BullMQ requiert maxRetriesPerRequest: null (pas undefined)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  maxRetriesPerRequest: null as any,
-}
+  maxRetriesPerRequest: null,
+} satisfies RedisOptions
 
 const prisma = new PrismaClient()
 
@@ -142,7 +141,6 @@ const crawlWorker = new Worker<CrawlJobData>(
             smallTapTargets: page.smallTapTargets,
             smallFontSizes: page.smallFontSizes,
             topKeywords: JSON.parse(JSON.stringify(page.topKeywords ?? [])),
-            rawHtml: page.rawHtml?.substring(0, 50000),
           },
         })
         savedPageIds.push(saved.id)
@@ -246,12 +244,6 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
       await job.updateProgress(50 + Math.round((processedCount / pages.length) * 40))
     }
 
-    // Nettoyer le rawHtml après analyse (économise ~50KB/page)
-    await prisma.auditPage.updateMany({
-      where: { id: { in: pageIds } },
-      data: { rawHtml: null },
-    })
-
     await reportQueue.add("report", { auditId })
 
     return { pagesAnalyzed: processedCount }
@@ -280,57 +272,28 @@ const reportWorker = new Worker<ReportJobData>(
     const pageResults = await prisma.pageResult.findMany({
       where: { page: { auditId } },
     })
+    const toCheckResult = (r: (typeof pageResults)[number]): CheckResult => ({
+      category: r.category,
+      checkName: r.checkName,
+      status: r.status,
+      score: r.score,
+      value: r.value ?? undefined,
+      expected: r.expected ?? undefined,
+      message: r.message,
+      priority: r.priority,
+      effort: r.effort,
+    })
 
     const technical = pageResults.filter((r) => r.category === "TECHNICAL")
     const onPage = pageResults.filter((r) => r.category === "ON_PAGE")
     const performance = pageResults.filter((r) => r.category === "PERFORMANCE")
     const uxMobile = pageResults.filter((r) => r.category === "UX_MOBILE")
 
-    const analysis = {
-      technical: technical.map((r) => ({
-        category: r.category as any,
-        checkName: r.checkName,
-        status: r.status as any,
-        score: r.score,
-        value: r.value ?? undefined,
-        expected: r.expected ?? undefined,
-        message: r.message,
-        priority: r.priority as any,
-        effort: r.effort as any,
-      })),
-      onPage: onPage.map((r) => ({
-        category: r.category as any,
-        checkName: r.checkName,
-        status: r.status as any,
-        score: r.score,
-        value: r.value ?? undefined,
-        expected: r.expected ?? undefined,
-        message: r.message,
-        priority: r.priority as any,
-        effort: r.effort as any,
-      })),
-      performance: performance.map((r) => ({
-        category: r.category as any,
-        checkName: r.checkName,
-        status: r.status as any,
-        score: r.score,
-        value: r.value ?? undefined,
-        expected: r.expected ?? undefined,
-        message: r.message,
-        priority: r.priority as any,
-        effort: r.effort as any,
-      })),
-      uxMobile: uxMobile.map((r) => ({
-        category: r.category as any,
-        checkName: r.checkName,
-        status: r.status as any,
-        score: r.score,
-        value: r.value ?? undefined,
-        expected: r.expected ?? undefined,
-        message: r.message,
-        priority: r.priority as any,
-        effort: r.effort as any,
-      })),
+    const analysis: AnalysisResult = {
+      technical: technical.map(toCheckResult),
+      onPage: onPage.map(toCheckResult),
+      performance: performance.map(toCheckResult),
+      uxMobile: uxMobile.map(toCheckResult),
     }
 
     const score = calculateGlobalScore(analysis)

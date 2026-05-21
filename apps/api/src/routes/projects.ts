@@ -3,6 +3,7 @@ import { z } from "zod"
 import { prisma } from "../lib/prisma"
 import { requireRole } from "../lib/guards"
 import { requireProjectQuota } from "../lib/quotas"
+import { isValidPublicUrlWithDns } from "@seo/crawler"
 
 const CreateProjectSchema = z.object({
   name: z.string().min(1).max(100),
@@ -31,6 +32,9 @@ const projectsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     const { name, domain, description } = parse.data
+    if (!(await isValidPublicUrlWithDns(domain))) {
+      return reply.status(400).send({ error: "URL du projet invalide ou non autorisée" })
+    }
 
     const project = await prisma.project.create({
       data: {
