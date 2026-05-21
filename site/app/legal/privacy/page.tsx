@@ -1,27 +1,37 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { CompanyConfig, BrandConfig, GoogleScopeCatalog, AccessLevel } from "@/lib/config"
+
+const brand = BrandConfig.getInstance()
+const company = CompanyConfig.getInstance()
+const scopeCatalog = GoogleScopeCatalog.getInstance()
+
+const accessLevelLabel: Record<AccessLevel, string> = {
+  [AccessLevel.ReadOnly]: "Lecture seule",
+  [AccessLevel.ReadWrite]: "Lecture et écriture",
+  [AccessLevel.Identity]: "Identité",
+}
 
 export const metadata: Metadata = {
-  title: "Politique de confidentialité — 404 SEO",
-  description:
-    "Politique de confidentialité et protection des données personnelles (RGPD) de la plateforme 404 SEO.",
+  title: `Politique de confidentialité — ${brand.productName}`,
+  description: `Politique de confidentialité et protection des données personnelles (RGPD) de la plateforme ${brand.productName}.`,
 }
 
 export default function PrivacyPolicyPage() {
+  const addr = company.headquartersAddress
   return (
     <article>
       <h1 className="text-3xl font-bold text-slate-900 mb-2">Politique de confidentialité</h1>
       <p className="text-sm text-slate-400 mb-10">Dernière mise à jour : 7 mars 2026</p>
 
       <p className="text-slate-600 leading-relaxed mb-6">
-        La présente politique de confidentialité décrit la manière dont <strong>404 SEO</strong>{" "}
+        La présente politique de confidentialité décrit la manière dont <strong>{brand.productName}</strong>{" "}
         collecte, utilise, stocke et protège vos données personnelles dans le cadre de
         l&apos;utilisation de notre plateforme SaaS d&apos;audit SEO, conformément au Règlement
         Général sur la Protection des Données (RGPD — Règlement UE 2016/679) et à la loi
         Informatique et Libertés.
       </p>
 
-      {/* 1. Responsable du traitement */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
           1. Responsable du traitement
@@ -30,33 +40,35 @@ export default function PrivacyPolicyPage() {
           Le responsable du traitement des données est :
         </p>
         <ul className="list-none text-slate-600 space-y-2 mb-4">
-          <li><strong>Service :</strong> 404 SEO</li>
-          <li><strong>Responsable :</strong> Laurent</li>
+          <li><strong>Service :</strong> {brand.productName}</li>
+          <li><strong>Éditeur :</strong> {company.legalName}</li>
+          <li><strong>Responsable :</strong> {company.publicationDirector}</li>
           <li>
-            <strong>Contact :</strong>{" "}
-            <a href="mailto:laurentbwa@gmail.com" className="text-blue-600 hover:underline">
-              laurentbwa@gmail.com
+            <strong>Contact RGPD :</strong>{" "}
+            <a href={`mailto:${company.privacyEmail}`} className="text-blue-600 hover:underline">
+              {company.privacyEmail}
+            </a>
+          </li>
+          <li>
+            <strong>Contact général :</strong>{" "}
+            <a href={`mailto:${company.contactEmail}`} className="text-blue-600 hover:underline">
+              {company.contactEmail}
             </a>
           </li>
         </ul>
         <p className="text-slate-600 leading-relaxed mb-4">
-          Pour toute question relative à la protection de vos données, vous pouvez nous contacter à
-          l&apos;adresse ci-dessus.
+          Aucun Délégué à la Protection des Données (DPO) n&apos;a été désigné — l&apos;activité ne le
+          rend pas obligatoire au sens de l&apos;article 37 du RGPD. Pour toute question relative à la
+          protection de vos données, contactez l&apos;adresse ci-dessus.
         </p>
       </section>
 
-      {/* 2. Données collectées */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
           2. Données personnelles collectées
         </h2>
-        <p className="text-slate-600 leading-relaxed mb-4">
-          Dans le cadre de l&apos;utilisation de notre service, nous collectons les données suivantes :
-        </p>
 
-        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">
-          a) Données de compte
-        </h3>
+        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">a) Données de compte</h3>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>Nom et prénom</li>
           <li>Adresse e-mail</li>
@@ -64,9 +76,7 @@ export default function PrivacyPolicyPage() {
           <li>Rôle au sein de l&apos;organisation (administrateur, membre)</li>
         </ul>
 
-        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">
-          b) Données d&apos;utilisation
-        </h3>
+        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">b) Données d&apos;utilisation</h3>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>URLs des sites audités</li>
           <li>Résultats d&apos;audit et scores SEO</li>
@@ -74,53 +84,49 @@ export default function PrivacyPolicyPage() {
           <li>Adresse IP et user-agent (logs serveur)</li>
         </ul>
 
-        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">
-          c) Données de facturation
-        </h3>
+        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">c) Données de facturation</h3>
         <p className="text-slate-600 leading-relaxed mb-4">
           Les paiements sont gérés exclusivement par{" "}
-          <a href="https://stripe.com/fr/privacy" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://stripe.com/fr/privacy"
+            className="text-blue-600 hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             Stripe
-          </a>.
-          Nous ne stockons jamais vos numéros de carte bancaire. Nous conservons uniquement
+          </a>
+          . Nous ne stockons jamais vos numéros de carte bancaire. Nous conservons uniquement
           l&apos;identifiant client Stripe et le statut de votre abonnement.
         </p>
 
-        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">
-          d) Données Google APIs
-        </h3>
+        <h3 className="text-lg font-medium text-slate-800 mt-6 mb-3">d) Données Google APIs</h3>
         <p className="text-slate-600 leading-relaxed mb-4">
           Si vous choisissez de connecter votre compte Google, nous accédons aux données suivantes
           via les APIs Google, avec votre consentement explicite :
         </p>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
-          <li>
-            <strong>Google Analytics (GA4)</strong> — données de trafic en lecture seule
-            (<code className="text-sm bg-slate-100 px-1.5 py-0.5 rounded">analytics.readonly</code>)
-          </li>
-          <li>
-            <strong>Google Search Console</strong> — données de recherche en lecture seule
-            (<code className="text-sm bg-slate-100 px-1.5 py-0.5 rounded">webmasters.readonly</code>)
-          </li>
-          <li>
-            <strong>Google Business Profile</strong> — gestion des fiches établissements
-            (<code className="text-sm bg-slate-100 px-1.5 py-0.5 rounded">business.manage</code>)
-          </li>
-          <li>
-            <strong>Adresse e-mail Google</strong> — identification du compte connecté
-            (<code className="text-sm bg-slate-100 px-1.5 py-0.5 rounded">userinfo.email</code>)
-          </li>
+          {scopeCatalog.scopes.map((s) => (
+            <li key={s.scope}>
+              <strong>{s.name}</strong> ({accessLevelLabel[s.accessLevel]}) —{" "}
+              <code className="text-sm bg-slate-100 px-1.5 py-0.5 rounded">{s.scope}</code>
+              <p className="ml-6 mt-1 text-sm text-slate-500">{s.purpose}</p>
+            </li>
+          ))}
         </ul>
+        <p className="text-slate-600 leading-relaxed mb-4">
+          Pour le détail exhaustif des données accédées et de leur usage, consultez notre page dédiée{" "}
+          <Link
+            href="/integrations/google-business-profile"
+            className="text-blue-600 hover:underline"
+          >
+            Intégration Google Business Profile
+          </Link>
+          .
+        </p>
       </section>
 
-      {/* 3. Finalités */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          3. Finalités du traitement
-        </h2>
-        <p className="text-slate-600 leading-relaxed mb-4">
-          Vos données sont collectées et traitées pour les finalités suivantes :
-        </p>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">3. Finalités du traitement</h2>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>Création et gestion de votre compte utilisateur</li>
           <li>Fourniture du service d&apos;audit et d&apos;analyse SEO</li>
@@ -132,18 +138,12 @@ export default function PrivacyPolicyPage() {
         </ul>
       </section>
 
-      {/* 4. Base légale */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          4. Base légale du traitement
-        </h2>
-        <p className="text-slate-600 leading-relaxed mb-4">
-          Conformément à l&apos;article 6 du RGPD, nos traitements reposent sur :
-        </p>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">4. Base légale du traitement</h2>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>
-            <strong>L&apos;exécution du contrat</strong> (article 6.1.b) — pour la fourniture du
-            service SaaS, la gestion de votre compte et la facturation
+            <strong>L&apos;exécution du contrat</strong> (article 6.1.b du RGPD) — pour la fourniture
+            du service SaaS, la gestion de votre compte et la facturation
           </li>
           <li>
             <strong>Votre consentement</strong> (article 6.1.a) — pour la connexion de votre
@@ -156,14 +156,13 @@ export default function PrivacyPolicyPage() {
         </ul>
       </section>
 
-      {/* 5. Google API Services */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
           5. Utilisation des données Google API Services
         </h2>
         <p className="text-slate-600 leading-relaxed mb-4">
-          L&apos;utilisation et le transfert d&apos;informations reçues des APIs Google par 404 SEO
-          sont conformes à la{" "}
+          {brand.productName}&apos;s use and transfer to any other app of information received from
+          Google APIs will adhere to{" "}
           <a
             href="https://developers.google.com/terms/api-services-user-data-policy"
             className="text-blue-600 hover:underline"
@@ -172,24 +171,24 @@ export default function PrivacyPolicyPage() {
           >
             Google API Services User Data Policy
           </a>
-          , y compris les exigences d&apos;utilisation limitée (Limited Use requirements).
+          , including the Limited Use requirements.
+        </p>
+        <p className="text-slate-600 leading-relaxed mb-4">
+          En français : l&apos;utilisation et le transfert d&apos;informations reçues des APIs Google
+          par {brand.productName} sont conformes à la Google API Services User Data Policy, y compris
+          aux exigences d&apos;utilisation limitée (« Limited Use »).
         </p>
         <p className="text-slate-600 leading-relaxed mb-4">En particulier :</p>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>
             Les données obtenues via les APIs Google sont utilisées <strong>uniquement</strong> pour
-            fournir les fonctionnalités SEO de la plateforme (affichage des statistiques Analytics,
-            données Search Console, gestion des fiches Google Business Profile)
+            fournir les fonctionnalités SEO de la plateforme (statistiques Analytics, données Search
+            Console, gestion des fiches Google Business Profile)
           </li>
-          <li>
-            Nous ne transférons pas ces données à des tiers, sauf obligation légale
-          </li>
-          <li>
-            Nous n&apos;utilisons pas ces données à des fins publicitaires
-          </li>
-          <li>
-            Nous ne vendons pas et ne louons pas vos données Google
-          </li>
+          <li>Nous ne transférons pas ces données à des tiers, sauf obligation légale</li>
+          <li>Nous n&apos;utilisons pas ces données à des fins publicitaires</li>
+          <li>Nous ne vendons ni ne louons vos données Google</li>
+          <li>Aucune lecture humaine de ces données n&apos;a lieu, sauf consentement explicite, obligation légale ou besoin de support technique</li>
           <li>
             Vous pouvez révoquer l&apos;accès à tout moment depuis les paramètres de votre compte
             ou depuis votre{" "}
@@ -205,11 +204,8 @@ export default function PrivacyPolicyPage() {
         </ul>
       </section>
 
-      {/* 6. Partage des données */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          6. Partage des données
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">6. Partage des données</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Nous ne vendons jamais vos données personnelles. Vos données peuvent être partagées
           uniquement avec les sous-traitants suivants, strictement nécessaires au fonctionnement
@@ -218,70 +214,48 @@ export default function PrivacyPolicyPage() {
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>
             <strong>Stripe</strong> — traitement des paiements (
-            <a href="https://stripe.com/fr/privacy" className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+            <a
+              href="https://stripe.com/fr/privacy"
+              className="text-blue-600 hover:underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               politique de confidentialité Stripe
-            </a>)
+            </a>
+            )
           </li>
+          <li><strong>Google APIs</strong> — intégration Analytics, Search Console et Business Profile</li>
           <li>
-            <strong>Google APIs</strong> — intégration Analytics, Search Console et Business Profile
-          </li>
-          <li>
-            <strong>Hébergeur</strong> — stockage des données sur serveur sécurisé [À COMPLÉTER]
+            <strong>Hébergeur</strong> — {company.host.name} ({company.host.legalName}, {company.host.address})
           </li>
         </ul>
       </section>
 
-      {/* 7. Durée de conservation */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          7. Durée de conservation
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">7. Durée de conservation</h2>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
-          <li>
-            <strong>Données de compte</strong> — conservées tant que le compte est actif, puis 3 ans
-            après la dernière connexion
-          </li>
-          <li>
-            <strong>Données d&apos;audit</strong> — conservées 12 mois après leur génération
-          </li>
-          <li>
-            <strong>Logs serveur</strong> — conservés 6 mois
-          </li>
-          <li>
-            <strong>Tokens Google</strong> — révoqués et supprimés dès la déconnexion du compte
-            Google depuis les paramètres
-          </li>
-          <li>
-            <strong>Données de facturation</strong> — conservées conformément aux obligations
-            comptables et fiscales (10 ans)
-          </li>
+          <li><strong>Données de compte</strong> — conservées tant que le compte est actif, puis 3 ans après la dernière connexion</li>
+          <li><strong>Données d&apos;audit</strong> — conservées 12 mois après leur génération</li>
+          <li><strong>Logs serveur</strong> — conservés 6 mois</li>
+          <li><strong>Tokens Google</strong> — révoqués et supprimés dès la déconnexion du compte Google depuis les paramètres</li>
+          <li><strong>Données de facturation</strong> — conservées conformément aux obligations comptables et fiscales (10 ans)</li>
         </ul>
       </section>
 
-      {/* 8. Transferts hors UE */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          8. Transferts de données hors UE
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">8. Transferts de données hors UE</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Certains de nos sous-traitants sont basés aux États-Unis. Ces transferts sont encadrés par
           des clauses contractuelles types (SCCs) conformément aux exigences du RGPD :
         </p>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
-          <li>
-            <strong>Stripe Inc.</strong> — encadré par le Data Privacy Framework (DPF) et des SCCs
-          </li>
-          <li>
-            <strong>Google LLC</strong> — encadré par le Data Privacy Framework (DPF) et des SCCs
-          </li>
+          <li><strong>Stripe Inc.</strong> — encadré par le Data Privacy Framework (DPF) et des SCCs</li>
+          <li><strong>Google LLC</strong> — encadré par le Data Privacy Framework (DPF) et des SCCs</li>
         </ul>
       </section>
 
-      {/* 9. Droits des utilisateurs */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          9. Vos droits (RGPD)
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">9. Vos droits (RGPD)</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Conformément aux articles 13 à 21 du RGPD, vous disposez des droits suivants :
         </p>
@@ -296,8 +270,8 @@ export default function PrivacyPolicyPage() {
         </ul>
         <p className="text-slate-600 leading-relaxed mb-4">
           Pour exercer ces droits, contactez-nous à{" "}
-          <a href="mailto:laurentbwa@gmail.com" className="text-blue-600 hover:underline">
-            laurentbwa@gmail.com
+          <a href={`mailto:${company.privacyEmail}`} className="text-blue-600 hover:underline">
+            {company.privacyEmail}
           </a>
           . Nous répondrons dans un délai d&apos;un mois.
         </p>
@@ -315,7 +289,6 @@ export default function PrivacyPolicyPage() {
         </p>
       </section>
 
-      {/* 10. Cookies */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">10. Cookies</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
@@ -328,29 +301,20 @@ export default function PrivacyPolicyPage() {
         </p>
       </section>
 
-      {/* 11. Sécurité */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          11. Sécurité des données
-        </h2>
-        <p className="text-slate-600 leading-relaxed mb-4">
-          Nous mettons en œuvre des mesures techniques et organisationnelles appropriées pour protéger
-          vos données :
-        </p>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">11. Sécurité des données</h2>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>Communication chiffrée via HTTPS/TLS</li>
           <li>Mots de passe hashés (jamais stockés en clair)</li>
-          <li>Tokens d&apos;accès Google stockés de manière sécurisée en base de données</li>
+          <li>Tokens d&apos;accès Google chiffrés en base de données</li>
           <li>Accès restreint aux données de production</li>
           <li>Validation anti-SSRF sur toutes les URLs crawlées</li>
+          <li>Isolation multi-tenant stricte (les données d&apos;un tenant ne sont jamais accessibles à un autre)</li>
         </ul>
       </section>
 
-      {/* 12. Modifications */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          12. Modifications de cette politique
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">12. Modifications</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Nous nous réservons le droit de modifier cette politique de confidentialité à tout moment.
           En cas de modification substantielle, nous vous en informerons par e-mail ou par une
@@ -359,22 +323,23 @@ export default function PrivacyPolicyPage() {
         </p>
       </section>
 
-      {/* 13. Contact */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">13. Contact</h2>
-        <p className="text-slate-600 leading-relaxed mb-4">
-          Pour toute question relative à cette politique de confidentialité ou à vos données
-          personnelles, contactez-nous :
-        </p>
         <ul className="list-none text-slate-600 space-y-2 mb-4">
           <li>
-            <strong>E-mail :</strong>{" "}
-            <a href="mailto:laurentbwa@gmail.com" className="text-blue-600 hover:underline">
-              laurentbwa@gmail.com
+            <strong>E-mail RGPD :</strong>{" "}
+            <a href={`mailto:${company.privacyEmail}`} className="text-blue-600 hover:underline">
+              {company.privacyEmail}
             </a>
           </li>
           <li>
-            <strong>Adresse :</strong> [À COMPLÉTER]
+            <strong>E-mail général :</strong>{" "}
+            <a href={`mailto:${company.contactEmail}`} className="text-blue-600 hover:underline">
+              {company.contactEmail}
+            </a>
+          </li>
+          <li>
+            <strong>Adresse :</strong> {addr.street}, {addr.postalCode} {addr.city}, {addr.country}
           </li>
         </ul>
       </section>

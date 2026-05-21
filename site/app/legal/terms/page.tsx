@@ -1,12 +1,19 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { CompanyConfig, BrandConfig } from "@/lib/config"
+
+const brand = BrandConfig.getInstance()
+const company = CompanyConfig.getInstance()
 
 export const metadata: Metadata = {
-  title: "Conditions générales d'utilisation — 404 SEO",
-  description: "Conditions générales d'utilisation de la plateforme SaaS 404 SEO.",
+  title: `Conditions générales d'utilisation — ${brand.productName}`,
+  description: `Conditions générales d'utilisation de la plateforme SaaS ${brand.productName}.`,
 }
 
 export default function TermsPage() {
+  const proPlan = brand.plans.find((p) => p.name === "Pro")
+  const agencyPlan = brand.plans.find((p) => p.name === "Agency")
+
   return (
     <article>
       <h1 className="text-3xl font-bold text-slate-900 mb-2">
@@ -14,15 +21,15 @@ export default function TermsPage() {
       </h1>
       <p className="text-sm text-slate-400 mb-10">Dernière mise à jour : 7 mars 2026</p>
 
-      {/* 1. Objet */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">1. Objet</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Les présentes conditions générales d&apos;utilisation (ci-après « CGU ») régissent
-          l&apos;utilisation de la plateforme <strong>404 SEO</strong>, un service SaaS (Software as
-          a Service) d&apos;audit et d&apos;optimisation SEO accessible à l&apos;adresse{" "}
-          <a href="https://seo.404notfood.fr" className="text-blue-600 hover:underline">
-            https://seo.404notfood.fr
+          l&apos;utilisation de la plateforme <strong>{brand.productName}</strong>, un service SaaS
+          (Software as a Service) d&apos;audit et d&apos;optimisation SEO accessible à
+          l&apos;adresse{" "}
+          <a href={brand.siteUrl} className="text-blue-600 hover:underline">
+            {brand.siteUrl}
           </a>
           .
         </p>
@@ -32,13 +39,10 @@ export default function TermsPage() {
         </p>
       </section>
 
-      {/* 2. Description du service */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          2. Description du service
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">2. Description du service</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
-          404 SEO propose les fonctionnalités suivantes :
+          {brand.productName} propose les fonctionnalités suivantes :
         </p>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
           <li>Audit technique et SEO de sites web</li>
@@ -53,7 +57,6 @@ export default function TermsPage() {
         </ul>
       </section>
 
-      {/* 3. Accès au service */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
           3. Accès au service et inscription
@@ -66,44 +69,35 @@ export default function TermsPage() {
           Vous êtes responsable de la confidentialité de votre mot de passe et de toutes les
           activités réalisées sous votre compte. En cas d&apos;utilisation non autorisée de votre
           compte, vous devez nous en informer immédiatement à{" "}
-          <a href="mailto:laurentbwa@gmail.com" className="text-blue-600 hover:underline">
-            laurentbwa@gmail.com
+          <a href={`mailto:${company.contactEmail}`} className="text-blue-600 hover:underline">
+            {company.contactEmail}
           </a>
           .
         </p>
       </section>
 
-      {/* 4. Plans et tarification */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          4. Plans et tarification
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">4. Plans et tarification</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Le service est disponible selon les plans suivants :
         </p>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
-          <li>
-            <strong>Starter</strong> (gratuit) — fonctionnalités de base avec des quotas limités
-          </li>
-          <li>
-            <strong>Pro</strong> (29 €/mois) — fonctionnalités avancées et quotas étendus
-          </li>
-          <li>
-            <strong>Agency</strong> (99 €/mois) — accès complet et quotas illimités
-          </li>
+          {brand.plans.map((p) => (
+            <li key={p.name}>
+              <strong>{p.name}</strong>{" "}
+              {p.isFree() ? "(gratuit)" : `(${p.priceEur} €/mois)`} — {p.description}
+            </li>
+          ))}
         </ul>
         <p className="text-slate-600 leading-relaxed mb-4">
           Les tarifs sont indiqués en euros TTC. L&apos;éditeur se réserve le droit de modifier les
           tarifs à tout moment, les modifications prenant effet au prochain renouvellement de
-          l&apos;abonnement.
+          l&apos;abonnement. {proPlan && agencyPlan && `Tarif Pro : ${proPlan.priceEur} €/mois — Tarif Agency : ${agencyPlan.priceEur} €/mois.`}
         </p>
       </section>
 
-      {/* 5. Paiement et abonnement */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          5. Paiement et abonnement
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">5. Paiement et abonnement</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Les paiements sont traités de manière sécurisée par{" "}
           <a
@@ -123,11 +117,8 @@ export default function TermsPage() {
         </p>
       </section>
 
-      {/* 6. Droit de rétractation */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          6. Droit de rétractation
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">6. Droit de rétractation</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Conformément à l&apos;article L.221-28 du Code de la consommation, le droit de
           rétractation ne s&apos;applique pas aux contrats de fourniture de contenu numérique non
@@ -141,7 +132,6 @@ export default function TermsPage() {
         </p>
       </section>
 
-      {/* 7. Obligations de l'utilisateur */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
           7. Obligations de l&apos;utilisateur
@@ -160,15 +150,12 @@ export default function TermsPage() {
         </ul>
       </section>
 
-      {/* 8. Propriété intellectuelle */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          8. Propriété intellectuelle
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">8. Propriété intellectuelle</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Le code source, les algorithmes, l&apos;interface utilisateur, les textes, graphismes et
-          logos de 404 SEO sont la propriété exclusive de l&apos;éditeur et sont protégés par le
-          droit de la propriété intellectuelle.
+          logos de {brand.productName} sont la propriété exclusive de l&apos;éditeur et sont
+          protégés par le droit de la propriété intellectuelle.
         </p>
         <p className="text-slate-600 leading-relaxed mb-4">
           Les rapports d&apos;audit générés par le service appartiennent à l&apos;utilisateur.
@@ -176,19 +163,13 @@ export default function TermsPage() {
         </p>
       </section>
 
-      {/* 9. Limitation de responsabilité */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          9. Limitation de responsabilité
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">9. Limitation de responsabilité</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Le service est fourni « en l&apos;état ». L&apos;éditeur ne garantit pas :
         </p>
         <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
-          <li>
-            L&apos;obtention de résultats spécifiques en termes de référencement ou de
-            positionnement
-          </li>
+          <li>L&apos;obtention de résultats spécifiques en termes de référencement ou de positionnement</li>
           <li>La disponibilité ininterrompue du service (maintenance, mises à jour)</li>
           <li>L&apos;exactitude absolue des analyses et recommandations fournies</li>
         </ul>
@@ -198,11 +179,8 @@ export default function TermsPage() {
         </p>
       </section>
 
-      {/* 10. Données personnelles */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          10. Données personnelles
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">10. Données personnelles</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Nous nous engageons à protéger vos données personnelles conformément au RGPD. Pour plus
           d&apos;informations, consultez notre{" "}
@@ -213,11 +191,8 @@ export default function TermsPage() {
         </p>
       </section>
 
-      {/* 11. Suspension et résiliation */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          11. Suspension et résiliation
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">11. Suspension et résiliation</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           L&apos;éditeur se réserve le droit de suspendre ou résilier l&apos;accès au service, sans
           préavis ni indemnité, en cas de violation des présentes CGU, notamment en cas
@@ -230,23 +205,43 @@ export default function TermsPage() {
         </p>
       </section>
 
-      {/* 12. Services tiers */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          12. Services tiers
-        </h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">12. Services tiers</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Le service s&apos;intègre avec des services tiers (Google APIs, Stripe). L&apos;utilisation
           de ces services est soumise à leurs propres conditions d&apos;utilisation et politiques de
           confidentialité. L&apos;éditeur ne saurait être tenu responsable du fonctionnement ou de
           la disponibilité de ces services tiers.
         </p>
+        <p className="text-slate-600 leading-relaxed mb-4">
+          Pour le détail des intégrations Google et de l&apos;usage des données, consultez notre
+          page{" "}
+          <Link
+            href="/integrations/google-business-profile"
+            className="text-blue-600 hover:underline"
+          >
+            Intégration Google Business Profile
+          </Link>
+          .
+        </p>
       </section>
 
-      {/* 13. Droit applicable */}
       <section>
         <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
-          13. Droit applicable et juridiction
+          13. Spécificités Google Business Profile
+        </h2>
+        <ul className="list-disc list-inside text-slate-600 space-y-2 mb-4">
+          <li>L&apos;utilisateur reste seul propriétaire de ses fiches Google Business Profile</li>
+          <li>{brand.productName} agit comme un outil tiers et n&apos;est pas affilié à Google</li>
+          <li>Aucune action (modification, réponse aux avis, post) n&apos;est effectuée sans déclenchement explicite par l&apos;utilisateur</li>
+          <li>Les tokens d&apos;accès Google sont chiffrés et révocables à tout moment</li>
+          <li>L&apos;utilisateur peut révoquer la connexion depuis les paramètres ou depuis son compte Google</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">
+          14. Droit applicable et juridiction
         </h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Les présentes CGU sont régies par le droit français. En cas de litige, les parties
@@ -254,23 +249,20 @@ export default function TermsPage() {
           les tribunaux français compétents.
         </p>
         <p className="text-slate-600 leading-relaxed mb-4">
-          Conformément aux dispositions du Code de la consommation, vous pouvez recourir
-          gratuitement au service de médiation de la consommation. Le médiateur à contacter est
-          : [À COMPLÉTER].
+          {company.mediator}
         </p>
       </section>
 
-      {/* 14. Contact */}
       <section>
-        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">14. Contact</h2>
+        <h2 className="text-xl font-semibold text-slate-900 mt-10 mb-4">15. Contact</h2>
         <p className="text-slate-600 leading-relaxed mb-4">
           Pour toute question relative aux présentes CGU, contactez-nous :
         </p>
         <ul className="list-none text-slate-600 space-y-2 mb-4">
           <li>
             <strong>E-mail :</strong>{" "}
-            <a href="mailto:laurentbwa@gmail.com" className="text-blue-600 hover:underline">
-              laurentbwa@gmail.com
+            <a href={`mailto:${company.contactEmail}`} className="text-blue-600 hover:underline">
+              {company.contactEmail}
             </a>
           </li>
         </ul>
