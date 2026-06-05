@@ -8,9 +8,9 @@
 </p>
 
 <h1 align="center">
-  SEO Radar
+  SEO Audit
   <br />
-  <sub><sup>Plateforme SaaS d'audit SEO intelligente</sup></sub>
+  <sub><sup>Plateforme  d'audit SEO intelligente</sup></sub>
 </h1>
 
 <p align="center">
