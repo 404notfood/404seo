@@ -1,0 +1,130 @@
+# =============================================================================
+# 404seo — Podman Compose
+# =============================================================================
+# Conteneurise UNIQUEMENT l'application (site, api, workers) + Redis.
+# PostgreSQL reste natif HestiaCP. Nginx HestiaCP reste le reverse proxy SSL.
+#
+# Les ports site/api sont exposes sur 127.0.0.1 SEULEMENT : seul le Nginx de
+# l'hote y accede, jamais l'Internet directement.
+#
+# Lancer :
+#   cd deployment/podman
+#   podman-compose --env-file .env up -d --build
+#
+# (Le contexte de build est la racine du repo : ../.. )
+# =============================================================================
+
+services:
+  # ── Redis 7 (BullMQ + cache) ────────────────────────────────────────────────
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: 404seo-redis
+    command: >
+      redis-server
+      --requirepass "${REDIS_PASSWORD}"
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - seo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Next.js 16 (site) ───────────────────────────────────────────────────────
+  site:
+    image: 404seo-site:latest
+    build:
+      context: ../..
+      dockerfile: deployment/podman/Dockerfile.site
+    container_name: 404seo-site
+    env_file:
+      - .env
+    environment:
+      PORT: "3030"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${SITE_PORT:-3030}:3030"
+    networks:
+      - seo
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  # ── Fastify API ─────────────────────────────────────────────────────────────
+  api:
+    image: 404seo-api:latest
+    build:
+      context: ../..
+      dockerfile: deployment/podman/Dockerfile.api
+    container_name: 404seo-api
+    env_file:
+      - .env
+    environment:
+      API_HOST: "0.0.0.0"
+      API_PORT: "4000"
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${API_PORT:-4000}:4000"
+    # Puppeteer (generation PDF) a besoin de memoire partagee
+    shm_size: "512m"
+    networks:
+      - seo
+    restart: unless-stopped
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Worker crawl (Playwright/Chromium) ──────────────────────────────────────
+  worker:
+    image: 404seo-worker:latest
+    build:
+      context: ../..
+      dockerfile: deployment/podman/Dockerfile.worker
+    container_name: 404seo-worker
+    command: ["node_modules/.bin/tsx", "workers/crawl-worker.ts"]
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    # Chromium a besoin de memoire partagee
+    shm_size: "1gb"
+    networks:
+      - seo
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+  # ── Worker scheduler (audits planifies) ─────────────────────────────────────
+  scheduler:
+    image: 404seo-worker:latest
+    # reutilise l'image du worker (pas de rebuild)
+    container_name: 404seo-scheduler
+    command: ["node_modules/.bin/tsx", "workers/schedule-worker.ts"]
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    networks:
+      - seo
+    restart: unless-stopped
+    depends_on:
+      - redis
+      - worker
+
+networks:
+  seo:
+    driver: bridge
+
+volumes:
+  redis-data:

@@ -100,11 +100,9 @@ coverage/
 !/deployment/
 /deployment/*
 !/deployment/podman/
-/deployment/podman/*
-!/deployment/podman/Containerfile
-!/deployment/podman/README.md
-!/deployment/podman/deploy-podman.sh
-!/deployment/podman/seo.env.example
-!/deployment/podman/quadlet/
-/deployment/podman/quadlet/*
-!/deployment/podman/quadlet/*.container
+# Suivre tout le dossier podman (Dockerfiles, scripts, compose, docs, quadlet)
+!/deployment/podman/**
+# ...SAUF les secrets : le .env rempli ne doit JAMAIS etre commite
+/deployment/podman/.env
+/deployment/podman/*.env
+!/deployment/podman/.env.example

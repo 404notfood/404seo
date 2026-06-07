@@ -63,7 +63,7 @@ PostgreSQL natif HestiaCP (127.0.0.1:5432)
 
 ## 1. Installation initiale (une fois)
 
-En tant qu'**utilisateur applicatif** (ex. l'utilisateur HestiaCP `SEO`, **pas root**) :
+En tant qu'**utilisateur applicatif** (l'utilisateur HestiaCP `seo`, **pas root**) :
 
 ```bash
 cd ~/404seo            # ou le chemin où le repo est cloné
@@ -79,7 +79,7 @@ Créer la base si nécessaire :
 
 ```bash
 sudo -u postgres psql -c "CREATE USER seo_user WITH PASSWORD 'CHANGE_ME';"
-sudo -u postgres psql -c "CREATE DATABASE seo_saas OWNER seo_user;"
+sudo -u postgres psql -c "CREATE DATABASE seo_db OWNER seo_user;"
 ```
 
 Autoriser les conteneurs à joindre Postgres via la passerelle Podman :
@@ -93,7 +93,7 @@ podman network inspect 404seo | grep -i gateway   # ex: 10.89.0.1
 sudo nano /etc/postgresql/*/main/postgresql.conf
 
 # 3) pg_hba.conf : autoriser le sous-réseau podman en scram-sha-256
-#    host  seo_saas  seo_user  10.89.0.0/16  scram-sha-256
+#    host  seo_db  seo_user  10.89.0.0/16  scram-sha-256
 sudo nano /etc/postgresql/*/main/pg_hba.conf
 
 sudo systemctl reload postgresql
@@ -135,7 +135,7 @@ au boot et en cas de crash.
 
 ```bash
 sudo cp deployment/podman/nginx.podman.conf \
-    /home/SEO/conf/web/seo.404notfood.fr/nginx.ssl.conf
+    /home/seo/conf/web/seo.404notfood.fr/nginx.ssl.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
