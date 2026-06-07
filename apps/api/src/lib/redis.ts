@@ -1,14 +1,14 @@
 import { Queue } from "bullmq"
 import IORedis from "ioredis"
+import type { RedisOptions } from "ioredis"
 import type { CrawlJobData } from "@seo/shared"
 
 const connection = {
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
-  // BullMQ requiert maxRetriesPerRequest: null (pas undefined)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  maxRetriesPerRequest: null as any,
-}
+  password: process.env.REDIS_PASSWORD || undefined,
+  maxRetriesPerRequest: null,
+} satisfies RedisOptions
 
 export const crawlQueue = new Queue<CrawlJobData>("crawl", {
   connection,
@@ -24,5 +24,6 @@ export const crawlQueue = new Queue<CrawlJobData>("crawl", {
 export const redis = new IORedis({
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
+  password: process.env.REDIS_PASSWORD || undefined,
   lazyConnect: true,
 })

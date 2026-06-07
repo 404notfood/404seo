@@ -120,8 +120,9 @@ async function start() {
   fastify.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))
 
   const port = parseInt(process.env.API_PORT || "4000")
-  await fastify.listen({ port, host: "0.0.0.0" })
-  fastify.log.info(`API Fastify démarrée sur http://localhost:${port}`)
+  const host = process.env.API_HOST || "0.0.0.0"
+  await fastify.listen({ port, host })
+  fastify.log.info(`API Fastify démarrée sur http://${host}:${port}`)
 }
 
 start().catch((err) => {

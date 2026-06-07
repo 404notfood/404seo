@@ -1,0 +1,32 @@
+# =============================================================================
+# 404seo — Fastify API (Quadlet, rootless systemd --user)
+# =============================================================================
+[Unit]
+Description=404seo Fastify API
+After=network-online.target 404seo-redis.service
+Wants=network-online.target
+Requires=404seo-redis.service
+
+[Container]
+ContainerName=404seo-api
+Image=localhost/404seo-api:latest
+Network=404seo.network
+EnvironmentFile=%h/404seo/deployment/podman/.env
+Environment=NODE_ENV=production
+Environment=API_HOST=0.0.0.0
+Environment=API_PORT=4000
+# Publie sur 127.0.0.1 uniquement : seul le Nginx HestiaCP de l'hote y accede
+PublishPort=127.0.0.1:4000:4000
+# Puppeteer (generation PDF) a besoin de memoire partagee
+ShmSize=512m
+# Resolution du Postgres natif de l'hote
+AddHost=host.containers.internal:host-gateway
+Exec=node_modules/.bin/tsx apps/api/src/index.ts
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,28 @@
+# =============================================================================
+# 404seo — Next.js 16 site (Quadlet, rootless systemd --user)
+# =============================================================================
+[Unit]
+Description=404seo Next.js site
+After=network-online.target 404seo-api.service
+Wants=network-online.target
+Requires=404seo-api.service
+
+[Container]
+ContainerName=404seo-site
+Image=localhost/404seo-site:latest
+Network=404seo.network
+EnvironmentFile=%h/404seo/deployment/podman/.env
+Environment=NODE_ENV=production
+Environment=HOSTNAME=0.0.0.0
+Environment=PORT=3030
+# Publie sur 127.0.0.1 uniquement : seul le Nginx HestiaCP de l'hote y accede
+PublishPort=127.0.0.1:3030:3030
+Exec=node site/server.js
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

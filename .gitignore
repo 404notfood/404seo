@@ -95,3 +95,16 @@ coverage/
 /md
 /app
 /deployment
+
+# ---------- Deployment templates tracked ----------
+!/deployment/
+/deployment/*
+!/deployment/podman/
+/deployment/podman/*
+!/deployment/podman/Containerfile
+!/deployment/podman/README.md
+!/deployment/podman/deploy-podman.sh
+!/deployment/podman/seo.env.example
+!/deployment/podman/quadlet/
+/deployment/podman/quadlet/*
+!/deployment/podman/quadlet/*.container

@@ -310,6 +310,22 @@ export const apiClient = {
   },
 
   // Google GBP Sync
+  getGoogleGBPAccounts: (googleAccountId?: string) =>
+    fetcher<{ accounts: GoogleGBPAccount[] }>(
+      `/api/google/gbp-accounts${googleAccountId ? `?googleAccountId=${encodeURIComponent(googleAccountId)}` : ""}`,
+    ),
+  createGoogleLocation: (data: CreateGoogleLocationInput) =>
+    fetcher<GoogleLocationMutationResponse>("/api/google/locations", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateGoogleLocation: (listingId: string, data: UpdateGoogleLocationInput) =>
+    fetcher<GoogleLocationMutationResponse>(`/api/google/listings/${listingId}/location`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteGoogleLocation: (listingId: string) =>
+    fetcher<{ success: boolean }>(`/api/google/listings/${listingId}/location`, { method: "DELETE" }),
   syncGBPListings: () =>
     fetcher<{ success: boolean; imported: number; errors: string[] }>("/api/google/sync", { method: "POST" }),
   syncGBPReviews: (listingId?: string) =>
@@ -868,6 +884,49 @@ export interface GoogleAccountStatus {
   connected: boolean
   email: string | null  // compat rétro : email du premier compte
   accounts: GoogleConnectedAccount[]
+}
+
+export interface GoogleGBPAccount {
+  name: string
+  accountName?: string
+  type?: string
+}
+
+export interface GoogleLocationAddress {
+  addressLines: string[]
+  locality: string
+  postalCode: string
+  regionCode: string
+  administrativeArea?: string
+}
+
+export interface CreateGoogleLocationInput {
+  googleAccountId?: string
+  accountName?: string
+  businessName: string
+  categoryId: string
+  categoryDisplayName?: string
+  address: GoogleLocationAddress
+  phone?: string
+  website?: string
+  validateOnly?: boolean
+}
+
+export interface UpdateGoogleLocationInput {
+  businessName?: string
+  categoryId?: string
+  categoryDisplayName?: string
+  address?: GoogleLocationAddress
+  phone?: string | null
+  website?: string | null
+  validateOnly?: boolean
+}
+
+export interface GoogleLocationMutationResponse {
+  success: boolean
+  validateOnly?: boolean
+  listing?: GBPListing
+  location: unknown
 }
 
 export interface GA4TimelineEntry {

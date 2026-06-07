@@ -1,6 +1,7 @@
 // Plugin d'authentification — vérifie le JWT BetterAuth
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
 import fp from "fastify-plugin"
+import type { Prisma } from "@prisma/client"
 import { prisma } from "../lib/prisma"
 
 declare module "fastify" {
@@ -48,26 +49,20 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
     // Charger l'utilisateur séparément pour rester robuste même si la relation Prisma Session->User
     // n'est pas typée dans le client généré courant.
-    const user = (await prisma.user.findUnique({
+    const userSelect = {
+      id: true,
+      tenantId: true,
+      role: true,
+      email: true,
+      name: true,
+      isBanned: true,
+      isSuperAdmin: true,
+    } satisfies Prisma.UserSelect
+
+    const user = await prisma.user.findUnique({
       where: { id: session.userId },
-      select: {
-        id: true,
-        tenantId: true,
-        role: true,
-        email: true,
-        name: true,
-        isBanned: true,
-        isSuperAdmin: true,
-      } as never,
-    })) as {
-      id: string
-      tenantId: string | null
-      role: "ADMIN" | "MEMBER" | "GUEST" | null
-      email: string
-      name: string | null
-      isBanned: boolean
-      isSuperAdmin?: boolean
-    } | null
+      select: userSelect,
+    })
 
     if (!user) {
       return reply.status(401).send({ error: "Session invalide (utilisateur introuvable)" })

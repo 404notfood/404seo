@@ -1,0 +1,27 @@
+.git
+.turbo
+node_modules
+**/node_modules
+
+# Build outputs
+site/.next
+site/out
+apps/api/dist
+apps/extension/dist
+packages/*/dist
+workers/dist
+
+# Local secrets
+.env
+.env.*
+!.env.example
+deployment/.env
+site/.env.local
+apps/api/.env
+workers/.env
+
+# Local logs/cache
+logs
+*.log
+.cache
+coverage

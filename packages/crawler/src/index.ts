@@ -1,6 +1,8 @@
 import { chromium, Browser, BrowserContext } from "playwright"
 import * as cheerio from "cheerio"
 import { URL } from "url"
+import { lookup } from "node:dns/promises"
+import { isIP } from "node:net"
 import type { PageData } from "@seo/shared"
 import { extractPageKeywords } from "@seo/shared"
 
@@ -10,38 +12,71 @@ export type { PageData }
 // Anti-SSRF
 // ─────────────────────────────────────────────
 
-const BLOCKED_HOSTS = [
-  "localhost", "127.0.0.1", "0.0.0.0",
-  "::1", "169.254.", "10.", "172.16.", "192.168.",
+const BLOCKED_HOSTS = new Set([
+  "localhost",
   "metadata.google.internal",
-]
+])
 
-const BLOCKED_SUFFIXES = [".local", ".internal", ".localhost"]
+const BLOCKED_SUFFIXES = [".local", ".internal", ".localhost", ".lan"]
+
+function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
+}
+
+function isPrivateIPv4(address: string): boolean {
+  const parts = address.split(".").map((part) => Number(part))
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return true
+  }
+
+  const [a, b] = parts
+  if (a === 0 || a === 10 || a === 127) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  if (a === 169 && b === 254) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a >= 224) return true
+  return false
+}
+
+function isPrivateIPv6(address: string): boolean {
+  const host = normalizeHostname(address)
+  return (
+    host === "::1" ||
+    host === "::" ||
+    host.startsWith("fc") ||
+    host.startsWith("fd") ||
+    host.startsWith("fe80:") ||
+    host.startsWith("::ffff:127.") ||
+    host.startsWith("::ffff:10.") ||
+    host.startsWith("::ffff:192.168.") ||
+    /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(host)
+  )
+}
+
+function isBlockedHostname(hostname: string): boolean {
+  const host = normalizeHostname(hostname)
+  if (!host) return true
+  if (BLOCKED_HOSTS.has(host)) return true
+  if (BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true
+
+  const ipVersion = isIP(host)
+  if (ipVersion === 4) return isPrivateIPv4(host)
+  if (ipVersion === 6) return isPrivateIPv6(host)
+
+  if (/^0x[0-9a-f]+$/i.test(host)) return true
+  if (/^\d+$/.test(host)) return true
+  if (/^0\d/.test(host.split(".")[0])) return true
+
+  return false
+}
 
 export function isValidPublicUrl(urlString: string): boolean {
   try {
     const url = new URL(urlString)
     if (!["http:", "https:"].includes(url.protocol)) return false
-    const hostname = url.hostname.toLowerCase()
-
-    // Block known internal hostnames
-    if (BLOCKED_HOSTS.some(
-      (blocked) => hostname === blocked || hostname.startsWith(blocked) || hostname.includes(blocked)
-    )) return false
-
-    // Block .local, .internal, .localhost TLDs
-    if (BLOCKED_SUFFIXES.some((suffix) => hostname.endsWith(suffix))) return false
-
-    // Block IPv6 mapped IPv4 (::ffff:127.0.0.1)
-    if (hostname.startsWith("[") || hostname.includes("::ffff:")) return false
-
-    // Block IPv6 private ranges (fc00::/7 → fc/fd prefix)
-    if (/^f[cd][0-9a-f]{2}:/.test(hostname)) return false
-
-    // Block hex/octal/decimal-encoded IPs (0x7f000001, 2130706433, 0177.0.0.1)
-    if (/^0x[0-9a-f]+$/i.test(hostname)) return false
-    if (/^\d+$/.test(hostname)) return false // decimal IP (2130706433)
-    if (/^0\d/.test(hostname.split(".")[0])) return false // octal (0177.0.0.1)
+    if (url.username || url.password) return false
+    if (isBlockedHostname(url.hostname)) return false
 
     return true
   } catch {
@@ -53,8 +88,37 @@ export function isValidPublicUrl(urlString: string): boolean {
 // Robots.txt
 // ─────────────────────────────────────────────
 
+const dnsValidationCache = new Map<string, Promise<boolean>>()
+
+async function resolvesToPublicAddress(hostname: string): Promise<boolean> {
+  const host = normalizeHostname(hostname)
+  if (isBlockedHostname(host)) return false
+  if (isIP(host)) return true
+
+  const cached = dnsValidationCache.get(host)
+  if (cached) return cached
+
+  const check = lookup(host, { all: true, verbatim: true })
+    .then((records) => records.length > 0 && records.every((record) => !isBlockedHostname(record.address)))
+    .catch(() => false)
+
+  dnsValidationCache.set(host, check)
+  return check
+}
+
+export async function isValidPublicUrlWithDns(urlString: string): Promise<boolean> {
+  if (!isValidPublicUrl(urlString)) return false
+  try {
+    const url = new URL(urlString)
+    return resolvesToPublicAddress(url.hostname)
+  } catch {
+    return false
+  }
+}
+
 async function isAllowedByRobots(pageUrl: string, userAgent: string): Promise<boolean> {
   try {
+    if (!(await isValidPublicUrlWithDns(pageUrl))) return false
     const url = new URL(pageUrl)
     const robotsUrl = `${url.protocol}//${url.host}/robots.txt`
     const response = await fetch(robotsUrl, { signal: AbortSignal.timeout(5000) })
@@ -247,7 +311,7 @@ export class SEOCrawler {
 
   async crawlPage(url: string): Promise<PageData> {
     if (!this.browser) throw new Error("Browser non initialisé. Appeler launch() d'abord.")
-    if (!isValidPublicUrl(url)) throw new Error(`URL bloquée (SSRF): ${url}`)
+    if (!(await isValidPublicUrlWithDns(url))) throw new Error(`URL bloquée (SSRF): ${url}`)
 
     const context = await this.browser.newContext({
       userAgent: this.options.userAgent,
@@ -261,6 +325,15 @@ export class SEOCrawler {
     const start = Date.now()
 
     try {
+      await page.route("**/*", async (route) => {
+        const requestUrl = route.request().url()
+        if (await isValidPublicUrlWithDns(requestUrl)) {
+          await route.continue()
+        } else {
+          await route.abort("blockedbyclient")
+        }
+      })
+
       const response = await page.goto(url, {
         waitUntil: "networkidle",
         timeout: this.options.timeout,
@@ -269,6 +342,7 @@ export class SEOCrawler {
       const responseTime = Date.now() - start
       const statusCode = response?.status() ?? 0
       const finalUrl = page.url()
+      if (!(await isValidPublicUrlWithDns(finalUrl))) throw new Error(`URL finale bloquée (SSRF): ${finalUrl}`)
       const redirectUrl = finalUrl !== url ? finalUrl : undefined
       const html = await page.content()
       const pageSize = Buffer.byteLength(html, "utf-8")
@@ -320,7 +394,6 @@ export class SEOCrawler {
         redirectUrl,
         responseTime,
         pageSize,
-        rawHtml: html,
         ...parsed,
         bodyText: undefined, // Don't persist bodyText
         topKeywords,
@@ -351,6 +424,7 @@ export class SEOCrawler {
   }
 
   private async checkSiteResources(startUrl: string): Promise<{ hasRobotsTxt: boolean; hasSitemap: boolean }> {
+    if (!(await isValidPublicUrlWithDns(startUrl))) return { hasRobotsTxt: false, hasSitemap: false }
     const url = new URL(startUrl)
     const base = `${url.protocol}//${url.host}`
 
