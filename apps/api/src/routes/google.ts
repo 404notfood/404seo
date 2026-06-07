@@ -12,6 +12,9 @@ import {
   listLocations,
   listReviews,
   listLocalPosts,
+  createLocation,
+  patchLocation,
+  deleteLocation,
   replyToReview as gbpReplyToReview,
   createLocalPost,
   deleteLocalPost,
@@ -19,10 +22,44 @@ import {
   detectSentiment,
   fetchPerformanceMetrics,
   fetchSearchKeywords,
+  type GBPAddress,
+  type GBPWriteLocationInput,
   type DailyMetric,
 } from "../lib/gbpApi.js"
 
 const STATE_TTL = 600 // 10 minutes
+
+const GoogleAddressSchema = z.object({
+  addressLines: z.array(z.string().min(1)).min(1),
+  locality: z.string().min(1),
+  postalCode: z.string().min(1),
+  regionCode: z.string().length(2).transform((value) => value.toUpperCase()),
+  administrativeArea: z.string().optional(),
+})
+
+const GoogleLocationWriteSchema = z.object({
+  googleAccountId: z.string().optional(),
+  accountName: z.string().optional(),
+  businessName: z.string().min(1).max(120),
+  categoryId: z.string().min(1),
+  categoryDisplayName: z.string().optional(),
+  address: GoogleAddressSchema,
+  phone: z.string().optional(),
+  website: z.string().url().optional(),
+  validateOnly: z.boolean().optional(),
+})
+
+const GoogleLocationPatchSchema = z.object({
+  businessName: z.string().min(1).max(120).optional(),
+  categoryId: z.string().min(1).optional(),
+  categoryDisplayName: z.string().optional(),
+  address: GoogleAddressSchema.optional(),
+  phone: z.string().optional().nullable(),
+  website: z.string().url().optional().nullable(),
+  validateOnly: z.boolean().optional(),
+})
+
+type GoogleAddressInput = z.infer<typeof GoogleAddressSchema>
 
 const googleRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── GET /api/google/auth — Initier OAuth (AUTH REQUIS) ───────────────────
@@ -298,6 +335,173 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
   // ═══════════════════════════════════════════════════════════════════════════
   // SYNC GBP — Routes de synchronisation
   // ═══════════════════════════════════════════════════════════════════════════
+
+  fastify.get<{ Querystring: { googleAccountId?: string } }>(
+    "/api/google/gbp-accounts",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const account = await resolveGoogleAccount(request.tenantId, request.query.googleAccountId)
+      if (!account) {
+        return reply.status(400).send({ error: "Aucun compte Google connecté" })
+      }
+
+      const auth = await getAuthenticatedClient(request.tenantId, account.id)
+      const accounts = await listAccounts(auth)
+      return reply.send({ accounts })
+    }
+  )
+
+  fastify.post<{ Body: unknown }>(
+    "/api/google/locations",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const body = GoogleLocationWriteSchema.parse(request.body)
+      const account = await resolveGoogleAccount(request.tenantId, body.googleAccountId)
+      if (!account) {
+        return reply.status(400).send({ error: "Aucun compte Google connecté" })
+      }
+
+      const auth = await getAuthenticatedClient(request.tenantId, account.id)
+      const accountName = body.accountName ?? await getDefaultGbpAccountName(auth)
+      if (!accountName) {
+        return reply.status(400).send({ error: "Aucun compte GBP disponible pour ce compte Google" })
+      }
+
+      const address = toGbpAddress(body.address)
+      const locationPayload = {
+        title: body.businessName,
+        storefrontAddress: address,
+        categories: { primaryCategory: { name: normalizeCategoryId(body.categoryId) } },
+        ...(body.phone ? { phoneNumbers: { primaryPhone: body.phone } } : {}),
+        ...(body.website ? { websiteUri: body.website } : {}),
+      }
+
+      const location = await createLocation(auth, accountName, locationPayload, {
+        requestId: randomUUID(),
+        validateOnly: body.validateOnly,
+      })
+      if (body.validateOnly) {
+        return reply.send({ success: true, validateOnly: true, location })
+      }
+
+      if (!location.name) {
+        return reply.status(502).send({ error: "Google n'a pas retourné d'identifiant de fiche" })
+      }
+
+      locationAccountCache.set(location.name, { accountName, expiresAt: Date.now() + 5 * 60_000 })
+      const listing = await prisma.gBPListing.create({
+        data: {
+          tenantId: request.tenantId,
+          businessName: location.title ?? body.businessName,
+          category: body.categoryDisplayName ?? body.categoryId,
+          phone: location.phoneNumbers?.primaryPhone ?? body.phone ?? null,
+          website: location.websiteUri ?? body.website ?? null,
+          address: formatGbpAddress(location.storefrontAddress ?? address),
+          googlePlaceId: location.name,
+          googleLocationName: location.title ?? body.businessName,
+          isGoogleConnected: true,
+          googleAccountId: account.id,
+        },
+        include: { _count: { select: { reviews: true, posts: true, rankings: true, photos: true } } },
+      })
+
+      return reply.status(201).send({ success: true, listing, location })
+    }
+  )
+
+  fastify.patch<{ Params: { listingId: string }; Body: unknown }>(
+    "/api/google/listings/:listingId/location",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const body = GoogleLocationPatchSchema.parse(request.body)
+      const listing = await prisma.gBPListing.findFirst({
+        where: { id: request.params.listingId, tenantId: request.tenantId },
+      })
+      if (!listing) return reply.status(404).send({ error: "Fiche introuvable" })
+      if (!listing.googlePlaceId || !listing.googleAccountId) {
+        return reply.status(400).send({ error: "Cette fiche n'est pas connectée à Google" })
+      }
+
+      const updateMask: string[] = []
+      const locationPayload: GBPWriteLocationInput = {}
+
+      if (body.businessName !== undefined) {
+        locationPayload.title = body.businessName
+        updateMask.push("title")
+      }
+      if (body.categoryId !== undefined) {
+        locationPayload.categories = { primaryCategory: { name: normalizeCategoryId(body.categoryId) } }
+        updateMask.push("categories")
+      }
+      if (body.address !== undefined) {
+        locationPayload.storefrontAddress = toGbpAddress(body.address)
+        updateMask.push("storefrontAddress")
+      }
+      if (body.phone !== undefined) {
+        locationPayload.phoneNumbers = body.phone ? { primaryPhone: body.phone } : {}
+        updateMask.push("phoneNumbers")
+      }
+      if (body.website !== undefined) {
+        locationPayload.websiteUri = body.website ?? ""
+        updateMask.push("websiteUri")
+      }
+
+      if (updateMask.length === 0) {
+        return reply.status(400).send({ error: "Aucun champ à modifier" })
+      }
+
+      const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccountId)
+      const location = await patchLocation(auth, listing.googlePlaceId, locationPayload, updateMask, {
+        validateOnly: body.validateOnly,
+      })
+      if (body.validateOnly) {
+        return reply.send({ success: true, validateOnly: true, location })
+      }
+
+      const updatedListing = await prisma.gBPListing.update({
+        where: { id: listing.id },
+        data: {
+          ...(body.businessName !== undefined ? { businessName: location.title ?? body.businessName, googleLocationName: location.title ?? body.businessName } : {}),
+          ...(body.categoryId !== undefined ? { category: body.categoryDisplayName ?? body.categoryId } : {}),
+          ...(body.address !== undefined ? { address: formatGbpAddress(location.storefrontAddress ?? toGbpAddress(body.address)) } : {}),
+          ...(body.phone !== undefined ? { phone: location.phoneNumbers?.primaryPhone ?? body.phone ?? null } : {}),
+          ...(body.website !== undefined ? { website: location.websiteUri ?? body.website ?? null } : {}),
+        },
+        include: { _count: { select: { reviews: true, posts: true, rankings: true, photos: true } } },
+      })
+
+      return reply.send({ success: true, listing: updatedListing, location })
+    }
+  )
+
+  fastify.delete<{ Params: { listingId: string } }>(
+    "/api/google/listings/:listingId/location",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
+    async (request, reply) => {
+      const listing = await prisma.gBPListing.findFirst({
+        where: { id: request.params.listingId, tenantId: request.tenantId },
+      })
+      if (!listing) return reply.status(404).send({ error: "Fiche introuvable" })
+      if (!listing.googlePlaceId || !listing.googleAccountId) {
+        return reply.status(400).send({ error: "Cette fiche n'est pas connectée à Google" })
+      }
+
+      const auth = await getAuthenticatedClient(request.tenantId, listing.googleAccountId)
+      await deleteLocation(auth, listing.googlePlaceId)
+      locationAccountCache.delete(listing.googlePlaceId)
+
+      await prisma.gBPListing.update({
+        where: { id: listing.id },
+        data: {
+          status: "CLOSED",
+          isGoogleConnected: false,
+          googleAccountId: null,
+        },
+      })
+
+      return reply.send({ success: true })
+    }
+  )
 
   // ─── POST /api/google/sync — Sync manuelle des fiches GBP ─────────────────
   fastify.post(
@@ -915,6 +1119,49 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
 // Cache en mémoire pour le mapping location → account (évite les appels API en boucle)
 const locationAccountCache = new Map<string, { accountName: string; expiresAt: number }>()
 
+async function resolveGoogleAccount(tenantId: string, googleAccountId?: string) {
+  if (googleAccountId) {
+    return prisma.googleAccount.findFirst({ where: { id: googleAccountId, tenantId } })
+  }
+
+  return prisma.googleAccount.findFirst({
+    where: { tenantId },
+    orderBy: { connectedAt: "desc" },
+  })
+}
+
+async function getDefaultGbpAccountName(auth: Auth.OAuth2Client): Promise<string | null> {
+  const accounts = await listAccounts(auth)
+  return accounts[0]?.name ?? null
+}
+
+function normalizeCategoryId(categoryId: string): string {
+  if (categoryId.startsWith("categories/") || categoryId.startsWith("gcid:")) {
+    return categoryId
+  }
+
+  return `gcid:${categoryId}`
+}
+
+function toGbpAddress(address: GoogleAddressInput): GBPAddress {
+  return {
+    addressLines: address.addressLines,
+    locality: address.locality,
+    postalCode: address.postalCode,
+    regionCode: address.regionCode,
+    ...(address.administrativeArea ? { administrativeArea: address.administrativeArea } : {}),
+  }
+}
+
+function formatGbpAddress(address: Partial<GBPAddress>): string {
+  return [
+    ...(address.addressLines ?? []),
+    [address.postalCode, address.locality].filter(Boolean).join(" "),
+    address.administrativeArea,
+    address.regionCode,
+  ].filter(Boolean).join(", ")
+}
+
 async function findAccountForLocation(auth: Auth.OAuth2Client, locationId: string): Promise<string | null> {
   // Vérifier le cache (TTL 5 min)
   const cached = locationAccountCache.get(locationId)
@@ -982,7 +1229,7 @@ async function importGBPListings(tenantId: string, googleAccountId: string, auth
       const address = location.storefrontAddress?.addressLines?.join(", ") ?? ""
       const phone = location.phoneNumbers?.primaryPhone ?? null
       const website = location.websiteUri ?? null
-      const category = location.primaryCategory?.displayName ?? "Non catégorisé"
+      const category = location.categories?.primaryCategory?.displayName ?? location.categories?.primaryCategory?.name ?? "Non catégorisé"
 
       if (!googlePlaceId) continue
 

@@ -6,6 +6,7 @@ import type { CrawlJobData } from "@seo/shared"
 const connection = {
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
+  password: process.env.REDIS_PASSWORD || undefined,
   maxRetriesPerRequest: null,
 } satisfies RedisOptions
 
@@ -23,5 +24,6 @@ export const crawlQueue = new Queue<CrawlJobData>("crawl", {
 export const redis = new IORedis({
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
+  password: process.env.REDIS_PASSWORD || undefined,
   lazyConnect: true,
 })

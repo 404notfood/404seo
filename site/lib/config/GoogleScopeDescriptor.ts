@@ -99,7 +99,7 @@ export class GoogleScopeCatalog {
           ],
           [
             "Aucune création de fiche sans action explicite de l'utilisateur",
-            "Aucune suppression de fiche",
+            "Aucune suppression de fiche sans action explicite de l'utilisateur",
             "Aucun partage des données avec des tiers",
             "Aucun usage publicitaire",
           ],

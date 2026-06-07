@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiClient } from "@/lib/api-client"
+import { apiClient, type CreateGoogleLocationInput, type UpdateGoogleLocationInput } from "@/lib/api-client"
 import { toast } from "sonner"
 
 export function useGoogleStatus() {
@@ -53,6 +53,61 @@ export function useDisconnectGoogleListing() {
     },
     onError: (err: Error) => {
       toast.error(err.message || "Erreur lors de la déconnexion")
+    },
+  })
+}
+
+export function useGoogleGBPAccounts(googleAccountId?: string) {
+  return useQuery({
+    queryKey: ["google-gbp-accounts", googleAccountId],
+    queryFn: () => apiClient.getGoogleGBPAccounts(googleAccountId),
+    enabled: googleAccountId !== "",
+    staleTime: 5 * 60_000,
+  })
+}
+
+export function useCreateGoogleLocation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateGoogleLocationInput) => apiClient.createGoogleLocation(data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["local-listings"] })
+      queryClient.invalidateQueries({ queryKey: ["local-dashboard"] })
+      queryClient.invalidateQueries({ queryKey: ["google-status"] })
+      toast.success(data.validateOnly ? "Fiche validée par Google" : "Fiche Google créée")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Erreur création fiche Google")
+    },
+  })
+}
+
+export function useUpdateGoogleLocation(listingId: string | null) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: UpdateGoogleLocationInput) => apiClient.updateGoogleLocation(listingId!, data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["local-listings"] })
+      queryClient.invalidateQueries({ queryKey: ["local-dashboard"] })
+      toast.success(data.validateOnly ? "Modification validée par Google" : "Fiche Google mise à jour")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Erreur modification fiche Google")
+    },
+  })
+}
+
+export function useDeleteGoogleLocation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (listingId: string) => apiClient.deleteGoogleLocation(listingId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["local-listings"] })
+      queryClient.invalidateQueries({ queryKey: ["local-dashboard"] })
+      toast.success("Fiche Google supprimée")
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Erreur suppression fiche Google")
     },
   })
 }

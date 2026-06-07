@@ -15,15 +15,37 @@ interface GBPAccount {
 interface GBPLocation {
   name: string // "locations/123456789"
   title?: string
+  categories?: {
+    primaryCategory?: {
+      name?: string
+      displayName?: string
+    }
+  }
   storefrontAddress?: {
     addressLines?: string[]
     locality?: string
     postalCode?: string
+    administrativeArea?: string
     regionCode?: string
   }
   phoneNumbers?: { primaryPhone?: string }
   websiteUri?: string
-  primaryCategory?: { displayName?: string }
+}
+
+interface GBPAddress {
+  addressLines: string[]
+  locality: string
+  postalCode: string
+  regionCode: string
+  administrativeArea?: string
+}
+
+interface GBPWriteLocationInput {
+  title?: string
+  phoneNumbers?: { primaryPhone?: string }
+  websiteUri?: string
+  storefrontAddress?: GBPAddress
+  categories?: { primaryCategory: { name: string } }
 }
 
 interface GBPReview {
@@ -179,7 +201,7 @@ export async function listLocations(auth: Auth.OAuth2Client, accountName: string
   do {
     const qs = new URLSearchParams({
       pageSize: "100",
-      readMask: "name,title,storefrontAddress,phoneNumbers,websiteUri,primaryCategory",
+      readMask: "name,title,storefrontAddress,phoneNumbers,websiteUri,categories,metadata,openInfo",
     })
     if (pageToken) qs.set("pageToken", pageToken)
 
@@ -192,6 +214,69 @@ export async function listLocations(auth: Auth.OAuth2Client, accountName: string
   } while (pageToken)
 
   return allLocations
+}
+
+export async function createLocation(
+  auth: Auth.OAuth2Client,
+  accountName: string,
+  location: Required<Pick<GBPWriteLocationInput, "title" | "storefrontAddress" | "categories">> &
+    Pick<GBPWriteLocationInput, "phoneNumbers" | "websiteUri">,
+  options: { requestId: string; validateOnly?: boolean },
+): Promise<GBPLocation> {
+  const token = await getAccessToken(auth)
+  const qs = new URLSearchParams({
+    requestId: options.requestId,
+    validateOnly: options.validateOnly ? "true" : "false",
+  })
+
+  return gbpFetch<GBPLocation>(
+    `https://mybusinessbusinessinformation.googleapis.com/v1/${accountName}/locations?${qs}`,
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        languageCode: "fr",
+        title: location.title,
+        storefrontAddress: location.storefrontAddress,
+        categories: location.categories,
+        ...(location.phoneNumbers?.primaryPhone ? { phoneNumbers: location.phoneNumbers } : {}),
+        ...(location.websiteUri ? { websiteUri: location.websiteUri } : {}),
+      }),
+    },
+  )
+}
+
+export async function patchLocation(
+  auth: Auth.OAuth2Client,
+  locationName: string,
+  location: GBPWriteLocationInput,
+  updateMask: string[],
+  options: { validateOnly?: boolean } = {},
+): Promise<GBPLocation> {
+  const token = await getAccessToken(auth)
+  const qs = new URLSearchParams({
+    languageCode: "fr",
+    validateOnly: options.validateOnly ? "true" : "false",
+    updateMask: updateMask.join(","),
+  })
+
+  return gbpFetch<GBPLocation>(
+    `https://mybusinessbusinessinformation.googleapis.com/v1/${locationName}?${qs}`,
+    token,
+    {
+      method: "PATCH",
+      body: JSON.stringify(location),
+    },
+  )
+}
+
+export async function deleteLocation(auth: Auth.OAuth2Client, locationName: string): Promise<void> {
+  const token = await getAccessToken(auth)
+  await gbpFetch(
+    `https://mybusinessbusinessinformation.googleapis.com/v1/${locationName}`,
+    token,
+    { method: "DELETE" },
+  )
 }
 
 // ─── Reviews (legacy v4.9) ──────────────────────────────────────────────────
@@ -449,4 +534,4 @@ export async function fetchSearchKeywords(
   return allKeywords
 }
 
-export type { GBPAccount, GBPLocation, GBPReview, GBPLocalPost, DailyMetric, DateProto }
+export type { GBPAccount, GBPLocation, GBPReview, GBPLocalPost, GBPAddress, GBPWriteLocationInput, DailyMetric, DateProto }
