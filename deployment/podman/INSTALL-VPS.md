@@ -77,47 +77,46 @@ whoami      # doit afficher : seo
 
 ---
 
-## Étape 1 — Installer Podman + outillage rootless
+## Étape 1 — Installer Podman + prérequis root (compte AVEC sudo)
 
-> ⚠️ Ce sont les SEULS paquets manquants. `setup-podman.sh` (étape 4) le fait
-> aussi automatiquement, mais autant le faire proprement maintenant.
+> ⚠️ **Important** : un utilisateur HestiaCP (`seo`) **n'a PAS sudo** (c'est
+> volontaire). Tout ce qui exige root se fait depuis un compte privilégié :
+> l'utilisateur **`debian`** (ou root) qui a sudo.
+>
+> Toute cette étape se fait donc **en tant que `debian`/root**, PAS `seo`.
+
+Un script dédié fait tout en une commande (paquets + dbus + lingering + subuid) :
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y \
-  podman \
-  podman-compose \
-  uidmap \
-  slirp4netns \
-  fuse-overlayfs \
-  dbus-user-session \
-  dbus-x11 \
-  systemd-container \
-  python3-pip \
-  git \
-  curl
-
-# Vérifier
-podman --version          # ex: podman version 4.x
-podman-compose --version  # ex: podman-compose 1.x
-command -v dbus-launch    # doit renvoyer un chemin (sinon le warning revient)
+# Connecté en debian (compte avec sudo) :
+cd /home/seo/404seo     # le repo cloné par seo (lisible par debian via sudo si besoin)
+sudo bash deployment/podman/setup-root.sh seo
 ```
 
-> `dbus-user-session` + `dbus-x11` corrigent le warning
-> `dbus-launch: executable file not found` et sont **requis** pour les Quadlets
-> (services `systemd --user`). `systemd-container` fournit `machinectl shell`.
+> Si `debian` ne peut pas lire `/home/seo/404seo`, copie juste le script :
+> `sudo cp /home/seo/404seo/deployment/podman/setup-root.sh /tmp/ && sudo bash /tmp/setup-root.sh seo`
 
-Si `podman-compose` n'est pas trouvé après apt (vieilles distros) :
+Ce script installe : `podman`, `podman-compose`, `uidmap`, `slirp4netns`,
+`fuse-overlayfs`, `dbus-user-session`, `dbus-x11`, `systemd-container`, puis
+active le **lingering** pour `seo` et lui alloue les sous-UID/GID.
+
+### Vérifier (toujours en debian)
 ```bash
-pip3 install --user podman-compose
+podman --version
+command -v dbus-launch                              # doit renvoyer un chemin
+loginctl show-user seo -p Linger --value           # doit afficher : yes
 ```
 
-### Test rootless rapide
+> Tu as déjà installé podman/dbus manuellement plus tôt ? Le script est
+> idempotent : il saute ce qui est déjà là et se contente d'activer le
+> lingering + subuid. Lance-le quand même pour être sûr.
+
+### Test rootless (en tant que seo)
 ```bash
+sudo machinectl shell seo@
 podman run --rm docker.io/library/hello-world
 ```
-Si ça affiche "Hello from Docker!" → rootless fonctionne. ✅
-Si erreur `newuidmap`/`subuid` → voir la section Dépannage en bas.
+Si ça affiche "Hello from Docker!" sans warning dbus → rootless OK. ✅
 
 ---
 
@@ -136,6 +135,10 @@ cd 404seo
 
 ## Étape 3 — Préparer PostgreSQL (HestiaCP, déjà installé)
 
+> ⚠️ Toute cette étape utilise `sudo` → fais-la depuis le compte **`debian`**
+> (qui a sudo), PAS depuis `seo`. Seule la commande `podman network ...` (3b)
+> se fait en `seo`.
+
 ### 3a. Créer la base et l'utilisateur
 > Remplace `TON_MOT_DE_PASSE` par le mot de passe que TU choisis. C'est le même
 > qu'il faudra reporter dans `DATABASE_URL` (étape 5).
@@ -145,16 +148,16 @@ sudo -u postgres psql -c "CREATE DATABASE seo_db OWNER seo_user;"
 ```
 
 ### 3b. Autoriser les conteneurs à joindre Postgres
-Les conteneurs joignent l'hôte via la **passerelle du réseau Podman**. On crée
-d'abord le réseau pour connaître son IP :
+Les conteneurs joignent l'hôte via la **passerelle du réseau Podman**.
 
+**En tant que `seo`** — crée le réseau et relève son IP de passerelle :
 ```bash
 podman network create 404seo 2>/dev/null || true
 podman network inspect 404seo | grep -i gateway
 # Note l'IP affichée, ex: 10.89.0.1
 ```
 
-Édite la config Postgres (le chemin dépend de la version, souvent `16`) :
+**En tant que `debian`** — édite la config Postgres (chemin selon version, souvent `16`) :
 ```bash
 sudo nano /etc/postgresql/*/main/postgresql.conf
 ```
@@ -179,15 +182,21 @@ sudo systemctl reload postgresql
 
 ---
 
-## Étape 4 — Setup Podman (lingering, socket)
+## Étape 4 — Setup Podman côté utilisateur (en tant que `seo`, SANS sudo)
 
 ```bash
+sudo machinectl shell seo@      # si pas déjà dans la session seo
 cd ~/404seo
 bash deployment/podman/setup-podman.sh
 ```
 
-Active le *lingering* (les conteneurs survivent à la fermeture de la session SSH)
-et le socket Podman.
+Ce script **ne demande aucun sudo** : il vérifie que les prérequis root
+(podman, dbus, lingering) sont en place — installés à l'étape 1 par
+`setup-root.sh` — puis active le socket Podman `--user` et crée le lien
+`~/404seo` attendu par les Quadlets.
+
+> S'il affiche `[MANQUANT] ...`, c'est que l'étape 1 (`setup-root.sh`) n'a pas
+> été faite ou a échoué : retourne sur le compte `debian` et relance-la.
 
 ---
 
