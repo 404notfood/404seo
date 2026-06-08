@@ -38,8 +38,8 @@ ENV NODE_ENV=production
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 # node_modules complets du monorepo (tsx, bullmq, @seo/crawler, client Prisma)
+# Workspaces npm : tout est hoiste dans /app/node_modules.
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/site/node_modules ./site/node_modules
 
 # Code source des workers + packages partages + Prisma
 COPY workers      ./workers

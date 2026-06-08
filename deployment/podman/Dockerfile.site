@@ -34,9 +34,9 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-# Reprend node_modules deja installes
+# Reprend node_modules deja installes.
+# Workspaces npm : tout est hoiste dans /app/node_modules (pas de site/node_modules).
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/site/node_modules ./site/node_modules
 
 # Code source complet
 COPY . .

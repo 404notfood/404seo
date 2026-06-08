@@ -15,8 +15,9 @@ server {
 
     ssl_certificate     %ssl_pem%;
     ssl_certificate_key %ssl_key%;
-    ssl_stapling        on;
-    ssl_stapling_verify on;
+    # ssl_stapling desactive : Let's Encrypt a arrete le support OCSP en 2025
+    # ssl_stapling        on;
+    # ssl_stapling_verify on;
 
     # ── Headers de sécurité ──
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;

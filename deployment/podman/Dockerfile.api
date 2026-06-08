@@ -46,8 +46,8 @@ ENV PUPPETEER_SKIP_DOWNLOAD=1
 #  resout dynamiquement pour rester robuste aux montees de version.)
 
 # node_modules complets du monorepo (tsx, fastify, @seo/*, client Prisma)
+# Workspaces npm : tout est hoiste dans /app/node_modules.
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/site/node_modules ./site/node_modules
 
 # Code source (API + packages partages + schema/client Prisma)
 COPY apps/api      ./apps/api
