@@ -41,11 +41,18 @@ COPY --from=deps /app/node_modules ./node_modules
 # Code source complet
 COPY . .
 
-# Client Prisma + build Next.js (output: standalone, turbopack root: monorepo)
+# Client Prisma + build Next.js (output: standalone)
 # IMPORTANT : utiliser le binaire prisma LOCAL (v6), pas `npx prisma` qui
 # telechargerait la derniere version (v7) incompatible avec ce schema.
+#
+# Build avec WEBPACK et non Turbopack : Turbopack (defaut Next 16) trace les
+# dialectes SQLite de better-auth/kysely-adapter (non utilises, on est sur
+# prismaAdapter) et echoue sur des exports kysely inexistants. Webpack gere
+# correctement ces imports externes. Plus lent au build mais fiable.
+# Double ceinture : variable NEXT_DISABLE_TURBOPACK + flag --no-turbopack.
+ENV NEXT_DISABLE_TURBOPACK=1
 RUN ./node_modules/.bin/prisma generate --schema site/prisma/schema.prisma \
- && npm run build --workspace=site
+ && cd site && ../node_modules/.bin/next build --no-turbopack
 
 # Next standalone ne copie pas public/ ni .next/static automatiquement.
 # On les place a cote du server.js standalone.
