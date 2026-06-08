@@ -49,10 +49,12 @@ COPY . .
 # dialectes SQLite de better-auth/kysely-adapter (non utilises, on est sur
 # prismaAdapter) et echoue sur des exports kysely inexistants. Webpack gere
 # correctement ces imports externes. Plus lent au build mais fiable.
-# Double ceinture : variable NEXT_DISABLE_TURBOPACK + flag --no-turbopack.
+# Next 16.1.6 : `next build` SANS --turbopack = build Webpack (defaut).
+# Le flag --no-turbopack n'existe pas dans cette version ; on s'appuie sur
+# l'absence de --turbopack + la variable NEXT_DISABLE_TURBOPACK=1 en securite.
 ENV NEXT_DISABLE_TURBOPACK=1
 RUN ./node_modules/.bin/prisma generate --schema site/prisma/schema.prisma \
- && cd site && ../node_modules/.bin/next build --no-turbopack
+ && cd site && ../node_modules/.bin/next build
 
 # Next standalone ne copie pas public/ ni .next/static automatiquement.
 # On les place a cote du server.js standalone.
