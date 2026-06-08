@@ -1,19 +1,15 @@
-"use client"
+// Server Component (pas de "use client") : permet d'exporter la config de route.
+// Tout le dashboard + l'admin est rendu DYNAMIQUEMENT (par utilisateur connecte),
+// jamais pre-genere en statique au build -> evite les erreurs de pre-render
+// (useRef null, BetterAuthError) sur ces pages authentifiees.
+export const dynamic = "force-dynamic"
 
-import { Sidebar } from "@/components/layout/Sidebar"
-import { ProjectProvider } from "@/contexts/ProjectContext"
+import { DashboardShell } from "@/components/layout/DashboardShell"
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return (
-    <ProjectProvider>
-      <div className="flex min-h-screen bg-slate-100 dark:bg-slate-950">
-        <Sidebar />
-        <main className="flex-1 overflow-auto min-w-0">{children}</main>
-      </div>
-    </ProjectProvider>
-  )
+  return <DashboardShell>{children}</DashboardShell>
 }
