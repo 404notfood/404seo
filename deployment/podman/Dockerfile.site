@@ -42,6 +42,18 @@ ENV BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime
 # Non utilisee (aucune requete DB au build avec force-dynamic). Remplacee au runtime.
 ENV DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build
 
+# ── Variables NEXT_PUBLIC_* : INLINEES dans le bundle JS au build ─────────────
+# Elles NE sont PAS lues au runtime (contrairement aux autres) : Next.js les
+# remplace en dur dans le code client pendant `next build`. Il FAUT donc les
+# fournir ici, sinon le client tombe sur les fallback (localhost:3000) -> le
+# login social appelle localhost au lieu du domaine. Passees en build-args.
+ARG NEXT_PUBLIC_APP_URL=https://seo.404notfood.fr
+ARG NEXT_PUBLIC_API_URL=https://seo.404notfood.fr
+ARG NEXT_PUBLIC_HAS_ANTHROPIC=true
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_HAS_ANTHROPIC=${NEXT_PUBLIC_HAS_ANTHROPIC}
+
 # Reprend node_modules deja installes.
 # Workspaces npm : tout est hoiste dans /app/node_modules (pas de site/node_modules).
 COPY --from=deps /app/node_modules ./node_modules
