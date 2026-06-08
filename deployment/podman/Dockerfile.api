@@ -56,7 +56,8 @@ COPY site/prisma   ./site/prisma
 COPY package.json  ./
 
 # Generer le client Prisma dans l'image
-RUN npx prisma generate --schema site/prisma/schema.prisma
+# Binaire prisma LOCAL (v6), pas npx (qui telechargerait v7 incompatible)
+RUN ./node_modules/.bin/prisma generate --schema site/prisma/schema.prisma
 
 # Entrypoint : resout le Chromium de l'image Playwright et exporte
 # PUPPETEER_EXECUTABLE_PATH avant de lancer l'API.

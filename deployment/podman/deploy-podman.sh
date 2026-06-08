@@ -62,19 +62,17 @@ echo ">> Build image worker..."
 podman build -f "$SCRIPT_DIR/Dockerfile.worker" -t localhost/404seo-worker:latest "$PROJECT_DIR"
 
 # ── 3. Migrations Prisma ──────────────────────────────────────────────────────
-# Depuis l'hote si le client local existe, sinon via un conteneur jetable
-# base sur l'image api (qui embarque prisma + le schema).
+# On migre TOUJOURS via un conteneur jetable base sur l'image api : elle
+# embarque le bon Prisma (v6) + le client genere + le schema. On utilise le
+# binaire LOCAL (./node_modules/.bin/prisma), jamais `npx prisma` qui pourrait
+# telecharger une version 7 incompatible avec ce schema.
+# --network=host pour joindre Postgres sur 127.0.0.1.
 echo ">> Migrations Prisma (prisma migrate deploy)..."
-if command -v npx >/dev/null 2>&1 && [ -d "$PROJECT_DIR/site/node_modules" ]; then
-  ( cd "$PROJECT_DIR/site" && npx prisma migrate deploy )
-else
-  # Conteneur jetable en --network=host pour joindre Postgres sur 127.0.0.1
-  podman run --rm \
-    --network host \
-    --env-file "$SCRIPT_DIR/.env" \
-    localhost/404seo-api:latest \
-    npx prisma migrate deploy --schema site/prisma/schema.prisma
-fi
+podman run --rm \
+  --network host \
+  --env-file "$SCRIPT_DIR/.env" \
+  localhost/404seo-api:latest \
+  ./node_modules/.bin/prisma migrate deploy --schema site/prisma/schema.prisma
 
 # ── 4. Demarrage ──────────────────────────────────────────────────────────────
 QUADLET_DIR="$HOME/.config/containers/systemd"

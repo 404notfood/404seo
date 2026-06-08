@@ -48,7 +48,8 @@ COPY site/prisma  ./site/prisma
 COPY package.json ./
 
 # Client Prisma
-RUN npx prisma generate --schema site/prisma/schema.prisma
+# Binaire prisma LOCAL (v6), pas npx (qui telechargerait v7 incompatible)
+RUN ./node_modules/.bin/prisma generate --schema site/prisma/schema.prisma
 
 # L'image Playwright fournit l'utilisateur non-root "pwuser"
 RUN chown -R pwuser:pwuser /app

@@ -42,7 +42,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Client Prisma + build Next.js (output: standalone, turbopack root: monorepo)
-RUN npx --prefix site prisma generate --schema site/prisma/schema.prisma \
+# IMPORTANT : utiliser le binaire prisma LOCAL (v6), pas `npx prisma` qui
+# telechargerait la derniere version (v7) incompatible avec ce schema.
+RUN ./node_modules/.bin/prisma generate --schema site/prisma/schema.prisma \
  && npm run build --workspace=site
 
 # Next standalone ne copie pas public/ ni .next/static automatiquement.
