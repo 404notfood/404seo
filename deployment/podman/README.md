@@ -21,16 +21,22 @@ HestiaCP Nginx + Let's Encrypt (443)        ← seule porte d'entrée publique
   ├── /api/*       → 127.0.0.1:4000  (Fastify)
   └── /*           → 127.0.0.1:3030  (Next.js)
 
-Podman rootless (réseau bridge isolé "404seo")
-  ├── 404seo-site    (image 404seo-site)    → publie 127.0.0.1:3030
-  ├── 404seo-api     (image 404seo-api)     → publie 127.0.0.1:4000
-  ├── 404seo-redis   (redis:7-alpine)       → interne, alias "redis"
+Podman rootless (--network=host : tous les conteneurs sur la pile réseau hôte)
+  ├── 404seo-site    (image 404seo-site)    → bind 127.0.0.1:3030
+  ├── 404seo-api     (image 404seo-api)     → bind 127.0.0.1:4000
+  ├── 404seo-redis   (redis:7-alpine)       → bind 127.0.0.1:6379
   ├── 404seo-worker-crawl (image 404seo-worker, Playwright/Chromium)
   └── 404seo-scheduler    (image 404seo-worker)
 
 PostgreSQL natif HestiaCP (127.0.0.1:5432)
-  └── joint depuis les conteneurs via host.containers.internal
+  └── joint directement via 127.0.0.1 (mode host) — Postgres reste fermé sur localhost
 ```
+
+> **Mode réseau `host`** : choisi car en Podman 4.x rootless, un Postgres qui
+> écoute sur `127.0.0.1` n'est pas joignable depuis un réseau bridge isolé sans
+> l'exposer sur une IP publique (risqué). Le mode host laisse Postgres fermé sur
+> localhost ; chaque process applicatif BIND sur `127.0.0.1` pour rester derrière
+> Nginx. Pas d'isolation réseau entre conteneurs (acceptable : ils sont tous à toi).
 
 ### Pourquoi Podman (et pas Docker)
 - **Rootless** : si l'app (qui crawle des sites externes) est compromise,
@@ -63,7 +69,7 @@ PostgreSQL natif HestiaCP (127.0.0.1:5432)
 
 ## 1. Installation initiale (une fois)
 
-En tant qu'**utilisateur applicatif** (ex. l'utilisateur HestiaCP `SEO`, **pas root**) :
+En tant qu'**utilisateur applicatif** (l'utilisateur HestiaCP `seo`, **pas root**) :
 
 ```bash
 cd ~/404seo            # ou le chemin où le repo est cloné
@@ -73,35 +79,21 @@ bash deployment/podman/setup-podman.sh
 Le script installe Podman (sudo ponctuel), active le *lingering* (les services
 tournent sans session SSH ouverte), le socket Podman, et crée le lien `~/404seo`.
 
-### PostgreSQL natif (à faire une fois)
+### PostgreSQL natif (à faire une fois, compte avec sudo)
 
-Créer la base si nécessaire :
-
-```bash
-sudo -u postgres psql -c "CREATE USER seo_user WITH PASSWORD 'CHANGE_ME';"
-sudo -u postgres psql -c "CREATE DATABASE seo_saas OWNER seo_user;"
-```
-
-Autoriser les conteneurs à joindre Postgres via la passerelle Podman :
+Créer la base et l'utilisateur :
 
 ```bash
-# 1) Trouver l'IP de la passerelle du réseau 404seo (créée au 1er déploiement)
-podman network inspect 404seo | grep -i gateway   # ex: 10.89.0.1
-
-# 2) postgresql.conf : écouter localhost + cette IP
-#    listen_addresses = 'localhost,10.89.0.1'
-sudo nano /etc/postgresql/*/main/postgresql.conf
-
-# 3) pg_hba.conf : autoriser le sous-réseau podman en scram-sha-256
-#    host  seo_saas  seo_user  10.89.0.0/16  scram-sha-256
-sudo nano /etc/postgresql/*/main/pg_hba.conf
-
-sudo systemctl reload postgresql
+sudo -u postgres psql -c "CREATE USER seo_user WITH PASSWORD 'CHANGE_ME_ALPHANUM';"
+sudo -u postgres psql -c "CREATE DATABASE seo_db OWNER seo_user;"
 ```
 
-> Dans `.env`, `DATABASE_URL` pointe alors sur
-> `@host.containers.internal:5432` (Podman mappe ce nom vers la passerelle hôte
-> grâce à `AddHost=host.containers.internal:host-gateway` dans les units / compose).
+**C'est tout pour Postgres.** En mode `--network=host`, les conteneurs joignent
+Postgres directement via `127.0.0.1:5432` → **aucune modification de
+`postgresql.conf` ni `pg_hba.conf`**. Postgres reste fermé sur localhost.
+
+> Dans `.env` :
+> `DATABASE_URL="postgresql://seo_user:CHANGE_ME_ALPHANUM@127.0.0.1:5432/seo_db"`
 
 ---
 
@@ -135,7 +127,7 @@ au boot et en cas de crash.
 
 ```bash
 sudo cp deployment/podman/nginx.podman.conf \
-    /home/SEO/conf/web/seo.404notfood.fr/nginx.ssl.conf
+    /home/seo/conf/web/seo.404notfood.fr/nginx.ssl.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
 

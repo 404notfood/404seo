@@ -1,8 +1,9 @@
 # =============================================================================
-# 404seo — Redis (Quadlet, rootless systemd --user)
+# 404seo — Redis (Quadlet, rootless systemd --user, --network=host)
 # =============================================================================
-# Installe via setup-podman.sh dans ~/.config/containers/systemd/
-# Puis : systemctl --user daemon-reload && systemctl --user start 404seo-redis
+# En mode host, Redis ecoute directement sur l'hote. On le BIND sur 127.0.0.1
+# pour qu'il ne soit JAMAIS accessible depuis l'exterieur (seuls les autres
+# conteneurs host + l'hote y accedent).
 # =============================================================================
 
 [Unit]
@@ -13,12 +14,11 @@ Wants=network-online.target
 [Container]
 ContainerName=404seo-redis
 Image=docker.io/library/redis:7-alpine
-Network=404seo.network
-# Alias 'redis' : les conteneurs app le joignent via REDIS_HOST=redis
-NetworkAlias=redis
+Network=host
 Volume=404seo-redis-data.volume:/data
 EnvironmentFile=%h/404seo/deployment/podman/.env
-Exec=/bin/sh -c 'exec redis-server --requirepass "$REDIS_PASSWORD" --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru'
+# bind 127.0.0.1 : non expose publiquement. requirepass via $REDIS_PASSWORD.
+Exec=/bin/sh -c 'exec redis-server --bind 127.0.0.1 --port 6379 --requirepass "$REDIS_PASSWORD" --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru'
 HealthCmd=/bin/sh -c 'redis-cli -a "$REDIS_PASSWORD" ping'
 HealthInterval=10s
 HealthRetries=5

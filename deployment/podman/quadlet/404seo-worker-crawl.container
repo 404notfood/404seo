@@ -1,7 +1,8 @@
 # =============================================================================
-# 404seo — BullMQ crawl worker (Quadlet, rootless systemd --user)
+# 404seo — BullMQ crawl worker (Quadlet, rootless systemd --user, host)
 # =============================================================================
 # Image basee sur Playwright (Chromium + deps systeme inclus).
+# En mode host : joint Redis (127.0.0.1:6379) et Postgres (127.0.0.1:5432).
 [Unit]
 Description=404seo BullMQ crawl worker
 After=network-online.target 404seo-redis.service
@@ -11,13 +12,11 @@ Requires=404seo-redis.service
 [Container]
 ContainerName=404seo-worker-crawl
 Image=localhost/404seo-worker:latest
-Network=404seo.network
+Network=host
 EnvironmentFile=%h/404seo/deployment/podman/.env
 Environment=NODE_ENV=production
 # Chromium a besoin de memoire partagee
 ShmSize=1g
-# Resolution du Postgres natif de l'hote
-AddHost=host.containers.internal:host-gateway
 Exec=node_modules/.bin/tsx workers/crawl-worker.ts
 
 [Service]

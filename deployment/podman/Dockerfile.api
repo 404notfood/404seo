@@ -1,0 +1,72 @@
+# =============================================================================
+# 404seo — Image API Fastify
+# =============================================================================
+# L'API tourne en tsx (TypeScript direct), comme en PM2. Pas d'etape de
+# compilation : le "build" du package est `tsc --noEmit`. tsx resout les
+# workspaces @seo/* via le node_modules racine du monorepo.
+#
+# IMPORTANT : l'API genere les PDF via @seo/reporter -> Puppeteer -> Chromium.
+# On base donc le runtime sur l'image Playwright (Chromium + deps systeme
+# inclus) et on pointe PUPPETEER_EXECUTABLE_PATH dessus. On desactive le
+# telechargement du Chromium de Puppeteer au npm install (inutile, ~170 Mo).
+#
+# Le tag Playwright doit suivre packages/crawler/package.json (^1.50.1).
+#
+# Contexte de build attendu : RACINE du monorepo.
+#   podman build -f deployment/podman/Dockerfile.api -t 404seo-api .
+# =============================================================================
+
+# ── 1) Dependances ────────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS deps
+WORKDIR /app
+# Ne pas telecharger le Chromium bundle de Puppeteer (on utilise celui de l'image)
+ENV PUPPETEER_SKIP_DOWNLOAD=1
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=1
+
+COPY package.json package-lock.json* ./
+COPY site/package.json                ./site/
+COPY apps/api/package.json            ./apps/api/
+COPY workers/package.json             ./workers/
+COPY packages/                        ./packages/
+COPY site/prisma                      ./site/prisma
+
+RUN npm install --no-audit --no-fund
+
+# ── 2) Runtime (base Playwright = Chromium + deps systeme inclus) ─────────────
+FROM mcr.microsoft.com/playwright:v1.50.1-noble AS run
+WORKDIR /app
+ENV NODE_ENV=production
+ENV API_HOST=0.0.0.0
+ENV API_PORT=4000
+# Chromium fourni par l'image Playwright, reutilise par Puppeteer pour les PDF
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PUPPETEER_SKIP_DOWNLOAD=1
+# Resolu au demarrage par un petit wrapper : voir entrypoint plus bas.
+# (Le chemin exact du chromium varie selon la version de l'image, on le
+#  resout dynamiquement pour rester robuste aux montees de version.)
+
+# node_modules complets du monorepo (tsx, fastify, @seo/*, client Prisma)
+# Workspaces npm : tout est hoiste dans /app/node_modules.
+COPY --from=deps /app/node_modules ./node_modules
+
+# Code source (API + packages partages + schema/client Prisma)
+COPY apps/api      ./apps/api
+COPY packages      ./packages
+COPY site/prisma   ./site/prisma
+COPY package.json  ./
+
+# Generer le client Prisma dans l'image
+# Binaire prisma LOCAL (v6), pas npx (qui telechargerait v7 incompatible)
+RUN ./node_modules/.bin/prisma generate --schema site/prisma/schema.prisma
+
+# Entrypoint : resout le Chromium de l'image Playwright et exporte
+# PUPPETEER_EXECUTABLE_PATH avant de lancer l'API.
+COPY deployment/podman/entrypoint-api.sh /usr/local/bin/entrypoint-api.sh
+RUN chmod +x /usr/local/bin/entrypoint-api.sh \
+ && chown -R pwuser:pwuser /app
+
+USER pwuser
+EXPOSE 4000
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-api.sh"]
+CMD ["node_modules/.bin/tsx", "apps/api/src/index.ts"]

@@ -1,5 +1,8 @@
 # =============================================================================
-# 404seo — Next.js 16 site (Quadlet, rootless systemd --user)
+# 404seo — Next.js 16 site (Quadlet, rootless systemd --user, --network=host)
+# =============================================================================
+# En mode host, le site ecoute sur l'hote. BIND sur 127.0.0.1 (HOSTNAME) :
+# seul le Nginx HestiaCP de l'hote y accede.
 # =============================================================================
 [Unit]
 Description=404seo Next.js site
@@ -10,13 +13,12 @@ Requires=404seo-api.service
 [Container]
 ContainerName=404seo-site
 Image=localhost/404seo-site:latest
-Network=404seo.network
+Network=host
 EnvironmentFile=%h/404seo/deployment/podman/.env
 Environment=NODE_ENV=production
-Environment=HOSTNAME=0.0.0.0
+# bind loopback : seul Nginx (hote) accede au site
+Environment=HOSTNAME=127.0.0.1
 Environment=PORT=3030
-# Publie sur 127.0.0.1 uniquement : seul le Nginx HestiaCP de l'hote y accede
-PublishPort=127.0.0.1:3030:3030
 Exec=node site/server.js
 
 [Service]
