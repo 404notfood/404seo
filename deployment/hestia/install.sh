@@ -37,26 +37,28 @@ fi
 
 # Les binaires HestiaCP ne sont pas toujours dans le PATH de sudo : on pointe
 # explicitement vers /usr/local/hestia/bin.
+# On utilise le WEB template (v-change-web-domain-tpl) et NON le proxy template :
+# sur une install Nginx-seul, PROXY_SYSTEM n'est pas active, mais le WEB template
+# definit directement le reverse proxy dans le server{} Nginx.
 HESTIA_BIN="/usr/local/hestia/bin"
-if [ ! -x "$HESTIA_BIN/v-change-web-domain-proxy-tpl" ]; then
-  echo "ERREUR : HestiaCP introuvable ($HESTIA_BIN/v-change-web-domain-proxy-tpl absent)."
-  echo "  Verifie le chemin : ls $HESTIA_BIN | grep proxy-tpl"
+if [ ! -x "$HESTIA_BIN/v-change-web-domain-tpl" ]; then
+  echo "ERREUR : HestiaCP introuvable ($HESTIA_BIN/v-change-web-domain-tpl absent)."
   exit 1
 fi
 export PATH="$HESTIA_BIN:$PATH"
 
-# --- Copie des templates ---
-echo ">> Copie des templates Nginx..."
+# --- Copie des templates (WEB template : container.tpl / container.stpl) ---
+echo ">> Copie des templates Nginx (web)..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$TPL_DIR"
-cp -f "$SCRIPT_DIR/container-proxy.tpl"  "$TPL_DIR/container-proxy.tpl"
-cp -f "$SCRIPT_DIR/container-proxy.stpl" "$TPL_DIR/container-proxy.stpl"
-chmod 644 "$TPL_DIR/container-proxy.tpl" "$TPL_DIR/container-proxy.stpl"
+cp -f "$SCRIPT_DIR/container.tpl"  "$TPL_DIR/container.tpl"
+cp -f "$SCRIPT_DIR/container.stpl" "$TPL_DIR/container.stpl"
+chmod 644 "$TPL_DIR/container.tpl" "$TPL_DIR/container.stpl"
 echo "   Templates copiés dans $TPL_DIR"
 
-# --- Application du template ---
-echo ">> Application du template proxy au domaine $DOMAIN..."
-"$HESTIA_BIN/v-change-web-domain-proxy-tpl" "$HESTIA_USER" "$DOMAIN" container-proxy
+# --- Application du WEB template ---
+echo ">> Application du web template au domaine $DOMAIN..."
+"$HESTIA_BIN/v-change-web-domain-tpl" "$HESTIA_USER" "$DOMAIN" container
 
 # Rebuild + reload pour generer la conf a partir du template
 echo ">> Rebuild du domaine + reload Nginx..."
