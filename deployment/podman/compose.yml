@@ -1,17 +1,21 @@
 # =============================================================================
-# 404seo — Podman Compose
+# 404seo — Podman Compose (--network=host)
 # =============================================================================
 # Conteneurise UNIQUEMENT l'application (site, api, workers) + Redis.
-# PostgreSQL reste natif HestiaCP. Nginx HestiaCP reste le reverse proxy SSL.
+# PostgreSQL reste natif HestiaCP (127.0.0.1:5432). Nginx HestiaCP reste le
+# reverse proxy SSL.
 #
-# Les ports site/api sont exposes sur 127.0.0.1 SEULEMENT : seul le Nginx de
-# l'hote y accede, jamais l'Internet directement.
+# MODE RESEAU : host. En Podman 4.3.1 rootless, c'est le moyen le plus fiable
+# de joindre un Postgres qui ecoute sur 127.0.0.1. Tous les services partagent
+# la pile reseau de l'hote ; ils BINDENT sur 127.0.0.1 pour ne pas s'exposer.
 #
 # Lancer :
 #   cd deployment/podman
 #   podman-compose --env-file .env up -d --build
+# (Contexte de build = racine du repo : ../.. )
 #
-# (Le contexte de build est la racine du repo : ../.. )
+# NB : en mode host, les directives "ports:" et "networks:" sont ignorees ;
+#      ce qui compte est le bind interne de chaque process (127.0.0.1).
 # =============================================================================
 
 services:
@@ -19,22 +23,19 @@ services:
   redis:
     image: docker.io/library/redis:7-alpine
     container_name: 404seo-redis
+    network_mode: host
     command: >
-      redis-server
-      --requirepass "${REDIS_PASSWORD}"
+      sh -c 'exec redis-server
+      --bind 127.0.0.1 --port 6379
+      --requirepass "$REDIS_PASSWORD"
       --appendonly yes
       --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
+      --maxmemory-policy allkeys-lru'
+    env_file:
+      - .env
     volumes:
       - redis-data:/data
-    networks:
-      - seo
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # ── Next.js 16 (site) ───────────────────────────────────────────────────────
   site:
@@ -43,16 +44,13 @@ services:
       context: ../..
       dockerfile: deployment/podman/Dockerfile.site
     container_name: 404seo-site
+    network_mode: host
     env_file:
       - .env
     environment:
       PORT: "3030"
-      HOSTNAME: "0.0.0.0"
+      HOSTNAME: "127.0.0.1"
       NODE_ENV: production
-    ports:
-      - "127.0.0.1:${SITE_PORT:-3030}:3030"
-    networks:
-      - seo
     restart: unless-stopped
     depends_on:
       - api
@@ -64,26 +62,18 @@ services:
       context: ../..
       dockerfile: deployment/podman/Dockerfile.api
     container_name: 404seo-api
+    network_mode: host
     env_file:
       - .env
     environment:
-      API_HOST: "0.0.0.0"
+      API_HOST: "127.0.0.1"
       API_PORT: "4000"
       NODE_ENV: production
-    ports:
-      - "127.0.0.1:${API_PORT:-4000}:4000"
     # Puppeteer (generation PDF) a besoin de memoire partagee
     shm_size: "512m"
-    networks:
-      - seo
     restart: unless-stopped
     depends_on:
       - redis
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
   # ── Worker crawl (Playwright/Chromium) ──────────────────────────────────────
   worker:
@@ -92,15 +82,13 @@ services:
       context: ../..
       dockerfile: deployment/podman/Dockerfile.worker
     container_name: 404seo-worker
+    network_mode: host
     command: ["node_modules/.bin/tsx", "workers/crawl-worker.ts"]
     env_file:
       - .env
     environment:
       NODE_ENV: production
-    # Chromium a besoin de memoire partagee
     shm_size: "1gb"
-    networks:
-      - seo
     restart: unless-stopped
     depends_on:
       - redis
@@ -108,23 +96,17 @@ services:
   # ── Worker scheduler (audits planifies) ─────────────────────────────────────
   scheduler:
     image: 404seo-worker:latest
-    # reutilise l'image du worker (pas de rebuild)
     container_name: 404seo-scheduler
+    network_mode: host
     command: ["node_modules/.bin/tsx", "workers/schedule-worker.ts"]
     env_file:
       - .env
     environment:
       NODE_ENV: production
-    networks:
-      - seo
     restart: unless-stopped
     depends_on:
       - redis
       - worker
-
-networks:
-  seo:
-    driver: bridge
 
 volumes:
   redis-data:

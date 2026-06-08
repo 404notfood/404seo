@@ -68,9 +68,10 @@ echo ">> Migrations Prisma (prisma migrate deploy)..."
 if command -v npx >/dev/null 2>&1 && [ -d "$PROJECT_DIR/site/node_modules" ]; then
   ( cd "$PROJECT_DIR/site" && npx prisma migrate deploy )
 else
+  # Conteneur jetable en --network=host pour joindre Postgres sur 127.0.0.1
   podman run --rm \
+    --network host \
     --env-file "$SCRIPT_DIR/.env" \
-    --add-host host.containers.internal:host-gateway \
     localhost/404seo-api:latest \
     npx prisma migrate deploy --schema site/prisma/schema.prisma
 fi
@@ -82,8 +83,8 @@ if [ "$INSTALL_QUADLET" -eq 1 ]; then
   echo ">> Installation des Quadlets dans $QUADLET_DIR..."
   mkdir -p "$QUADLET_DIR"
   cp "$SCRIPT_DIR"/quadlet/*.container "$QUADLET_DIR"/
-  cp "$SCRIPT_DIR"/quadlet/*.network   "$QUADLET_DIR"/
   cp "$SCRIPT_DIR"/quadlet/*.volume    "$QUADLET_DIR"/
+  # (mode --network=host : pas de fichier .network a installer)
 fi
 
 if [ -d "$QUADLET_DIR" ] && ls "$QUADLET_DIR"/404seo-*.container >/dev/null 2>&1; then

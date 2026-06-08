@@ -1,8 +1,7 @@
 # =============================================================================
-# 404seo — BullMQ scheduler worker (Quadlet, rootless systemd --user)
+# 404seo — BullMQ scheduler worker (Quadlet, rootless systemd --user, host)
 # =============================================================================
-# Reutilise l'image du worker (Playwright). Pas de crawl ici, juste le cron
-# qui enqueue les audits planifies, mais l'image est commune.
+# Reutilise l'image du worker (Playwright). Joint Redis/Postgres en 127.0.0.1.
 [Unit]
 Description=404seo BullMQ scheduler worker
 After=network-online.target 404seo-redis.service 404seo-worker-crawl.service
@@ -12,11 +11,9 @@ Requires=404seo-redis.service
 [Container]
 ContainerName=404seo-scheduler
 Image=localhost/404seo-worker:latest
-Network=404seo.network
+Network=host
 EnvironmentFile=%h/404seo/deployment/podman/.env
 Environment=NODE_ENV=production
-# Resolution du Postgres natif de l'hote
-AddHost=host.containers.internal:host-gateway
 Exec=node_modules/.bin/tsx workers/schedule-worker.ts
 
 [Service]

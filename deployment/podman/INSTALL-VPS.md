@@ -147,38 +147,21 @@ sudo -u postgres psql -c "CREATE USER seo_user WITH PASSWORD 'TON_MOT_DE_PASSE';
 sudo -u postgres psql -c "CREATE DATABASE seo_db OWNER seo_user;"
 ```
 
-### 3b. Autoriser les conteneurs à joindre Postgres
-Les conteneurs joignent l'hôte via la **passerelle du réseau Podman**.
+### 3b. Connexion conteneurs → Postgres : RIEN à faire 🎉
+Ce déploiement utilise **`--network=host`** (mode réseau hôte, le plus fiable en
+Podman 4.x rootless). Les conteneurs partagent la pile réseau de l'hôte, donc
+**Postgres reste sur `127.0.0.1:5432` et les conteneurs le joignent directement**.
 
-**En tant que `seo`** — crée le réseau et relève son IP de passerelle :
-```bash
-podman network create 404seo 2>/dev/null || true
-podman network inspect 404seo | grep -i gateway
-# Note l'IP affichée, ex: 10.89.0.1
+➡️ **Aucune modification de `postgresql.conf` ni `pg_hba.conf`.** Postgres reste
+fermé sur localhost — c'est idéal pour la sécurité. Dans le `.env`, on met
+simplement :
 ```
-
-**En tant que `debian`** — édite la config Postgres (chemin selon version, souvent `16`) :
-```bash
-sudo nano /etc/postgresql/*/main/postgresql.conf
-```
-Trouve `listen_addresses` et mets (remplace par TON IP passerelle) :
-```
-listen_addresses = 'localhost,10.89.0.1'
+DATABASE_URL="postgresql://seo_user:TON_MOT_DE_PASSE@127.0.0.1:5432/seo_db"
 ```
 
-Puis autorise le sous-réseau Podman :
-```bash
-sudo nano /etc/postgresql/*/main/pg_hba.conf
-```
-Ajoute en bas (adapte le /16 à ton IP passerelle) :
-```
-host    seo_db    seo_user    10.89.0.0/16    scram-sha-256
-```
-
-Recharge :
-```bash
-sudo systemctl reload postgresql
-```
+> Pourquoi ce choix : en Podman 4.3.1 rootless, un Postgres qui écoute sur
+> `127.0.0.1` n'est PAS joignable depuis un réseau bridge isolé sans exposer
+> Postgres sur une IP publique (risqué). Le mode host évite tout ça.
 
 ---
 
@@ -209,8 +192,9 @@ chmod 600 deployment/podman/.env
 ```
 
 À remplir **obligatoirement** :
-- `DATABASE_URL` → `postgresql://seo_user:TON_MOT_DE_PASSE@host.containers.internal:5432/seo_db`
-  (le **même mot de passe** que celui choisi à l'étape 3a)
+- `DATABASE_URL` → `postgresql://seo_user:TON_MOT_DE_PASSE@127.0.0.1:5432/seo_db`
+  (le **même mot de passe** que celui choisi à l'étape 3a ; `127.0.0.1` car
+  mode `--network=host`)
 - `BETTER_AUTH_SECRET` → génère-le : `openssl rand -base64 32`
 - `REDIS_PASSWORD` → un mot de passe fort
 - `REDIS_URL` → `redis://:LE_MEME_MDP@redis:6379`

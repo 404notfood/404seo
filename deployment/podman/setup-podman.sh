@@ -110,9 +110,9 @@ PROCHAINES ETAPES :
        nano $SCRIPT_DIR/.env
      -> DATABASE_URL, BETTER_AUTH_SECRET, REDIS_PASSWORD, Stripe, Google, Resend, Anthropic.
 
-  2) Autoriser PostgreSQL a accepter les conteneurs (necessite root) :
-     Voir README.md / INSTALL-VPS.md section PostgreSQL.
-     (creation reseau podman -> IP passerelle -> postgresql.conf + pg_hba.conf -> reload)
+  2) PostgreSQL : juste creer la base seo_db + user seo_user (necessite root).
+     Mode --network=host => RIEN a changer dans postgresql.conf / pg_hba.conf.
+     DATABASE_URL pointe sur 127.0.0.1:5432. Voir INSTALL-VPS.md section 3.
 
   3) Premier deploiement (build images + demarrage) :
        bash $SCRIPT_DIR/deploy-podman.sh --install-quadlet
