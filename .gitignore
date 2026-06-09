@@ -96,13 +96,12 @@ coverage/
 /app
 /deployment
 
-# ---------- Deployment templates tracked ----------
+# ---------- Deployment templates tracked (PM2 + HestiaCP) ----------
 !/deployment/
 /deployment/*
-!/deployment/podman/
-# Suivre tout le dossier podman (Dockerfiles, scripts, compose, docs, quadlet)
-!/deployment/podman/**
+# Suivre les scripts/config de deploiement (PM2, Nginx, HestiaCP)
+!/deployment/**
 # ...SAUF les secrets : le .env rempli ne doit JAMAIS etre commite
-/deployment/podman/.env
-/deployment/podman/*.env
-!/deployment/podman/.env.example
+/deployment/.env
+/deployment/*.env
+!/deployment/.env.example
