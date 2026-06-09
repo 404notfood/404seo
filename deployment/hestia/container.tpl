@@ -4,6 +4,11 @@
 # Fastify API → 127.0.0.1:4000                                           #
 #=========================================================================#
 
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen      %ip%:%web_port%;
     server_name %domain% %alias%;
@@ -23,10 +28,10 @@ server {
     location ^~ /api/auth/ {
         proxy_pass         http://127.0.0.1:3030;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
     }
 
@@ -34,12 +39,12 @@ server {
     location /api/ {
         proxy_pass         http://127.0.0.1:4000;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_set_header   Upgrade           \$http_upgrade;
-        proxy_set_header   Connection        \$connection_upgrade;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        $connection_upgrade;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
     }
@@ -48,10 +53,10 @@ server {
     location = /api/billing/webhook {
         proxy_pass              http://127.0.0.1:4000;
         proxy_http_version      1.1;
-        proxy_set_header        Host              \$host;
-        proxy_set_header        X-Real-IP         \$remote_addr;
-        proxy_set_header        X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header        X-Forwarded-Proto \$scheme;
+        proxy_set_header        Host              $host;
+        proxy_set_header        X-Real-IP         $remote_addr;
+        proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header        X-Forwarded-Proto $scheme;
         proxy_request_buffering off;
     }
 
@@ -59,10 +64,10 @@ server {
     location ~ ^/api/audits/.+/progress$ {
         proxy_pass         http://127.0.0.1:4000;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Connection        "";
         proxy_buffering    off;
         proxy_cache        off;
@@ -70,16 +75,16 @@ server {
         chunked_transfer_encoding on;
     }
 
-    # ── Next.js (:3000) ──
+    # ── Next.js (:3030) ──
     location / {
         proxy_pass         http://127.0.0.1:3030;
         proxy_http_version 1.1;
-        proxy_set_header   Host              \$host;
-        proxy_set_header   X-Real-IP         \$remote_addr;
-        proxy_set_header   X-Forwarded-For   \$proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto \$scheme;
-        proxy_set_header   Upgrade           \$http_upgrade;
-        proxy_set_header   Connection        \$connection_upgrade;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        $connection_upgrade;
         proxy_read_timeout 60s;
     }
 
@@ -87,7 +92,7 @@ server {
     location /_next/static/ {
         proxy_pass http://127.0.0.1:3030;
         proxy_http_version 1.1;
-        proxy_set_header Host \$host;
+        proxy_set_header Host $host;
         add_header Cache-Control "public, max-age=31536000, immutable";
         access_log off;
     }
