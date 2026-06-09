@@ -8,10 +8,13 @@ const nextConfig: NextConfig = {
   // utilises, on est sur prismaAdapter). On build donc en Webpack.
   // Equivalent de l'ancien turbopack.root pour le tracing standalone monorepo :
   outputFileTracingRoot: join(__dirname, ".."),
-  // better-auth embarque des dialectes kysely (SQLite bun/d1/node) qu'on
-  // n'utilise pas. On force ces paquets serveur a rester externes (require
-  // Node natif) : ils ne sont jamais bundles, donc plus d'erreur de build.
-  serverExternalPackages: ["better-auth", "kysely", "@better-auth/kysely-adapter"],
+  // On externalise SEULEMENT kysely et son adapter (les dialectes SQLite
+  // bun/d1/node non utilises qui cassaient le build). PAS better-auth :
+  // better-auth contient aussi le client React (better-auth/react,
+  // createAuthClient) ; l'externaliser lui donne un React different du bundle
+  // -> "Cannot read properties of null (reading 'useRef')" au SSR. On le laisse
+  // donc bundle normalement, et Webpack gere correctement ses imports.
+  serverExternalPackages: ["kysely", "@better-auth/kysely-adapter"],
 };
 
 export default nextConfig;
