@@ -103,7 +103,7 @@ Toute l'architecture est documentée dans `blueprint/` :
 - `blueprint/03-backend/` — Auth, proxy, handlers
 - `blueprint/04-services/` — Crawler, analyzer, scorer, PDF, workers
 - `blueprint/05-database/schema.prisma` — Schéma Prisma
-- `blueprint/06-infrastructure/` — Laragon + HestiaCP + Podman Quadlet
+- `blueprint/06-infrastructure/` — Laragon + HestiaCP + PM2
 - `blueprint/07-docs/DOCUMENTATION-LINKS.md` — Tous les liens de docs
 
 ## LANGUE

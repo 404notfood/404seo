@@ -288,7 +288,7 @@ Le dossier `blueprint/` contient toute la documentation d'architecture :
 | `03-backend/` | Auth config, proxy, handlers |
 | `04-services/` | Crawler, analyzer, scorer, PDF, workers |
 | `05-database/` | Schema Prisma, strategie DB, index |
-| `06-infrastructure/` | Laragon + HestiaCP + Podman Quadlet |
+| `06-infrastructure/` | Laragon + HestiaCP + PM2 |
 | `07-docs/` | Liens vers toutes les docs officielles |
 | `08-business/` | Plans tarifaires, growth strategy, KPIs |
 | `09-design/` | Design system, palette, composants |
