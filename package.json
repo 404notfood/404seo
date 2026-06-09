@@ -1,6 +1,7 @@
 {
   "name": "seo-saas",
   "private": true,
+  "packageManager": "npm@11.16.0",
   "workspaces": [
     "site",
     "apps/*",

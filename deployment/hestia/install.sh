@@ -48,13 +48,18 @@ fi
 export PATH="$HESTIA_BIN:$PATH"
 
 # --- Copie des templates (WEB template : container.tpl / container.stpl) ---
+# HestiaCP valide les templates dans $WEBTPL/$WEB_SYSTEM/$WEB_BACKEND/ (cf.
+# is_web_template_valid dans func/domain.sh). En nginx-only, WEB_BACKEND=php-fpm,
+# donc le bon dossier est nginx/php-fpm/ — PAS nginx/ directement.
 echo ">> Copie des templates Nginx (web)..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-mkdir -p "$TPL_DIR"
-cp -f "$SCRIPT_DIR/container.tpl"  "$TPL_DIR/container.tpl"
-cp -f "$SCRIPT_DIR/container.stpl" "$TPL_DIR/container.stpl"
-chmod 644 "$TPL_DIR/container.tpl" "$TPL_DIR/container.stpl"
-echo "   Templates copiés dans $TPL_DIR"
+WEB_BACKEND="$(. /usr/local/hestia/conf/hestia.conf; echo "${WEB_BACKEND:-php-fpm}")"
+TPL_TARGET="$TPL_DIR/$WEB_BACKEND"
+mkdir -p "$TPL_TARGET"
+cp -f "$SCRIPT_DIR/container.tpl"  "$TPL_TARGET/container.tpl"
+cp -f "$SCRIPT_DIR/container.stpl" "$TPL_TARGET/container.stpl"
+chmod 644 "$TPL_TARGET/container.tpl" "$TPL_TARGET/container.stpl"
+echo "   Templates copiés dans $TPL_TARGET"
 
 # --- Application du WEB template ---
 echo ">> Application du web template au domaine $DOMAIN..."
