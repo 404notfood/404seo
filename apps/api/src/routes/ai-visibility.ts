@@ -4,15 +4,17 @@ import { z } from "zod"
 import { prisma } from "../lib/prisma.js"
 import { requireRole, requireFeature } from "../lib/guards.js"
 
+const DOMAIN_REGEX = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i
+
 const CheckVisibilitySchema = z.object({
-  domain: z.string().min(3),
-  queries: z.array(z.string().min(3)).min(1).max(10),
+  domain: z.string().min(3).max(253).regex(DOMAIN_REGEX, "Domaine invalide"),
+  queries: z.array(z.string().min(3).max(500)).min(1).max(10),
   engine: z.enum(["claude"]).default("claude"), // seul Claude disponible sans clé tierce
 })
 
 const AddQuerySchema = z.object({
   query: z.string().min(3).max(500),
-  domain: z.string().min(3),
+  domain: z.string().min(3).max(253).regex(DOMAIN_REGEX, "Domaine invalide"),
 })
 
 // ── Appel API Anthropic via fetch ─────────────────────────────────────────────

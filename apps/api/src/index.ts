@@ -70,7 +70,9 @@ async function start() {
         "http://localhost:3000",
         "https://seo.404notfood.fr",
       ].filter(Boolean)
-      if (allowed.includes(origin) || /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)) {
+      // Le réseau privé 192.168.x n'est autorisé qu'en développement (jamais en prod)
+      const allowLan = isDev && /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)
+      if (allowed.includes(origin) || allowLan) {
         cb(null, true)
       } else {
         cb(new Error("Not allowed by CORS"), false)

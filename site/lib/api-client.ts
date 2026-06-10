@@ -462,6 +462,10 @@ export interface AuditDetail extends Audit {
     hasSitemap?: boolean | null
     wordCount?: number | null
     lang?: string | null
+    internalLinks?: number | null
+    externalLinks?: number | null
+    internalLinkUrls?: string[]
+    externalLinkUrls?: string[]
     results: PageResult[]
   }>
 }
@@ -510,7 +514,9 @@ export interface Project {
 }
 
 export interface LaunchAuditInput {
-  projectId: string
+  /** Soit projectId (flux dashboard), soit url (audit rapide). Au moins l'un des deux. */
+  projectId?: string
+  url?: string
   options?: {
     maxPages?: number
     maxDepth?: number

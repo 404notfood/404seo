@@ -265,12 +265,14 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(404).send({ error: "Audit introuvable" })
     }
 
-    // Headers SSE
+    // Headers SSE — origine restreinte (les requêtes SSE portent les cookies de session)
+    const appOrigin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": appOrigin,
+      "Access-Control-Allow-Credentials": "true",
     })
 
     const send = (data: object) => {

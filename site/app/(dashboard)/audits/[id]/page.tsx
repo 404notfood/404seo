@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useCallback } from "react"
+import { use, useCallback, useMemo, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,7 @@ import { TopIssuesWidget } from "@/components/audit/TopIssuesWidget"
 import { ThematicSection } from "@/components/audit/ThematicSection"
 import { PagesTable } from "@/components/audit/PagesTable"
 import { KeywordsTab } from "@/components/audit/KeywordsTab"
+import { LinksDialog, type LinkKind } from "@/components/audit/LinksDialog"
 import { apiClient } from "@/lib/api-client"
 import type { PageResult } from "@/lib/api-client"
 
@@ -52,14 +53,19 @@ interface PerfMetricProps {
   expected: string | null
   score: number
   status: "PASS" | "WARN" | "FAIL"
+  /** Si fourni, la carte devient cliquable (ex: ouvrir la liste des liens). */
+  onClick?: () => void
+  /** Libellé d'action affiché en bas quand la carte est cliquable. */
+  actionLabel?: string
 }
 
-function PerfMetric({ icon, label, value, expected, score, status }: PerfMetricProps) {
+function PerfMetric({ icon, label, value, expected, score, status, onClick, actionLabel }: PerfMetricProps) {
   const statusColor = status === "PASS" ? "text-emerald-600" : status === "WARN" ? "text-orange-500" : "text-red-500"
   const barColor = score >= 75 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444"
+  const clickable = typeof onClick === "function"
 
-  return (
-    <div className="p-3 rounded-xl border border-slate-100 bg-white space-y-2">
+  const content = (
+    <>
       <div className="flex items-center gap-2">
         <div className="text-slate-400">{icon}</div>
         <span className="text-xs font-semibold text-slate-700">{label}</span>
@@ -79,6 +85,30 @@ function PerfMetric({ icon, label, value, expected, score, status }: PerfMetricP
           style={{ width: `${score}%`, background: barColor }}
         />
       </div>
+      {clickable && actionLabel && (
+        <p className="text-[11px] font-medium text-blue-600 flex items-center gap-1 pt-0.5">
+          {actionLabel}
+          <ExternalLink className="h-3 w-3" />
+        </p>
+      )}
+    </>
+  )
+
+  if (clickable) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="text-left p-3 rounded-xl border border-slate-100 bg-white space-y-2 transition-all hover:border-blue-300 hover:shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <div className="p-3 rounded-xl border border-slate-100 bg-white space-y-2">
+      {content}
     </div>
   )
 }
@@ -107,6 +137,24 @@ export default function AuditDetailPage({ params }: Props) {
     const el = document.getElementById(anchorId)
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
   }, [])
+
+  // Dialog des liens (externes / internes). null = fermé.
+  const [linksDialog, setLinksDialog] = useState<LinkKind | null>(null)
+
+  // Agrège et déduplique les URLs de liens de toutes les pages crawlées.
+  // useMemo placé avant les returns conditionnels (règles des hooks).
+  const { externalLinkUrls, internalLinkUrls } = useMemo(() => {
+    const external = new Set<string>()
+    const internal = new Set<string>()
+    for (const page of audit?.pages ?? []) {
+      for (const u of page.externalLinkUrls ?? []) external.add(u)
+      for (const u of page.internalLinkUrls ?? []) internal.add(u)
+    }
+    return {
+      externalLinkUrls: Array.from(external),
+      internalLinkUrls: Array.from(internal),
+    }
+  }, [audit?.pages])
 
   if (isLoading) {
     return (
@@ -349,17 +397,31 @@ export default function AuditDetailPage({ params }: Props) {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {perfMetrics.map(({ checkName, label, icon, check }) => (
-                    <PerfMetric
-                      key={checkName}
-                      icon={icon}
-                      label={label}
-                      value={check.value}
-                      expected={check.expected}
-                      score={check.score}
-                      status={check.status}
-                    />
-                  ))}
+                  {perfMetrics.map(({ checkName, label, icon, check }) => {
+                    // Cartes liens : cliquables si on a stocké les URLs (audits récents).
+                    const linkKind: LinkKind | null =
+                      checkName === "external_links" ? "external"
+                      : checkName === "internal_links" ? "internal"
+                      : null
+                    const linkUrls = linkKind === "external" ? externalLinkUrls
+                      : linkKind === "internal" ? internalLinkUrls
+                      : []
+                    const isLinkCard = linkKind !== null && linkUrls.length > 0
+
+                    return (
+                      <PerfMetric
+                        key={checkName}
+                        icon={icon}
+                        label={label}
+                        value={check.value}
+                        expected={check.expected}
+                        score={check.score}
+                        status={check.status}
+                        onClick={isLinkCard ? () => setLinksDialog(linkKind) : undefined}
+                        actionLabel={isLinkCard ? `Voir les ${linkUrls.length} liens` : undefined}
+                      />
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -496,6 +558,15 @@ export default function AuditDetailPage({ params }: Props) {
           </CardContent>
         </Card>
       )}
+
+      {/* Dialog liste des liens (externes / internes) */}
+      <LinksDialog
+        open={linksDialog !== null}
+        onOpenChange={(open) => { if (!open) setLinksDialog(null) }}
+        kind={linksDialog ?? "external"}
+        urls={linksDialog === "internal" ? internalLinkUrls : externalLinkUrls}
+        seeAllHref={`/audits/${id}/links${linksDialog === "internal" ? "?type=internal" : ""}`}
+      />
     </div>
   )
 }

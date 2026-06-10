@@ -71,6 +71,10 @@ export interface CrawlOptions {
   userAgent?: string
   respectRobots?: boolean
   device?: "desktop" | "mobile"
+  /** Nombre de pages chargées en parallèle (défaut 5). */
+  concurrency?: number
+  /** Délai (ms) entre deux vagues parallèles, par politesse envers le site cible (défaut 250). */
+  politenessDelay?: number
 }
 
 export interface CrawlJobData {

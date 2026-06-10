@@ -4,8 +4,12 @@ import { z } from "zod"
 import { prisma } from "../lib/prisma.js"
 import { requireRole, requireFeature, assertProjectOwner } from "../lib/guards.js"
 
+// Domaine : lettres/chiffres/tirets + au moins un point (ex: example.com).
+// Empêche d'injecter des chemins ou des caractères de contrôle dans l'URL d'API.
+const DOMAIN_REGEX = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i
+
 const FetchBacklinksSchema = z.object({
-  domain: z.string().min(3),
+  domain: z.string().min(3).max(253).regex(DOMAIN_REGEX, "Domaine invalide"),
   projectId: z.string().optional(),
 })
 

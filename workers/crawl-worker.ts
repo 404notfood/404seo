@@ -88,19 +88,32 @@ const crawlWorker = new Worker<CrawlJobData>(
       data: { status: "RUNNING", startedAt: new Date() },
     })
 
+    const crawlConcurrency = 5
     const crawler = new SEOCrawler({
       maxPages: options.maxPages ?? 100,
       maxDepth: options.maxDepth ?? 5,
       device: options.device ?? "desktop",
       respectRobots: true,
+      concurrency: crawlConcurrency,
     })
 
     await crawler.launch()
 
     try {
-      const pages = await crawler.crawlSite(url, async (crawled, total) => {
-        await job.updateProgress(Math.round((crawled / total) * 50))
-      })
+      // Garde-fou : un crawl ne doit jamais bloquer le worker indéfiniment.
+      // Crawl parallèle (concurrency pages simultanées) → budget ~6s/page divisé
+      // par la concurrence, borné entre 5 et 20 min.
+      const maxPagesPlanned = options.maxPages ?? 100
+      const perPageBudget = Math.ceil((maxPagesPlanned * 6_000) / crawlConcurrency)
+      const crawlTimeoutMs = Math.min(20 * 60_000, Math.max(5 * 60_000, perPageBudget))
+      const pages = await Promise.race([
+        crawler.crawlSite(url, async (crawled, total) => {
+          await job.updateProgress(total > 0 ? Math.round((crawled / total) * 50) : 0)
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Crawl timeout après ${Math.round(crawlTimeoutMs / 60000)} min`)), crawlTimeoutMs)
+        ),
+      ])
 
       const savedPageIds: string[] = []
       for (const page of pages) {
@@ -355,6 +368,9 @@ const reportWorker = new Worker<ReportJobData>(
         if (user?.email && process.env.RESEND_API_KEY) {
           const scoreColor = score.global >= 80 ? "#22c55e" : score.global >= 50 ? "#f59e0b" : "#ef4444"
           const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://seo.404notfood.fr"
+          const safeAuditUrl = audit.url
+            .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;").replace(/'/g, "&#039;")
           await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: {
@@ -368,7 +384,7 @@ const reportWorker = new Worker<ReportJobData>(
               html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:40px 20px;background:#0f172a;color:#f1f5f9;">
                 <h1 style="color:#2563eb;">404 SEO</h1>
                 <h2>Votre audit est terminé !</h2>
-                <p style="color:#94a3b8;">Résultats pour <strong style="color:#f1f5f9;">${audit.url}</strong></p>
+                <p style="color:#94a3b8;">Résultats pour <strong style="color:#f1f5f9;">${safeAuditUrl}</strong></p>
                 <div style="text-align:center;margin:32px 0;">
                   <span style="font-size:48px;font-weight:bold;color:${scoreColor};">${score.global}/100</span>
                   <p style="color:${scoreColor};font-size:20px;">Grade ${score.grade}</p>

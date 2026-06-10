@@ -160,7 +160,9 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
         case "checkout.session.completed": {
           const session = event.data.object as Stripe.Checkout.Session
           const tenantId = session.metadata?.tenantId
-          const plan = session.metadata?.plan as "PRO" | "AGENCY" | undefined
+          const rawPlan = session.metadata?.plan
+          const VALID_PLANS = ["STARTER", "PRO", "AGENCY", "ENTERPRISE"]
+          const plan = rawPlan && VALID_PLANS.includes(rawPlan) ? (rawPlan as Plan) : undefined
 
           if (!tenantId || !plan) break
 

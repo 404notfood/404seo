@@ -138,6 +138,8 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     return { users, total, pages: Math.ceil(total / limit) }
   })
 
+  const VALID_USER_ROLES = ["ADMIN", "MEMBER", "GUEST"]
+
   fastify.patch<{
     Params: { id: string }
     Body: { role?: string; isBanned?: boolean }
@@ -145,9 +147,22 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = request.params
     const { role, isBanned } = request.body
 
+    // Un super-admin ne peut pas se bannir lui-même (évite de se verrouiller dehors)
+    if (isBanned === true && id === request.userId) {
+      return reply.status(400).send({ error: "Impossible de se bannir soi-même" })
+    }
+
     const update: Record<string, unknown> = {}
-    if (role !== undefined) update.role = role
+    if (role !== undefined) {
+      if (!VALID_USER_ROLES.includes(role)) {
+        return reply.status(400).send({ error: "Rôle invalide. Valeurs acceptées : ADMIN, MEMBER, GUEST" })
+      }
+      update.role = role
+    }
     if (isBanned !== undefined) {
+      if (typeof isBanned !== "boolean") {
+        return reply.status(400).send({ error: "isBanned doit être un booléen" })
+      }
       update.isBanned = isBanned
       update.bannedAt = isBanned ? new Date() : null
       update.bannedBy = isBanned ? request.userId : null
@@ -386,9 +401,43 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     const existing = await prisma.planConfig.findUnique({ where: { plan: plan as Plan } })
     if (!existing) return reply.status(404).send({ error: "Configuration de plan introuvable" })
 
+    // Whitelist stricte des champs modifiables (évite le mass-assignment Prisma)
+    const body = request.body
+    const data: Record<string, unknown> = {}
+    const stringFields = ["displayName", "stripePriceId", "stripePriceIdYearly"] as const
+    const numberFields = ["price", "priceYearly", "auditQuota", "pageQuota", "projectQuota", "userQuota"] as const
+    const boolFields = [
+      "featureAI", "featureRankTracking", "featureLocalSeo", "featureWhiteLabel",
+      "featureApiAccess", "featureCompetitors", "featureBacklinks", "isActive",
+    ] as const
+
+    for (const f of stringFields) {
+      if (body[f] !== undefined) {
+        if (typeof body[f] !== "string") return reply.status(400).send({ error: `${f} doit être une chaîne` })
+        data[f] = body[f]
+      }
+    }
+    for (const f of numberFields) {
+      if (body[f] !== undefined) {
+        const v = body[f]
+        if (typeof v !== "number" || !Number.isFinite(v)) return reply.status(400).send({ error: `${f} doit être un nombre` })
+        data[f] = v
+      }
+    }
+    for (const f of boolFields) {
+      if (body[f] !== undefined) {
+        if (typeof body[f] !== "boolean") return reply.status(400).send({ error: `${f} doit être un booléen` })
+        data[f] = body[f]
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      return reply.status(400).send({ error: "Aucune modification fournie" })
+    }
+
     const config = await prisma.planConfig.update({
       where: { plan: plan as Plan },
-      data: request.body,
+      data,
     })
     return config
   })
