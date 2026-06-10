@@ -139,6 +139,9 @@ const crawlWorker = new Worker<CrawlJobData>(
             imagesWithoutAlt: page.images.filter((i) => !i.hasAlt).length,
             internalLinks: page.internalLinks.length,
             externalLinks: page.externalLinks.length,
+            // URLs réelles (bornées pour éviter des lignes énormes sur les pages à très nombreux liens)
+            internalLinkUrls: page.internalLinks.slice(0, 500),
+            externalLinkUrls: page.externalLinks.slice(0, 500),
             hasSchemaOrg: page.schemaOrgTypes.length > 0,
             schemaTypes: page.schemaOrgTypes,
             lang: page.lang,

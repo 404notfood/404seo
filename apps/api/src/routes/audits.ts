@@ -8,16 +8,23 @@ import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import { requireRole, assertProjectOwner } from "../lib/guards"
 import { requireAuditQuota } from "../lib/quotas"
 
-const LaunchAuditSchema = z.object({
-  projectId: z.string().cuid(),
-  options: z
-    .object({
-      maxPages: z.number().int().min(1).max(500).default(100),
-      maxDepth: z.number().int().min(1).max(10).default(5),
-      device: z.enum(["desktop", "mobile"]).default("desktop"),
-    })
-    .optional(),
-})
+// Accepte soit un projectId (flux dashboard classique), soit une url libre
+// (flux extension / audit rapide : le projet est résolu/créé automatiquement).
+const LaunchAuditSchema = z
+  .object({
+    projectId: z.string().cuid().optional(),
+    url: z.string().url().optional(),
+    options: z
+      .object({
+        maxPages: z.number().int().min(1).max(500).default(100),
+        maxDepth: z.number().int().min(1).max(10).default(5),
+        device: z.enum(["desktop", "mobile"]).default("desktop"),
+      })
+      .optional(),
+  })
+  .refine((d) => d.projectId || d.url, {
+    message: "projectId ou url requis",
+  })
 
 const auditsRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/audits — Lancer un audit (MEMBER+ requis)
@@ -30,14 +37,51 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: "Données invalides", details: parse.error.flatten() })
     }
 
-    const { projectId, options } = parse.data
+    const { projectId, url: rawUrl, options } = parse.data
 
-    // Vérifie que le projet appartient à cet utilisateur
-    const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
-    if (!project) {
-      return reply.status(404).send({ error: "Projet introuvable" })
+    // Résolution du projet : soit fourni explicitement, soit dérivé de l'URL.
+    let project: { id: string; domain: string; name: string }
+
+    if (projectId) {
+      // Flux dashboard : vérifie que le projet appartient à cet utilisateur.
+      const owned = await assertProjectOwner(projectId, request.userId, request.tenantId)
+      if (!owned) {
+        return reply.status(404).send({ error: "Projet introuvable" })
+      }
+      project = owned
+    } else {
+      // Flux extension / audit rapide : on part d'une URL libre.
+      // Sécurité : on valide AVANT toute écriture en base (anti-SSRF).
+      if (!(await isValidPublicUrlWithDns(rawUrl!))) {
+        return reply.status(400).send({ error: "URL invalide ou non autorisée" })
+      }
+      // Origine normalisée (protocole + host) comme domaine de projet.
+      const parsedUrl = new URL(rawUrl!)
+      const origin = `${parsedUrl.protocol}//${parsedUrl.host}`
+
+      // Réutilise un projet existant du même domaine pour ce user/tenant…
+      const existing = await prisma.project.findFirst({
+        where: { userId: request.userId, tenantId: request.tenantId, domain: origin },
+        select: { id: true, domain: true, name: true },
+      })
+      if (existing) {
+        project = existing
+      } else {
+        // …sinon en crée un automatiquement (nom = hostname lisible).
+        project = await prisma.project.create({
+          data: {
+            tenantId: request.tenantId,
+            userId: request.userId,
+            name: parsedUrl.hostname.replace(/^www\./, ""),
+            domain: origin,
+            description: "Créé automatiquement depuis un audit rapide",
+          },
+          select: { id: true, domain: true, name: true },
+        })
+      }
     }
 
+    const projectIdResolved = project.id
     const url = project.domain
 
     if (!(await isValidPublicUrlWithDns(url))) {
@@ -62,7 +106,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       data: {
         tenantId: request.tenantId,
         userId: request.userId,
-        projectId,
+        projectId: projectIdResolved,
         url,
         status: "PENDING",
         options: options ?? {},
@@ -168,6 +212,10 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
             hasSitemap: true,
             wordCount: true,
             lang: true,
+            internalLinks: true,
+            externalLinks: true,
+            internalLinkUrls: true,
+            externalLinkUrls: true,
             results: true,
           },
           take: 100,

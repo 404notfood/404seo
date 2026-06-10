@@ -72,7 +72,10 @@ async function start() {
       ].filter(Boolean)
       // Le réseau privé 192.168.x n'est autorisé qu'en développement (jamais en prod)
       const allowLan = isDev && /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)
-      if (allowed.includes(origin) || allowLan) {
+      // L'extension Chrome appelle l'API avec le cookie de session : on autorise
+      // toute origine chrome-extension:// (l'auth derrière reste obligatoire).
+      const isChromeExtension = origin.startsWith("chrome-extension://")
+      if (allowed.includes(origin) || allowLan || isChromeExtension) {
         cb(null, true)
       } else {
         cb(new Error("Not allowed by CORS"), false)

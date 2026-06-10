@@ -2,6 +2,29 @@
 
 import type { PageAnalysisResponse } from "../content/content-script"
 
+// URL du dashboard. L'extension s'authentifie via le cookie de session du site :
+// l'utilisateur se connecte une fois sur le dashboard, puis tout fonctionne.
+const APP_URL = "https://seo.404notfood.fr"
+
+// Met à jour le badge "Connecté/Non connecté" en vérifiant la session réelle
+// via /api/me (cookie de session). Best-effort : silencieux si réseau indisponible.
+async function updateConnectionBadge() {
+  const badge = document.getElementById("plan-badge")
+  if (!badge) return
+  try {
+    const res = await fetch(`${APP_URL}/api/me`, { credentials: "include" })
+    if (res.ok) {
+      badge.textContent = "Connecté"
+      badge.style.background = "#10b981"
+    } else {
+      badge.textContent = "Non connecté"
+      badge.style.background = "#94a3b8"
+    }
+  } catch {
+    // Réseau indisponible : on n'affiche rien de plus.
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
 
@@ -15,15 +38,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     return
   }
 
-  // Afficher le plan depuis les settings
-  const settings = await chrome.storage.sync.get(["apiUrl", "apiToken"])
-  if (settings.apiToken) {
-    const badge = document.getElementById("plan-badge")
-    if (badge) {
-      badge.textContent = "Connecté"
-      badge.style.background = "#10b981"
-    }
-  }
+  // Badge de connexion : vérifie la session réelle (cookie du dashboard ou token).
+  void updateConnectionBadge()
 
   try {
     const response = await chrome.tabs.sendMessage(tab.id, { type: "GET_PAGE_DATA" }) as PageAnalysisResponse
@@ -93,45 +109,45 @@ function renderResults(tab: chrome.tabs.Tab, response: PageAnalysisResponse) {
     chrome.runtime.sendMessage({ type: "UPDATE_BADGE", score, tabId: tab.id })
   }
 
-  // Bouton audit complet
+  // Bouton audit complet — lance directement l'audit de l'URL courante.
   document.getElementById("btn-full-audit")!.addEventListener("click", async () => {
-    const settings = await chrome.storage.sync.get(["apiUrl", "apiToken"])
-    const appUrl = (settings.apiUrl as string | undefined) ?? "http://localhost:3000"
-
-    if (!settings.apiToken) {
-      chrome.tabs.create({ url: `${appUrl}/login?from=extension` })
-    } else {
-      await launchFullAudit(data.url, appUrl, settings.apiToken as string)
-    }
+    await launchFullAudit(data.url)
   })
 
   // Bouton dashboard
-  document.getElementById("btn-open-dashboard")!.addEventListener("click", async () => {
-    const settings = await chrome.storage.sync.get(["apiUrl"])
-    const appUrl = (settings.apiUrl as string | undefined) ?? "http://localhost:3000"
-    chrome.tabs.create({ url: `${appUrl}/dashboard` })
+  document.getElementById("btn-open-dashboard")!.addEventListener("click", () => {
+    chrome.tabs.create({ url: `${APP_URL}/dashboard` })
   })
 }
 
-async function launchFullAudit(url: string, appUrl: string, token: string) {
+async function launchFullAudit(url: string) {
   const btn = document.getElementById("btn-full-audit") as HTMLButtonElement
+  const originalText = btn.textContent
   btn.textContent = "Lancement en cours…"
   btn.disabled = true
 
   try {
-    const res = await fetch(`${appUrl}/api/audits`, {
+    const res = await fetch(`${APP_URL}/api/audits`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json" },
+      // credentials:include → envoie le cookie de session du dashboard. L'utilisateur
+      // doit être connecté sur seo.404notfood.fr (sinon on l'envoie vers le login).
+      credentials: "include",
       body: JSON.stringify({ url }),
     })
+
+    // Non authentifié : on ouvre le login du dashboard plutôt que d'échouer.
+    if (res.status === 401) {
+      chrome.tabs.create({ url: `${APP_URL}/login?from=extension` })
+      btn.textContent = originalText
+      btn.disabled = false
+      return
+    }
 
     if (!res.ok) throw new Error("Erreur API")
 
     const audit = await res.json() as { auditId: string }
-    chrome.tabs.create({ url: `${appUrl}/audits/${audit.auditId}` })
+    chrome.tabs.create({ url: `${APP_URL}/audits/${audit.auditId}` })
   } catch {
     btn.textContent = "Erreur — Réessayer"
     btn.disabled = false
