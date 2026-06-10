@@ -116,34 +116,124 @@ export async function isValidPublicUrlWithDns(urlString: string): Promise<boolea
   }
 }
 
+// Parse un robots.txt en règles Allow/Disallow applicables au user-agent donné.
+// Gère : groupes multi-agents, directive Allow, et la précision longest-match
+// (la règle la plus spécifique l'emporte, conformément au standard de Google).
+type RobotsRule = { type: "allow" | "disallow"; path: string }
+
+function parseRobots(text: string, userAgent: string): RobotsRule[] {
+  const uaLower = userAgent.toLowerCase()
+  const lines = text.split(/\r?\n/)
+
+  // Regroupe les directives par groupe d'agents. Un groupe = une suite de
+  // lignes User-agent suivies de directives, jusqu'au prochain User-agent.
+  const groups: Array<{ agents: string[]; rules: RobotsRule[] }> = []
+  let current: { agents: string[]; rules: RobotsRule[] } | null = null
+  let expectingAgents = false
+
+  for (const raw of lines) {
+    const line = raw.split("#")[0].trim()
+    if (!line) continue
+    const sep = line.indexOf(":")
+    if (sep === -1) continue
+    const field = line.slice(0, sep).trim().toLowerCase()
+    const value = line.slice(sep + 1).trim()
+
+    if (field === "user-agent") {
+      if (!expectingAgents || !current) {
+        current = { agents: [], rules: [] }
+        groups.push(current)
+        expectingAgents = true
+      }
+      current.agents.push(value.toLowerCase())
+    } else if (field === "allow" || field === "disallow") {
+      expectingAgents = false
+      if (current && value) current.rules.push({ type: field, path: value })
+      // Une ligne "Disallow:" vide (value === "") signifie "tout autoriser" : on l'ignore.
+    }
+  }
+
+  // Sélectionne le groupe le plus spécifique : correspondance exacte du nom
+  // d'agent en priorité, sinon le groupe "*".
+  const specific = groups.find((g) => g.agents.some((a) => a !== "*" && uaLower.includes(a)))
+  const wildcard = groups.find((g) => g.agents.includes("*"))
+  return (specific ?? wildcard)?.rules ?? []
+}
+
+// Convertit un pattern robots (avec * et $) en RegExp ancrée au début du chemin.
+function robotsPathToRegex(pattern: string): RegExp {
+  let re = ""
+  for (const ch of pattern) {
+    if (ch === "*") re += ".*"
+    else if (ch === "$") re += "$"
+    else re += ch.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+  }
+  return new RegExp("^" + re)
+}
+
+function isPathAllowed(rules: RobotsRule[], pathname: string): boolean {
+  // Règle gagnante = match le plus long ; à longueur égale, Allow l'emporte.
+  let best: { rule: RobotsRule; length: number } | null = null
+  for (const rule of rules) {
+    if (robotsPathToRegex(rule.path).test(pathname)) {
+      const length = rule.path.replace(/[*$]/g, "").length
+      if (!best || length > best.length || (length === best.length && rule.type === "allow")) {
+        best = { rule, length }
+      }
+    }
+  }
+  return best ? best.rule.type === "allow" : true
+}
+
+// Cache du robots.txt par hôte (évite de le re-télécharger à chaque page)
+const robotsCache = new Map<string, Promise<RobotsRule[] | null>>()
+
+async function fetchRobotsRules(origin: string, userAgent: string): Promise<RobotsRule[] | null> {
+  const cached = robotsCache.get(origin)
+  if (cached) return cached
+
+  const promise = (async () => {
+    try {
+      const response = await fetch(`${origin}/robots.txt`, { signal: AbortSignal.timeout(5000) })
+      if (!response.ok) return null // pas de robots.txt → tout autorisé
+      return parseRobots(await response.text(), userAgent)
+    } catch {
+      return null
+    }
+  })()
+
+  robotsCache.set(origin, promise)
+  return promise
+}
+
 async function isAllowedByRobots(pageUrl: string, userAgent: string): Promise<boolean> {
   try {
     if (!(await isValidPublicUrlWithDns(pageUrl))) return false
     const url = new URL(pageUrl)
-    const robotsUrl = `${url.protocol}//${url.host}/robots.txt`
-    const response = await fetch(robotsUrl, { signal: AbortSignal.timeout(5000) })
-    if (!response.ok) return true
-
-    const text = await response.text()
-    const lines = text.split("\n")
-    let applicable = false
-    const disallowed: string[] = []
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed.toLowerCase().startsWith("user-agent:")) {
-        const agent = trimmed.split(":")[1].trim()
-        applicable = agent === "*" || agent.toLowerCase() === userAgent.toLowerCase()
-      }
-      if (applicable && trimmed.toLowerCase().startsWith("disallow:")) {
-        const path = trimmed.split(":").slice(1).join(":").trim()
-        if (path) disallowed.push(path)
-      }
-    }
-
-    return !disallowed.some((d) => url.pathname.startsWith(d))
+    const rules = await fetchRobotsRules(`${url.protocol}//${url.host}`, userAgent)
+    if (!rules) return true
+    return isPathAllowed(rules, url.pathname + url.search)
   } catch {
     return true
+  }
+}
+
+// Normalise une URL pour la déduplication du crawl :
+// - retire le fragment (#...), qui ne change jamais la page servie
+// - retire un éventuel slash final (sauf racine)
+// - minuscule l'hôte
+// Retourne null si l'URL est invalide.
+function normalizeUrlForCrawl(rawUrl: string, base?: string): string | null {
+  try {
+    const url = new URL(rawUrl, base)
+    url.hash = ""
+    url.hostname = url.hostname.toLowerCase()
+    if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+      url.pathname = url.pathname.replace(/\/+$/, "")
+    }
+    return url.href
+  } catch {
+    return null
   }
 }
 
@@ -294,6 +384,9 @@ export class SEOCrawler {
       userAgent: options.userAgent ?? "SEOAuditBot/1.0",
       respectRobots: options.respectRobots ?? true,
       device: options.device ?? "desktop",
+      // Borné [1,10] : au-delà on risque de surcharger / faire bloquer le site cible.
+      concurrency: Math.max(1, Math.min(10, options.concurrency ?? 5)),
+      politenessDelay: options.politenessDelay ?? 250,
     }
   }
 
@@ -307,19 +400,34 @@ export class SEOCrawler {
   async close(): Promise<void> {
     await this.browser?.close()
     this.browser = null
+    // Purger les caches partagés entre audits (évite la fuite mémoire dans un
+    // worker durable et les règles robots/DNS obsolètes au prochain crawl).
+    robotsCache.clear()
+    dnsValidationCache.clear()
   }
 
-  async crawlPage(url: string): Promise<PageData> {
+  // Crée un BrowserContext configuré (userAgent + viewport selon le device).
+  // Réutilisé pour toutes les pages d'un crawl afin d'éviter le coût de recréation.
+  private async newConfiguredContext(): Promise<BrowserContext> {
     if (!this.browser) throw new Error("Browser non initialisé. Appeler launch() d'abord.")
-    if (!(await isValidPublicUrlWithDns(url))) throw new Error(`URL bloquée (SSRF): ${url}`)
-
-    const context = await this.browser.newContext({
+    return this.browser.newContext({
       userAgent: this.options.userAgent,
       viewport:
         this.options.device === "mobile"
           ? { width: 375, height: 812 }
           : { width: 1280, height: 800 },
     })
+  }
+
+  // Si sharedContext est fourni, la page est créée dedans (et le contexte n'est PAS
+  // fermé ici — c'est l'appelant qui en gère le cycle de vie). Sinon, un contexte
+  // jetable est créé puis fermé, ce qui préserve l'usage standalone de crawlPage().
+  async crawlPage(url: string, sharedContext?: BrowserContext): Promise<PageData> {
+    if (!this.browser) throw new Error("Browser non initialisé. Appeler launch() d'abord.")
+    if (!(await isValidPublicUrlWithDns(url))) throw new Error(`URL bloquée (SSRF): ${url}`)
+
+    const context = sharedContext ?? (await this.newConfiguredContext())
+    const ownsContext = !sharedContext
 
     const page = await context.newPage()
     const start = Date.now()
@@ -335,9 +443,15 @@ export class SEOCrawler {
       })
 
       const response = await page.goto(url, {
-        waitUntil: "networkidle",
+        // domcontentloaded : on n'attend pas le réseau "idle" (tracking/pub/websockets
+        // peuvent empêcher l'idle jusqu'au timeout). Le HTML SEO est dispo dès le DOM parsé.
+        waitUntil: "domcontentloaded",
         timeout: this.options.timeout,
       })
+
+      // Laisse un court instant au JS critique de rendre le contenu (SPA légères,
+      // hydration). Bien moins coûteux que d'attendre networkidle.
+      await page.waitForLoadState("load", { timeout: 3000 }).catch(() => {})
 
       const responseTime = Date.now() - start
       const statusCode = response?.status() ?? 0
@@ -419,7 +533,8 @@ export class SEOCrawler {
         error: error instanceof Error ? error.message : String(error),
       }
     } finally {
-      await context.close()
+      await page.close().catch(() => {})
+      if (ownsContext) await context.close().catch(() => {})
     }
   }
 
@@ -449,44 +564,99 @@ export class SEOCrawler {
     onProgress?: (crawled: number, total: number) => void
   ): Promise<PageData[]> {
     const results: PageData[] = []
-    const queue: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }]
+
+    const normalizedStart = normalizeUrlForCrawl(startUrl)
+    if (!normalizedStart) return results
+    const baseDomain = new URL(normalizedStart).hostname.toLowerCase()
+
+    // File BFS, traitée par niveau de profondeur. À l'intérieur d'un niveau,
+    // les pages sont crawlées par vagues parallèles de `concurrency`.
+    let frontier: Array<{ url: string; depth: number }> = [{ url: normalizedStart, depth: 0 }]
+    // On marque les URLs vues à l'enfilement (pas au défilement) pour éviter
+    // d'empiler plusieurs fois la même URL présente sur plusieurs pages.
+    this.visitedUrls.add(normalizedStart)
 
     // Check robots.txt and sitemap once at the start
     const siteResources = await this.checkSiteResources(startUrl)
 
-    while (queue.length > 0 && results.length < this.options.maxPages) {
-      const { url, depth } = queue.shift()!
+    // Un seul BrowserContext partagé pour tout le crawl (cookies/cache mutualisés,
+    // pas de coût de recréation par page). Les pages sont ouvertes/fermées dedans.
+    const context = await this.newConfiguredContext()
 
-      if (this.visitedUrls.has(url)) continue
-      this.visitedUrls.add(url)
-      if (depth > this.options.maxDepth) continue
+    try {
+      while (frontier.length > 0 && results.length < this.options.maxPages) {
+        const currentDepth = frontier[0].depth
+        if (currentDepth > this.options.maxDepth) break
 
-      if (this.options.respectRobots) {
-        const allowed = await isAllowedByRobots(url, this.options.userAgent)
-        if (!allowed) continue
-      }
+        // Pages restantes autorisées avant d'atteindre maxPages.
+        const remaining = this.options.maxPages - results.length
+        const batch = frontier.slice(0, remaining)
+        frontier = frontier.slice(remaining)
 
-      const pageData = await this.crawlPage(url)
-      pageData.hasRobotsTxt = siteResources.hasRobotsTxt
-      pageData.hasSitemap = siteResources.hasSitemap
-      results.push(pageData)
-      onProgress?.(results.length, this.options.maxPages)
+        // Traite ce niveau par vagues de `concurrency` pages simultanées.
+        const nextFrontier: Array<{ url: string; depth: number }> = []
+        for (let i = 0; i < batch.length; i += this.options.concurrency) {
+          if (results.length >= this.options.maxPages) break
+          const wave = batch.slice(i, i + this.options.concurrency)
 
-      if (depth < this.options.maxDepth) {
-        const baseDomain = new URL(startUrl).hostname
-        for (const link of pageData.internalLinks) {
-          try {
-            const linkDomain = new URL(link).hostname
-            if (linkDomain === baseDomain && !this.visitedUrls.has(link)) {
-              queue.push({ url: link, depth: depth + 1 })
+          const waveResults = await Promise.all(
+            wave.map(async ({ url, depth }) => {
+              try {
+                if (this.options.respectRobots) {
+                  const allowed = await isAllowedByRobots(url, this.options.userAgent)
+                  if (!allowed) return null
+                }
+                const pageData = await this.crawlPage(url, context)
+                pageData.hasRobotsTxt = siteResources.hasRobotsTxt
+                pageData.hasSitemap = siteResources.hasSitemap
+                return { pageData, depth }
+              } catch {
+                // Une page qui throw (ex: SSRF en cours de crawl) ne doit pas faire
+                // échouer toute la vague ni interrompre le crawl ; on l'ignore.
+                return null
+              }
+            })
+          )
+
+          for (const item of waveResults) {
+            if (!item) continue
+            results.push(item.pageData)
+            // La cible est le min(maxPages, pages réellement atteignables) ; on borne
+            // la progression par maxPages, jamais par une division par zéro.
+            onProgress?.(results.length, Math.max(1, this.options.maxPages))
+
+            if (item.depth < this.options.maxDepth) {
+              for (const link of item.pageData.internalLinks) {
+                const normalized = normalizeUrlForCrawl(link)
+                if (!normalized) continue
+                let linkDomain: string
+                try {
+                  linkDomain = new URL(normalized).hostname.toLowerCase()
+                } catch {
+                  continue
+                }
+                if (linkDomain === baseDomain && !this.visitedUrls.has(normalized)) {
+                  this.visitedUrls.add(normalized)
+                  nextFrontier.push({ url: normalized, depth: item.depth + 1 })
+                }
+              }
             }
-          } catch { /* URL invalide */ }
+          }
+
+          // Politesse : court délai entre deux vagues envers le site cible.
+          if (this.options.politenessDelay > 0) {
+            await new Promise((r) => setTimeout(r, this.options.politenessDelay))
+          }
         }
+
+        // Les URLs du niveau courant non traitées (au-delà de maxPages) sont
+        // déjà sorties de la frontier ; on enchaîne sur le niveau suivant.
+        frontier = [...frontier, ...nextFrontier]
       }
 
-      await new Promise((r) => setTimeout(r, 500))
+      return results
+    } finally {
+      await context.close().catch(() => {})
     }
-
-    return results
   }
 }

@@ -41,12 +41,30 @@ const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: "Couleur invalide (format #RRGGBB)" })
     }
 
-    // Validation URL logo
+    // Validation URL logo : uniquement http(s) public (anti LFI/SSRF dans le PDF)
     if (logoUrl && logoUrl.length > 0) {
+      let parsed: URL
       try {
-        new URL(logoUrl)
+        parsed = new URL(logoUrl)
       } catch {
         return reply.status(400).send({ error: "URL du logo invalide" })
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return reply.status(400).send({ error: "URL du logo invalide (http/https requis)" })
+      }
+      const host = parsed.hostname.toLowerCase()
+      const isInternal =
+        host === "localhost" ||
+        host === "0.0.0.0" ||
+        host.endsWith(".local") ||
+        host.endsWith(".internal") ||
+        /^127\./.test(host) ||
+        /^10\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^169\.254\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+      if (isInternal) {
+        return reply.status(400).send({ error: "URL du logo non autorisée" })
       }
     }
 

@@ -385,7 +385,7 @@ export function Sidebar() {
     ?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) ?? "?"
 
   return (
-    <aside className="w-[252px] min-h-screen flex flex-col shrink-0 select-none" style={{ background: "#0f172a" }}>
+    <aside className="w-[252px] h-screen sticky top-0 flex flex-col shrink-0 select-none" style={{ background: "#0f172a" }}>
 
       {/* ── Header / Logo ── */}
       <div className="px-4 py-4 flex flex-col gap-2" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>

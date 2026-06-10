@@ -32,6 +32,40 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;")
 }
 
+// Valide une couleur de marque destinée à être injectée dans du CSS.
+// Empêche l'injection CSS (ex: "red;}body{...") en n'acceptant qu'un hex strict.
+function sanitizeBrandColor(color: string | undefined, fallback = "#2563eb"): string {
+  return color && /^#[0-9a-fA-F]{6}$/.test(color) ? color : fallback
+}
+
+// Valide une URL de logo. Seules les URLs http(s) publiques sont autorisées :
+// bloque file://, javascript:, data: et les hôtes internes pour empêcher
+// la lecture de fichiers locaux (LFI) et le SSRF via Puppeteer.
+function sanitizeLogoUrl(logoUrl: string | undefined): string {
+  if (!logoUrl) return ""
+  try {
+    const url = new URL(logoUrl)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return ""
+    const host = url.hostname.toLowerCase()
+    if (
+      host === "localhost" ||
+      host === "0.0.0.0" ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal") ||
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    ) {
+      return ""
+    }
+    return url.href
+  } catch {
+    return ""
+  }
+}
+
 function gradeColor(score: number): string {
   if (score >= 90) return "#10b981"
   if (score >= 75) return "#22c55e"
@@ -258,10 +292,11 @@ function renderKeywordsSection(keywords: SiteKeywordEntry[], brandColor: string)
 
 function generateReportHTML(data: ReportData): string {
   const { url, date, score, recommendations, keywords, tenantBranding } = data
-  const brandColor = tenantBranding?.brandColor ?? "#2563eb"
-  const logoUrl = tenantBranding?.logoUrl ?? ""
-  const companyName = tenantBranding?.name ?? "SEO Audit Pro"
+  const brandColor = sanitizeBrandColor(tenantBranding?.brandColor)
+  const logoUrl = sanitizeLogoUrl(tenantBranding?.logoUrl)
+  const companyName = escapeHtml(tenantBranding?.name ?? "SEO Audit Pro")
 
+  const safeUrl = escapeHtml(url)
   const totalChecks = score.criticalIssues.length + score.warnings.length + score.passed.length
   const critPct = totalChecks > 0 ? Math.round((score.criticalIssues.length / totalChecks) * 100) : 0
   const warnPct = totalChecks > 0 ? Math.round((score.warnings.length / totalChecks) * 100) : 0
@@ -278,7 +313,7 @@ function generateReportHTML(data: ReportData): string {
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Rapport SEO — ${url}</title>
+  <title>Rapport SEO — ${safeUrl}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;background:#fff;color:#1a1a1a;font-size:13px}
@@ -426,7 +461,7 @@ function generateReportHTML(data: ReportData): string {
   <!-- ════════════ PAGE 1: COVER ════════════ -->
   <div class="cover">
     ${logoUrl
-      ? `<img src="${logoUrl}" style="height:40px;margin-bottom:32px;position:relative" alt="${companyName}">`
+      ? `<img src="${escapeHtml(logoUrl)}" style="height:40px;margin-bottom:32px;position:relative" alt="${companyName}">`
       : `<div class="brand">${companyName}</div>`
     }
     <h1>Rapport d'Audit SEO</h1>
@@ -478,7 +513,7 @@ function generateReportHTML(data: ReportData): string {
 
     <div class="page-footer">
       <span>${companyName}</span>
-      <span>${url}</span>
+      <span>${safeUrl}</span>
       <span>Page 2 · ${date}</span>
     </div>
   </div>
@@ -501,7 +536,7 @@ function generateReportHTML(data: ReportData): string {
     </div>
     <div class="page-footer">
       <span>${companyName}</span>
-      <span>${url}</span>
+      <span>${safeUrl}</span>
       <span>${date}</span>
     </div>
   </div>` : ""}
@@ -518,7 +553,7 @@ function generateReportHTML(data: ReportData): string {
     </div>
     <div class="page-footer">
       <span>${companyName}</span>
-      <span>${url}</span>
+      <span>${safeUrl}</span>
       <span>${date}</span>
     </div>
   </div>` : ""}
@@ -540,7 +575,7 @@ function generateReportHTML(data: ReportData): string {
     </div>
     <div class="page-footer">
       <span>${companyName}</span>
-      <span>${url}</span>
+      <span>${safeUrl}</span>
       <span>${date}</span>
     </div>
   </div>` : ""}
@@ -557,7 +592,7 @@ function generateReportHTML(data: ReportData): string {
     ${recommendations.slice(0, 10).map((rec, i) => renderRecItem(rec, i + 1, brandColor)).join("")}
     <div class="page-footer">
       <span>${companyName}</span>
-      <span>${url}</span>
+      <span>${safeUrl}</span>
       <span>${date}</span>
     </div>
   </div>
@@ -579,9 +614,12 @@ export async function generatePDF(data: ReportData): Promise<Buffer> {
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   })
 
+  let page: Awaited<ReturnType<typeof browser.newPage>> | null = null
   try {
-    const page = await browser.newPage()
-    await page.setContent(html, { waitUntil: "networkidle0" })
+    page = await browser.newPage()
+    // Le HTML est statique (pas de réseau externe attendu) ; un timeout borné
+    // évite que networkidle0 ne bloque si une ressource distante traîne.
+    await page.setContent(html, { waitUntil: "networkidle0", timeout: 30_000 })
 
     const pdf = await page.pdf({
       format: "A4",
@@ -592,6 +630,7 @@ export async function generatePDF(data: ReportData): Promise<Buffer> {
 
     return Buffer.from(pdf)
   } finally {
+    if (page) await page.close().catch(() => {})
     await browser.close()
   }
 }

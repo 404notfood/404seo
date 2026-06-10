@@ -354,11 +354,21 @@ async function sendWeeklyGADigests() {
   logger.info("Digests hebdo terminés")
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
 function buildDigestHtml(
   siteName: string,
   ga4: { sessions: number; users: number; pageviews: number; bounceRate: number; avgDuration: number; sessionsChange?: number },
   topQueries: Array<{ query: string; clicks: number; impressions: number; position: number }>
 ): string {
+  const safeSiteName = escapeHtml(siteName)
   const changeHtml = ga4.sessionsChange !== undefined
     ? `<div style="color: ${ga4.sessionsChange >= 0 ? "#22c55e" : "#ef4444"}; font-size: 14px; font-weight: 600; margin-top: 4px;">
         ${ga4.sessionsChange >= 0 ? "+" : ""}${ga4.sessionsChange}% vs sem. préc.
@@ -375,7 +385,7 @@ function buildDigestHtml(
       </tr>
       ${topQueries.map(q => `
         <tr style="border-bottom: 1px solid #1e293b;">
-          <td style="padding: 8px 4px; color: #f1f5f9; font-size: 13px;">${q.query}</td>
+          <td style="padding: 8px 4px; color: #f1f5f9; font-size: 13px;">${escapeHtml(q.query)}</td>
           <td style="text-align: right; padding: 8px 4px; color: #06b6d4; font-size: 13px; font-weight: 600;">${q.clicks}</td>
           <td style="text-align: right; padding: 8px 4px; color: #94a3b8; font-size: 13px;">${q.position.toFixed(1)}</td>
         </tr>
@@ -392,7 +402,7 @@ function buildDigestHtml(
       </div>
 
       <h2 style="color: #f1f5f9; font-size: 20px;">Rapport hebdomadaire</h2>
-      <p style="color: #94a3b8;">7 derniers jours pour <strong style="color: #f1f5f9;">${siteName}</strong></p>
+      <p style="color: #94a3b8;">7 derniers jours pour <strong style="color: #f1f5f9;">${safeSiteName}</strong></p>
 
       <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
         <tr>
@@ -444,6 +454,10 @@ function buildDigestHtml(
 // Vérifier toutes les 5 minutes
 const INTERVAL = 5 * 60 * 1000
 
+let tickTimer: NodeJS.Timeout | null = null
+// Empêche deux ticks de se chevaucher si un cycle dépasse l'intervalle.
+let ticking = false
+
 async function start() {
   logger.info("Schedule worker démarré (intervalle: 5min)")
 
@@ -451,13 +465,17 @@ async function start() {
   await checkScheduledAudits()
 
   // Puis toutes les 5 minutes
-  setInterval(async () => {
+  tickTimer = setInterval(async () => {
+    if (ticking) return
+    ticking = true
     try {
       await checkScheduledAudits()
       // Vérifier aussi les digests hebdo GA
       await sendWeeklyGADigests()
     } catch (err) {
       logger.error({ err }, "Erreur dans le schedule worker")
+    } finally {
+      ticking = false
     }
   }, INTERVAL)
 }
@@ -470,6 +488,7 @@ start().catch((err) => {
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM reçu, arrêt du schedule worker...")
+  if (tickTimer) clearInterval(tickTimer)
   await crawlQueue.close()
   await prisma.$disconnect()
   process.exit(0)

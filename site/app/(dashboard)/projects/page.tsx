@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,8 +12,9 @@ import {
   Dialog, DialogContent, DialogDescription,
   DialogFooter, DialogHeader, DialogTitle, DialogTrigger
 } from "@/components/ui/dialog"
-import { FolderOpen, Plus, Search, Trash2, Globe, BarChart2 } from "lucide-react"
+import { FolderOpen, Plus, Search, Trash2, Globe, BarChart2, Loader2 } from "lucide-react"
 import { useProjects, useCreateProject, useDeleteProject } from "@/hooks/useProjects"
+import { useLaunchAudit } from "@/hooks/useAudits"
 import { useRole } from "@/hooks/useMe"
 import { formatDistanceToNow } from "@/lib/date"
 
@@ -21,11 +23,25 @@ export default function ProjectsPage() {
   const [name, setName] = useState("")
   const [domain, setDomain] = useState("")
   const [description, setDescription] = useState("")
+  // Projet dont l'audit est en cours de lancement (désactive son bouton).
+  const [launchingProjectId, setLaunchingProjectId] = useState<string | null>(null)
 
+  const router = useRouter()
   const { data: projects, isLoading } = useProjects()
   const { mutate: createProject, isPending } = useCreateProject()
   const { mutate: deleteProject } = useDeleteProject()
+  const { mutate: launchAudit } = useLaunchAudit({
+    onAuditCreated: (auditId) => router.push(`/audits/${auditId}`),
+  })
   const { isMember, isAdmin } = useRole()
+
+  function handleAudit(projectId: string) {
+    setLaunchingProjectId(projectId)
+    launchAudit(
+      { projectId },
+      { onSettled: () => setLaunchingProjectId(null) }
+    )
+  }
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -175,12 +191,27 @@ export default function ProjectsPage() {
                     <BarChart2 className="h-3 w-3" />
                     {project._count.audits} audit{project._count.audits !== 1 ? "s" : ""}
                   </span>
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/audits?project=${project.id}`}>
-                      <Search className="h-3 w-3 mr-1.5" />
-                      Auditer
-                    </Link>
-                  </Button>
+                  {isMember ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={launchingProjectId === project.id}
+                      onClick={() => handleAudit(project.id)}
+                    >
+                      {launchingProjectId === project.id ? (
+                        <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Lancement…</>
+                      ) : (
+                        <><Search className="h-3 w-3 mr-1.5" />Auditer</>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/audits?project=${project.id}`}>
+                        <Search className="h-3 w-3 mr-1.5" />
+                        Voir
+                      </Link>
+                    </Button>
+                  )}
                 </div>
 
                 <p className="text-xs text-slate-300 mt-2">

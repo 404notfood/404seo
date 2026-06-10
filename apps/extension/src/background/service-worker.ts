@@ -23,8 +23,13 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   }
 })
 
+// URL du dashboard (l'extension s'authentifie via le cookie de session du site).
+const APP_URL = "https://seo.404notfood.fr"
+
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === "install") {
-    chrome.tabs.create({ url: chrome.runtime.getURL("src/options/options.html") })
+    // À l'installation, on invite l'utilisateur à se connecter au dashboard :
+    // une fois loggé, l'extension réutilise automatiquement sa session (cookie).
+    chrome.tabs.create({ url: `${APP_URL}/login?from=extension` })
   }
 })

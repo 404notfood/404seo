@@ -74,19 +74,23 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
     // Filet de sécurité : si l'utilisateur n'a toujours pas de tenant (le hook BetterAuth l'a déjà créé normalement)
     if (!user.tenantId) {
-      // Vérifier d'abord si un tenant existe déjà pour cet utilisateur (race condition)
-      const existingUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: { tenantId: true },
-      })
+      // Création atomique : deux requêtes simultanées du même utilisateur ne
+      // doivent pas créer deux tenants. La transaction relit le user et ne crée
+      // le tenant que si le champ tenantId est encore vide.
+      const resolved = await prisma.$transaction(async (tx) => {
+        const fresh = await tx.user.findUnique({
+          where: { id: user.id },
+          select: { tenantId: true, role: true },
+        })
+        // Tenant déjà créé entre-temps par une requête concurrente : on le réutilise.
+        if (fresh?.tenantId) {
+          return { tenantId: fresh.tenantId, role: (fresh.role as "ADMIN" | "MEMBER" | "GUEST") || "GUEST", created: false }
+        }
 
-      if (existingUser?.tenantId) {
-        request.tenantId = existingUser.tenantId
-      } else {
         const slug = user.email.split("@")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-")
         const uniqueSlug = `${slug}-${Date.now().toString(36)}`
 
-        const tenant = await prisma.tenant.create({
+        const tenant = await tx.tenant.create({
           data: {
             name: user.name || user.email.split("@")[0],
             slug: uniqueSlug,
@@ -94,14 +98,16 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
           },
         })
 
-        await prisma.user.update({
+        await tx.user.update({
           where: { id: user.id },
           data: { tenantId: tenant.id, role: "GUEST" },
         })
 
-        request.tenantId = tenant.id
-        request.role = "GUEST"
-      }
+        return { tenantId: tenant.id, role: "GUEST" as const, created: true }
+      })
+
+      request.tenantId = resolved.tenantId
+      request.role = resolved.role
     } else {
       request.tenantId = user.tenantId
     }

@@ -6,13 +6,13 @@ export default defineConfig({
     webExtension({
       manifest: "manifest.json",
       additionalInputs: [
-        "src/options/options.html",
         "src/popup/popup.html",
       ],
     }),
   ],
   build: {
     outDir: "dist",
+    emptyOutDir: true,
     minify: true,
     sourcemap: false,
   },

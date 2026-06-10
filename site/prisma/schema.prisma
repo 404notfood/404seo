@@ -208,6 +208,9 @@ model AuditPage {
   internalLinks   Int?
   externalLinks   Int?
   brokenLinks     Int?
+  // URLs des liens (pour affichage cliquable) — String[] dédupliqué côté crawler
+  internalLinkUrls String[]
+  externalLinkUrls String[]
   // Schema.org
   hasSchemaOrg    Boolean?
   schemaTypes     String[]
