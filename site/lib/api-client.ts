@@ -4,6 +4,7 @@ import type { SearchInsights, SearchInsightMode, SeoActionMeasurement } from "@s
 import type { AnalyticsProperty, AnalyticsMeasurement, ProjectAnalytics } from "@seo/shared"
 import type { ProjectInternalLinks, InternalLinkView } from "@seo/shared"
 import type { ProjectUrlInventory, UrlInventoryMode, SitemapSyncResult } from "@seo/shared"
+import type { ProjectCms, CmsResource, CmsCorrectionSummary, ConnectWordPressInput, ConnectPrestaShopInput } from "@seo/shared"
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
@@ -54,6 +55,13 @@ export interface UserMe {
 }
 
 export const apiClient = {
+  getProjectCms: (projectId: string) => fetcher<ProjectCms>("/api/projects/" + encodeURIComponent(projectId) + "/cms"),
+  connectWordPress: (projectId: string, data: ConnectWordPressInput) => fetcher<{ connected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "POST", body: JSON.stringify(data) }),
+  connectPrestaShop: (projectId: string, data: ConnectPrestaShopInput) => fetcher<{ connected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "POST", body: JSON.stringify(data) }),
+  disconnectCms: (projectId: string) => fetcher<{ disconnected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "DELETE", body: "{}" }),
+  getCmsResources: (projectId: string, kind: CmsResource["kind"], page: number) => fetcher<{ resources: CmsResource[]; hasMore: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/resources?" + new URLSearchParams({ kind, page: String(page) })),
+  generateCmsCorrection: (projectId: string, resourceId: number, mode: "SEO" | "SPELLING") => fetcher<CmsCorrectionSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/corrections", { method: "POST", body: JSON.stringify({ resourceId, mode }) }),
+  publishCmsCorrection: (projectId: string, id: string, action: "apply" | "restore" | "reconcile") => fetcher<CmsCorrectionSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/corrections/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: "{}" }),
   getUrlInventory: (projectId: string, params: { mode: UrlInventoryMode; q: string; page: number }) =>
     fetcher<ProjectUrlInventory>(`/api/projects/${encodeURIComponent(projectId)}/url-inventory?${new URLSearchParams({ mode: params.mode, q: params.q, page: String(params.page) })}`),
   syncSitemaps: (projectId: string, sitemapUrl?: string) => fetcher<SitemapSyncResult>(`/api/projects/${encodeURIComponent(projectId)}/url-inventory/sitemaps/sync`, { method: "POST", body: JSON.stringify(sitemapUrl ? { sitemapUrl } : {}) }),
@@ -1095,6 +1103,8 @@ export interface PlanConfig {
   projectQuota: number
   userQuota: number
   featureAI: boolean
+  featureCmsCorrections: boolean
+  cmsMonthlyQuota: number
   featureRankTracking: boolean
   featureLocalSeo: boolean
   featureWhiteLabel: boolean

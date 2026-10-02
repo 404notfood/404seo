@@ -9,6 +9,7 @@ import { extractLinkingData, resolveDocumentBaseUrl } from "./linkingData"
 import { googleRobotsMeta, readGoogleRobotsRules } from "./robotsDirectives"
 
 export type { PageData }
+export { plainCmsText } from "./cmsText"
 export { collectSitemapInventory, parseSitemapXml, sitemapRootsFromRobots, SITEMAP_IMPORT_LIMITS } from "./sitemaps"
 export type { SitemapFetch } from "./sitemaps"
 

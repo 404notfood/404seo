@@ -168,6 +168,7 @@ model Project {
   seoActions SeoAction[]
   analyticsSnapshots AnalyticsSnapshot[]
   sitemapSnapshots SitemapSnapshot[]
+  cmsConnections CmsConnection[]
 
   @@index([tenantId])
   @@unique([id, tenantId])
@@ -215,6 +216,51 @@ model SitemapSnapshot {
   @@unique([id, tenantId])
   @@index([tenantId, projectId, importedAt])
   @@map("sitemap_snapshots")
+}
+
+model CmsConnection {
+  id               String   @id @default(cuid())
+  tenantId         String
+  projectId        String
+  provider         String   @default("WORDPRESS")
+  scope            String   @default("")
+  siteUrl          String
+  label            String
+  credentials      String   @db.Text
+  verifiedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  disconnectedAt   DateTime?
+  project          Project  @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  corrections      CmsCorrection[]
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId])
+  @@map("cms_connections")
+}
+
+model CmsCorrection {
+  id                String   @id @default(cuid())
+  tenantId          String
+  connectionId      String
+  resourceId        Int
+  resourceUrl       String
+  title             String
+  mode              String
+  beforeTitle       String?
+  beforeDescription String?
+  afterTitle        String?
+  afterDescription  String?
+  reason            String?
+  beforeRevision    String
+  appliedRevision   String?
+  status            String   @default("GENERATING")
+  direction         String?
+  operationId       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  connection        CmsConnection @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@index([tenantId, createdAt])
+  @@index([connectionId, status])
+  @@map("cms_corrections")
 }
 
 model AuditPage {
@@ -837,6 +883,8 @@ model PlanConfig {
   userQuota     Int
   // Feature defaults
   featureAI           Boolean @default(false)
+  featureCmsCorrections Boolean @default(false)
+  cmsMonthlyQuota       Int     @default(0)
   featureRankTracking Boolean @default(false)
   featureLocalSeo     Boolean @default(false)
   featureWhiteLabel   Boolean @default(true)

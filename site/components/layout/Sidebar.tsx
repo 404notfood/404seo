@@ -125,6 +125,7 @@ const sections: NavSection[] = [
       { href: "/ai-agent", label: "Agent IA SEO", icon: Bot, badge: "IA", badgeColor: "#06b6d4" },
       { href: "/suggestions", label: "Suggestions d'action", icon: Lightbulb },
       { href: "/optimization", label: "Plan d’action SEO", icon: Globe },
+      { href: "/cms-connections", label: "Connexions CMS", icon: Store },
     ],
   },
   {

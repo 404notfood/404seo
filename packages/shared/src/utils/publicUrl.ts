@@ -71,8 +71,16 @@ export interface PublicResponse {
 
 /** DNS is resolved once per hop and pinned to the socket, with TLS hostname verification intact. */
 export async function fetchPublicUrl(value: string, options: {
-  maxBytes?: number; timeoutMs?: number; maxRedirects?: number; userAgent?: string; method?: "GET" | "HEAD"; followRedirects?: boolean
+  maxBytes?: number; timeoutMs?: number; maxRedirects?: number; userAgent?: string; method?: "GET" | "HEAD" | "POST"; followRedirects?: boolean
+  // Authenticated calls require HTTPS and never follow redirects, including same-origin redirects.
+  authenticated?: boolean; headers?: Record<string, string>; body?: string
 } = {}): Promise<PublicResponse> {
+  if ((options.headers || options.body) && !options.authenticated) throw new Error("Requête authentifiée requise")
+  if (options.authenticated && new URL(value).protocol !== "https:") throw new Error("HTTPS requis")
+  if (options.body && Buffer.byteLength(options.body) > 64 * 1024) throw new Error("Requête trop volumineuse")
+  for (const [key, val] of Object.entries(options.headers ?? {})) {
+    if (!["authorization", "content-type", "accept"].includes(key.toLowerCase()) || /[\r\n]/.test(val)) throw new Error("En-tête interdit")
+  }
   const maxBytes = options.maxBytes ?? 5 * 1024 * 1024
   const deadline = Date.now() + (options.timeoutMs ?? 10_000)
   let current = value
@@ -96,7 +104,7 @@ export async function fetchPublicUrl(value: string, options: {
       }
       const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(url, {
         agent: false, lookup: pinnedLookup, method: options.method ?? "GET",
-        headers: { "User-Agent": options.userAgent ?? "SEOAuditBot/1.0", "Accept-Encoding": "identity" },
+        headers: { ...options.headers, "User-Agent": options.userAgent ?? "SEOAuditBot/1.0", "Accept-Encoding": "identity" },
       }, (res) => {
         const status = res.statusCode ?? 0
         const headers: Record<string, string> = {}
@@ -130,9 +138,10 @@ export async function fetchPublicUrl(value: string, options: {
       const timer = setTimeout(() => request.destroy(new Error("Délai réseau dépassé")), Math.max(1, deadline - Date.now()))
       request.on("close", () => clearTimeout(timer))
       request.on("error", reject)
-      request.end()
+      request.end(options.body)
     })
     if (![301, 302, 303, 307, 308].includes(response.status)) return response
+    if (options.authenticated) throw new Error("Redirection authentifiée interdite")
     if (!response.headers.location) throw new Error("Redirection sans destination")
     if (options.followRedirects === false) {
       const target = new URL(response.headers.location, current).href

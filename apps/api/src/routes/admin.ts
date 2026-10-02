@@ -382,6 +382,8 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       projectQuota?: number
       userQuota?: number
       featureAI?: boolean
+      featureCmsCorrections?: boolean
+      cmsMonthlyQuota?: number
       featureRankTracking?: boolean
       featureLocalSeo?: boolean
       featureWhiteLabel?: boolean
@@ -405,10 +407,11 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     const body = request.body
     const data: Record<string, unknown> = {}
     const stringFields = ["displayName", "stripePriceId", "stripePriceIdYearly"] as const
-    const numberFields = ["price", "priceYearly", "auditQuota", "pageQuota", "projectQuota", "userQuota"] as const
+    const numberFields = ["price", "priceYearly", "auditQuota", "pageQuota", "projectQuota", "userQuota", "cmsMonthlyQuota"] as const
     const boolFields = [
       "featureAI", "featureRankTracking", "featureLocalSeo", "featureWhiteLabel",
       "featureApiAccess", "featureCompetitors", "featureBacklinks", "isActive",
+      "featureCmsCorrections",
     ] as const
 
     for (const f of stringFields) {
@@ -435,6 +438,10 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: "Aucune modification fournie" })
     }
 
+    const cmsQuota = data.cmsMonthlyQuota
+    if (cmsQuota !== undefined && (typeof cmsQuota !== "number" || !Number.isInteger(cmsQuota) || cmsQuota < 0 || cmsQuota > 1000000)) {
+      return reply.status(400).send({ error: "Quota CMS invalide (0 à 1 000 000)" })
+    }
     const config = await prisma.planConfig.update({
       where: { plan: plan as Plan },
       data,
@@ -454,6 +461,8 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       projectQuota: number
       userQuota: number
       featureAI?: boolean
+      featureCmsCorrections?: boolean
+      cmsMonthlyQuota?: number
       featureRankTracking?: boolean
       featureLocalSeo?: boolean
       featureWhiteLabel?: boolean
@@ -465,6 +474,9 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
   }>("/api/admin/plans", async (request, reply) => {
     const validPlans = ["STARTER", "PRO", "AGENCY", "ENTERPRISE"]
     const { plan, displayName, ...rest } = request.body
+    if (rest.cmsMonthlyQuota !== undefined && (!Number.isInteger(rest.cmsMonthlyQuota) || rest.cmsMonthlyQuota < 0 || rest.cmsMonthlyQuota > 1000000)) {
+      return reply.status(400).send({ error: "Quota CMS invalide (0 à 1 000 000)" })
+    }
     if (!plan || !validPlans.includes(plan)) {
       return reply.status(400).send({ error: "Plan invalide. Valeurs acceptées : STARTER, PRO, AGENCY, ENTERPRISE" })
     }

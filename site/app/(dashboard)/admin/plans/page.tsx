@@ -17,6 +17,7 @@ const PLAN_COLORS: Record<string, string> = {
 const ALL_PLANS = ["STARTER", "PRO", "AGENCY", "ENTERPRISE"]
 
 const FEATURES_META = [
+  { key: "featureCmsCorrections", label: "Corrections CMS" },
   { key: "featureAI",           label: "Visibilité IA" },
   { key: "featureRankTracking", label: "Suivi de positions" },
   { key: "featureLocalSeo",     label: "SEO Local" },
@@ -137,6 +138,7 @@ function PlanCard({ plan, onSaved }: { plan: PlanConfig; onSaved: () => void }) 
               { key: "pageQuota", label: "Pages/audit" },
               { key: "projectQuota", label: "Projets" },
               { key: "userQuota", label: "Utilisateurs" },
+              { key: "cmsMonthlyQuota", label: "Propositions CMS/mois (0 = désactivé)" },
             ] as { key: keyof PlanConfig; label: string }[]
           ).map(({ key, label }) => (
             <label key={key} className="space-y-1">
@@ -200,6 +202,8 @@ function CreatePlanModal({ existingPlans, onClose, onCreated }: {
     projectQuota: 5,
     userQuota: 3,
     featureAI: false,
+    featureCmsCorrections: false,
+    cmsMonthlyQuota: 0,
     featureRankTracking: false,
     featureLocalSeo: false,
     featureWhiteLabel: true,
@@ -297,6 +301,7 @@ function CreatePlanModal({ existingPlans, onClose, onCreated }: {
                 { key: "pageQuota", label: "Pages/audit" },
                 { key: "projectQuota", label: "Projets" },
                 { key: "userQuota", label: "Utilisateurs" },
+                { key: "cmsMonthlyQuota", label: "Propositions CMS/mois (0 = désactivé)" },
               ].map(({ key, label }) => (
                 <label key={key} className="space-y-1">
                   <span className="text-xs text-slate-500">{label} (-1=∞)</span>

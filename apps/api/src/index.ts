@@ -30,6 +30,7 @@ import actionPlanRoutes from "./routes/action-plan"
 import analyticsRoutes from "./routes/analytics"
 import internalLinkRoutes from "./routes/internal-links"
 import urlInventoryRoutes from "./routes/url-inventory"
+import cmsRoutes from "./routes/cms"
 import { captureError } from "./lib/monitoring"
 import { isAllowedOrigin } from "./lib/securityPolicy"
 import { crawlQueue, redis } from "./lib/redis"
@@ -111,6 +112,7 @@ async function start() {
   await fastify.register(analyticsRoutes)
   await fastify.register(internalLinkRoutes)
   await fastify.register(urlInventoryRoutes)
+  await fastify.register(cmsRoutes)
 
   // Monitoring d'erreurs global
   fastify.setErrorHandler(async (error: { statusCode?: number; message: string }, request, reply) => {
