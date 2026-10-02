@@ -78,6 +78,16 @@ const crawlWorker = new Worker<CrawlJobData>(
   "crawl",
   async (job: Job<CrawlJobData>) => {
     const { auditId, url, options } = job.data
+    const owner = await prisma.audit.findFirst({ where: { id: auditId, deletedAt: null } })
+    if (!owner || owner.status === "CANCELLED" || owner.status === "COMPLETED") return
+    const tenantId = owner.tenantId
+
+    const completedCrawl = await prisma.auditJob.findFirst({ where: { auditId, tenantId, type: "CRAWL", status: "COMPLETED" } })
+    if (completedCrawl) {
+      const pages = await prisma.auditPage.findMany({ where: { auditId, tenantId }, select: { id: true } })
+      await analyzeQueue.add("analyze", { auditId, pageIds: pages.map(page => page.id) }, { jobId: auditId })
+      return { pagesCount: pages.length }
+    }
 
     await prisma.audit.update({
       where: { id: auditId },
@@ -99,6 +109,7 @@ const crawlWorker = new Worker<CrawlJobData>(
 
     await crawler.launch()
 
+    let crawlTimer: NodeJS.Timeout | undefined
     try {
       // Garde-fou : un crawl ne doit jamais bloquer le worker indéfiniment.
       // Crawl parallèle (concurrency pages simultanées) → budget ~6s/page divisé
@@ -108,17 +119,20 @@ const crawlWorker = new Worker<CrawlJobData>(
       const crawlTimeoutMs = Math.min(20 * 60_000, Math.max(5 * 60_000, perPageBudget))
       const pages = await Promise.race([
         crawler.crawlSite(url, async (crawled, total) => {
-          await job.updateProgress(total > 0 ? Math.round((crawled / total) * 50) : 0)
+          await job.updateProgress(total > 0 ? Math.round((crawled / total) * 50) : 0).catch(err => logger.warn({ err }, "Progression indisponible"))
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`Crawl timeout après ${Math.round(crawlTimeoutMs / 60000)} min`)), crawlTimeoutMs)
+          crawlTimer = setTimeout(() => reject(new Error(`Crawl timeout après ${Math.round(crawlTimeoutMs / 60000)} min`)), crawlTimeoutMs)
         ),
       ])
 
+      if (!pages.some(page => page.statusCode > 0)) throw new Error("Aucune page accessible pour cet audit")
+      await prisma.auditPage.deleteMany({ where: { auditId, tenantId, audit: { status: "CRAWLING", deletedAt: null } } })
       const savedPageIds: string[] = []
       for (const page of pages) {
         const saved = await prisma.auditPage.create({
           data: {
+            tenantId,
             auditId,
             url: page.url,
             statusCode: page.statusCode,
@@ -168,10 +182,11 @@ const crawlWorker = new Worker<CrawlJobData>(
         data: { status: "COMPLETED", finishedAt: new Date(), progress: 100 },
       })
 
-      await analyzeQueue.add("analyze", { auditId, pageIds: savedPageIds })
+      await analyzeQueue.add("analyze", { auditId, pageIds: savedPageIds }, { jobId: auditId })
 
       return { pagesCount: pages.length }
     } finally {
+      clearTimeout(crawlTimer)
       await crawler.close()
     }
   },
@@ -190,6 +205,9 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
   "analyze",
   async (job: Job<AnalyzeJobData>) => {
     const { auditId, pageIds } = job.data
+    const owner = await prisma.audit.findFirst({ where: { id: auditId, deletedAt: null } })
+    if (!owner || owner.status === "CANCELLED" || owner.status === "COMPLETED") return
+    const tenantId = owner.tenantId
 
     await prisma.audit.update({
       where: { id: auditId },
@@ -197,7 +215,7 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
     })
 
     const pages = await prisma.auditPage.findMany({
-      where: { id: { in: pageIds } },
+      where: { id: { in: pageIds }, auditId, tenantId },
     })
 
     let processedCount = 0
@@ -242,8 +260,11 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
       const analysis = analyzePage(pageData)
       const allChecks = [...analysis.technical, ...analysis.onPage, ...analysis.performance, ...analysis.uxMobile]
 
-      await prisma.pageResult.createMany({
+      await prisma.$transaction([
+      prisma.pageResult.deleteMany({ where: { pageId: page.id, tenantId } }),
+      prisma.pageResult.createMany({
         data: allChecks.map((check) => ({
+          tenantId,
           pageId: page.id,
           category: check.category,
           checkName: check.checkName,
@@ -257,11 +278,12 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
         })),
       })
 
+      ])
       processedCount++
       await job.updateProgress(50 + Math.round((processedCount / pages.length) * 40))
     }
 
-    await reportQueue.add("report", { auditId })
+    await reportQueue.add("report", { auditId }, { jobId: auditId })
 
     return { pagesAnalyzed: processedCount }
   },
@@ -279,6 +301,9 @@ const reportWorker = new Worker<ReportJobData>(
   "report",
   async (job: Job<ReportJobData>) => {
     const { auditId } = job.data
+    const owner = await prisma.audit.findFirst({ where: { id: auditId, deletedAt: null } })
+    if (!owner || owner.status === "CANCELLED" || owner.status === "COMPLETED") return
+    const tenantId = owner.tenantId
 
     await prisma.audit.update({
       where: { id: auditId },
@@ -329,8 +354,14 @@ const reportWorker = new Worker<ReportJobData>(
       totalPages
     )
 
-    await prisma.auditReport.create({
+    const committed = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM audits WHERE id = ${auditId} FOR UPDATE`
+    const current = await tx.audit.findFirst({ where: { id: auditId, tenantId, deletedAt: null, status: { notIn: ["COMPLETED", "CANCELLED"] } } })
+    if (!current) return false
+    await tx.auditReport.deleteMany({ where: { auditId, tenantId } })
+    await tx.auditReport.create({
       data: {
+        tenantId,
         auditId,
         scoreGlobal: score.global,
         scoreTechnical: score.technical,
@@ -346,22 +377,22 @@ const reportWorker = new Worker<ReportJobData>(
       },
     })
 
-    await prisma.audit.update({
+    await tx.audit.update({
       where: { id: auditId },
       data: { status: "COMPLETED", completedAt: new Date() },
     })
 
-    // Déduire les pages crawlées du quota + notifier par email
+    await tx.subscription.updateMany({ where: { tenantId }, data: { pagesUsed: { increment: totalPages } } })
+    return true
+    })
+    if (!committed) return
+
+    // Notifier par email après la transaction
     const audit = await prisma.audit.findUnique({
       where: { id: auditId },
       select: { tenantId: true, url: true, userId: true },
     })
     if (audit?.tenantId) {
-      await prisma.subscription.updateMany({
-        where: { tenantId: audit.tenantId },
-        data: { pagesUsed: { increment: totalPages } },
-      })
-
       // Envoyer email de notification si Resend configuré
       try {
         const user = await prisma.user.findUnique({
@@ -419,18 +450,18 @@ const reportWorker = new Worker<ReportJobData>(
 crawlWorker.on("failed", async (job, err) => {
   if (!job) return
   logger.error({ jobId: job.id, auditId: job.data.auditId, err: err.message }, "Crawl job failed")
-  await prisma.audit.update({
-    where: { id: job.data.auditId },
+  await prisma.audit.updateMany({
+    where: { id: job.data.auditId, status: { notIn: ["COMPLETED", "CANCELLED"] } },
     data: { status: "FAILED" },
-  })
+  }).catch(error => logger.error({ error }, "Échec de mise à jour du crawl"))
 })
 
 analyzeWorker.on("failed", async (job, err) => {
   if (!job) return
   logger.error({ jobId: job.id, auditId: job.data.auditId, err: err.message }, "Analyze job failed")
   try {
-    await prisma.audit.update({
-      where: { id: job.data.auditId },
+    await prisma.audit.updateMany({
+      where: { id: job.data.auditId, status: { notIn: ["COMPLETED", "CANCELLED"] } },
       data: { status: "FAILED" },
     })
     await prisma.auditJob.updateMany({
@@ -444,8 +475,8 @@ reportWorker.on("failed", async (job, err) => {
   if (!job) return
   logger.error({ jobId: job.id, auditId: job.data.auditId, err: err.message }, "Report job failed")
   try {
-    await prisma.audit.update({
-      where: { id: job.data.auditId },
+    await prisma.audit.updateMany({
+      where: { id: job.data.auditId, status: { notIn: ["COMPLETED", "CANCELLED"] } },
       data: { status: "FAILED" },
     })
     await prisma.auditJob.updateMany({
@@ -456,15 +487,18 @@ reportWorker.on("failed", async (job, err) => {
 })
 
 // Graceful shutdown
-process.on("SIGTERM", async () => {
+async function shutdown() {
   logger.info("Workers shutting down...")
   await Promise.all([
     crawlWorker.close(),
     analyzeWorker.close(),
     reportWorker.close(),
   ])
+  await Promise.all([crawlQueue.close(), analyzeQueue.close(), reportQueue.close()])
   await prisma.$disconnect()
   logger.info("Workers stopped gracefully")
-})
+}
+process.on("SIGTERM", shutdown)
+process.on("SIGINT", shutdown)
 
 logger.info("Workers started — waiting for jobs...")

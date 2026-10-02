@@ -65,7 +65,7 @@ export default function AIAgentPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Agent IA SEO</h1>
-          <p className="text-sm text-slate-500">Posez vos questions SEO à l'IA</p>
+          <p className="text-sm text-slate-500">Posez vos questions SEO à l&apos;IA</p>
         </div>
       </div>
 

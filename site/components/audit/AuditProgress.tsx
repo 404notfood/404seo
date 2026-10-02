@@ -34,7 +34,7 @@ export function AuditProgress({ status, jobs }: AuditProgressProps) {
   // Calcul progression globale
   const crawlJob = jobs.find((j) => j.type === "CRAWL")
   const analyzeJob = jobs.find((j) => j.type === "ANALYZE")
-  const reportJob = jobs.find((j) => j.type === "REPORT")
+
 
   let globalProgress = 0
   if (status === "COMPLETED") globalProgress = 100

@@ -10,7 +10,7 @@
   ],
 
   "host_permissions": [
-    "<all_urls>"
+    "https://seo.404notfood.fr/*"
   ],
 
   "action": {

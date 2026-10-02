@@ -41,7 +41,7 @@ const RADAR_COLORS = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"]
 
 export default function CompetitorsPage() {
   const { activeProjectId } = useActiveProject()
-  const { data, isLoading, refetch } = useCompetitors(activeProjectId)
+  const { data, isLoading } = useCompetitors(activeProjectId)
   const { mutate: addCompetitor, isPending: isAdding } = useAddCompetitor()
   const { mutate: deleteCompetitor } = useDeleteCompetitor()
 

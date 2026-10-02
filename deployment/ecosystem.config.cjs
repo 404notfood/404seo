@@ -9,6 +9,9 @@
 
 const path = require("path");
 const root = path.resolve(__dirname, "..");
+const result = require("dotenv").config({ path: path.join(root, ".env.production") });
+if (result.error) throw new Error("Fichier .env.production manquant ou illisible");
+const productionEnv = result.parsed;
 
 module.exports = {
   apps: [
@@ -19,12 +22,14 @@ module.exports = {
       script: "server.js",
       interpreter: "node",
       env: {
+        ...productionEnv,
         NODE_ENV: "production",
         PORT: "3030",
-        HOSTNAME: "0.0.0.0",
+        HOSTNAME: "127.0.0.1",
       },
       instances: 1,
       exec_mode: "fork",
+      kill_timeout: 120000,
       autorestart: true,
       max_restarts: 10,
       restart_delay: 5000,
@@ -46,11 +51,14 @@ module.exports = {
       // Variables de prod via .env.production à la racine (ne jamais commiter)
       // ou définir directement via pm2 --env-file ou dans /etc/environment
       env: {
+        ...productionEnv,
         NODE_ENV: "production",
         API_PORT: "4000",
+        API_HOST: "127.0.0.1",
       },
       instances: 1,
       exec_mode: "fork",
+      kill_timeout: 120000,
       autorestart: true,
       max_restarts: 10,
       restart_delay: 5000,
@@ -70,10 +78,12 @@ module.exports = {
       args: "workers/crawl-worker.ts",
       interpreter: "node",
       env: {
+        ...productionEnv,
         NODE_ENV: "production",
       },
       instances: 1,
       exec_mode: "fork",
+      kill_timeout: 120000,
       autorestart: true,
       max_restarts: 10,
       restart_delay: 5000,
@@ -93,10 +103,12 @@ module.exports = {
       args: "workers/schedule-worker.ts",
       interpreter: "node",
       env: {
+        ...productionEnv,
         NODE_ENV: "production",
       },
       instances: 1,
       exec_mode: "fork",
+      kill_timeout: 120000,
       autorestart: true,
       max_restarts: 10,
       restart_delay: 5000,

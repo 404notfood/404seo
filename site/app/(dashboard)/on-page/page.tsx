@@ -161,7 +161,7 @@ export default function OnPagePage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Analyse On-Page</h1>
           <p className="text-sm text-slate-500">
-            Vue d'ensemble de l'optimisation on-page de vos pages
+            Vue d&apos;ensemble de l&apos;optimisation on-page de vos pages
           </p>
         </div>
       </div>
@@ -223,7 +223,7 @@ export default function OnPagePage() {
             <Skeleton className="h-[300px] w-full rounded-xl" />
           ) : chartData.length === 0 ? (
             <div className="h-[300px] flex items-center justify-center text-sm text-slate-400">
-              Aucune donnée disponible. Lancez un audit pour voir l'évolution.
+              Aucune donnée disponible. Lancez un audit pour voir l&apos;évolution.
             </div>
           ) : (
             <div className="h-[300px]">

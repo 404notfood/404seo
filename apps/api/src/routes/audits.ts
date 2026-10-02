@@ -1,12 +1,14 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma"
+import { assertAuditCapacity, AuditQuotaError } from "@seo/shared/security"
 import { crawlQueue } from "../lib/redis"
+import { assertProjectCapacity, AuditQuotaError as ProjectQuotaError } from "@seo/shared/security"
 import { isValidPublicUrlWithDns } from "@seo/crawler"
 import { generatePDF, type ReportData } from "@seo/reporter"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import { requireRole, assertProjectOwner } from "../lib/guards"
-import { requireAuditQuota } from "../lib/quotas"
+import { requireAuditQuota, requireProjectQuota } from "../lib/quotas"
 
 // Accepte soit un projectId (flux dashboard classique), soit une url libre
 // (flux extension / audit rapide : le projet est résolu/créé automatiquement).
@@ -61,14 +63,19 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Réutilise un projet existant du même domaine pour ce user/tenant…
       const existing = await prisma.project.findFirst({
-        where: { userId: request.userId, tenantId: request.tenantId, domain: origin },
+        where: { deletedAt: null, userId: request.userId, tenantId: request.tenantId, domain: origin },
         select: { id: true, domain: true, name: true },
       })
       if (existing) {
         project = existing
       } else {
+        await requireProjectQuota()(request, reply)
+        if (reply.sent) return
         // …sinon en crée un automatiquement (nom = hostname lisible).
-        project = await prisma.project.create({
+        try {
+        project = await prisma.$transaction(async tx => {
+          await assertProjectCapacity(tx, request.tenantId)
+          return tx.project.create({
           data: {
             tenantId: request.tenantId,
             userId: request.userId,
@@ -78,6 +85,11 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
           },
           select: { id: true, domain: true, name: true },
         })
+        })
+        } catch (error) {
+          if (error instanceof ProjectQuotaError) return reply.status(403).send({ error: error.message })
+          throw error
+        }
       }
     }
 
@@ -88,34 +100,21 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: "URL du projet invalide ou non autorisée" })
     }
 
-    // Vérification du quota pages
-    const subscription = await prisma.subscription.findUnique({
-      where: { tenantId: request.tenantId },
-    })
-    const maxPages = options?.maxPages ?? 100
-    const pagesUsed = subscription?.pagesUsed ?? 0
-    const pagesQuota = subscription?.pagesQuota ?? 100
-    if (pagesUsed + maxPages > pagesQuota) {
-      const remaining = Math.max(0, pagesQuota - pagesUsed)
-      return reply.status(403).send({
-        error: `Quota pages dépassé. ${remaining} page(s) restante(s) sur ${pagesQuota}.`,
+    let audit
+    try {
+      audit = await prisma.$transaction(async (tx) => {
+        await assertAuditCapacity(tx, request.tenantId, options?.maxPages ?? 100)
+        const created = await tx.audit.create({ data: {
+          tenantId: request.tenantId, userId: request.userId, projectId: projectIdResolved,
+          url, status: "PENDING", options: options ?? {},
+        } })
+        await tx.auditJob.create({ data: { tenantId: request.tenantId, auditId: created.id, type: "CRAWL", status: "QUEUED" } })
+        return created
       })
+    } catch (error) {
+      if (error instanceof AuditQuotaError) return reply.status(403).send({ error: error.message })
+      throw error
     }
-
-    const audit = await prisma.audit.create({
-      data: {
-        tenantId: request.tenantId,
-        userId: request.userId,
-        projectId: projectIdResolved,
-        url,
-        status: "PENDING",
-        options: options ?? {},
-      },
-    })
-
-    await prisma.auditJob.create({
-      data: { auditId: audit.id, type: "CRAWL", status: "QUEUED" },
-    })
 
     const job = await crawlQueue.add("crawl", {
       auditId: audit.id,
@@ -596,7 +595,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     })
 
-    if (!shared || shared.expiresAt < new Date()) {
+    if (!shared || shared.expiresAt <= new Date() || shared.audit.deletedAt || shared.audit.status !== "COMPLETED") {
       return reply.status(404).send({ error: "Lien de partage expiré ou introuvable" })
     }
 

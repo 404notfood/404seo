@@ -8,7 +8,7 @@ const CreateListingSchema = z.object({
   category: z.string().min(1),
   address: z.string().min(1),
   phone: z.string().optional(),
-  website: z.string().url().optional(),
+  website: z.string().url().max(2048).refine(value => /^https?:\/\//i.test(value)).optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
 })
@@ -157,8 +157,9 @@ const localRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/local/listings/:id/reviews/:reviewId/reply",
     { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
     async (request, reply) => {
-      const body = request.body as { replyText: string }
-      if (!body.replyText?.trim()) return reply.status(400).send({ error: "Réponse requise" })
+      const parsed = z.object({ replyText: z.string().trim().min(1).max(4096) }).safeParse(request.body)
+      if (!parsed.success) return reply.status(400).send({ error: "Réponse invalide" })
+      const body = parsed.data
 
       const listing = await prisma.gBPListing.findFirst({
         where: { id: request.params.id, tenantId: request.tenantId },
@@ -181,6 +182,7 @@ const localRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/local/listings/:id/reviews/:reviewId/ai-suggest — Suggestion IA pour répondre
   fastify.post<{ Params: { id: string; reviewId: string } }>(
     "/api/local/listings/:id/reviews/:reviewId/ai-suggest",
+    { preHandler: [requireRole("MEMBER"), requireFeature("local_seo"), requireFeature("ai")], config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (request, reply) => {
       const apiKey = process.env.ANTHROPIC_API_KEY
       if (!apiKey) return reply.status(400).send({ error: "ANTHROPIC_API_KEY non configurée" })
@@ -205,6 +207,7 @@ Rédige une réponse professionnelle, chaleureuse et personnalisée en français
 Commence directement par la réponse, sans introduction ni meta-commentaire.`
 
       const response = await fetch("https://api.anthropic.com/v1/messages", {
+        signal: AbortSignal.timeout(20000),
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -218,6 +221,7 @@ Commence directement par la réponse, sans introduction ni meta-commentaire.`
         }),
       })
 
+      if (!response.ok) return reply.status(502).send({ error: "Service IA indisponible" })
       const data = await response.json() as { content: Array<{ type: string; text?: string }> }
       const suggestion = data.content.find((c) => c.type === "text")?.text ?? ""
 
@@ -236,14 +240,14 @@ Commence directement par la réponse, sans introduction ni meta-commentaire.`
     "/api/local/listings/:id/posts",
     { preHandler: [requireRole("MEMBER"), requireFeature("local_seo")] },
     async (request, reply) => {
-      const body = request.body as {
-        content: string
-        type?: string
-        ctaType?: string
-        ctaUrl?: string
-        scheduledAt?: string
-      }
-      if (!body.content?.trim()) return reply.status(400).send({ error: "Contenu requis" })
+      const parsed = z.object({
+        content: z.string().trim().min(1).max(10000), type: z.enum(["UPDATE", "EVENT", "OFFER"]).optional(),
+        ctaType: z.string().max(100).optional(),
+        ctaUrl: z.string().url().max(2048).refine(value => /^https?:\/\//i.test(value)).optional(),
+        scheduledAt: z.string().datetime().optional(),
+      }).safeParse(request.body)
+      if (!parsed.success) return reply.status(400).send({ error: "Contenu invalide" })
+      const body = parsed.data
 
       const listing = await prisma.gBPListing.findFirst({
         where: { id: request.params.id, tenantId: request.tenantId },
@@ -253,6 +257,7 @@ Commence directement par la réponse, sans introduction ni meta-commentaire.`
       const isScheduled = !!body.scheduledAt
       const post = await prisma.gBPPost.create({
         data: {
+          tenantId: request.tenantId,
           listingId: listing.id,
           content: body.content.trim(),
           type: (body.type as "UPDATE" | "EVENT" | "OFFER") ?? "UPDATE",

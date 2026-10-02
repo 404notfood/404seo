@@ -123,7 +123,7 @@ const sections: NavSection[] = [
       { href: "/ai-recommendations", label: "Recommandations IA", icon: Sparkles, badge: "IA", badgeColor: "#06b6d4" },
       { href: "/ai-agent", label: "Agent IA SEO", icon: Bot, badge: "IA", badgeColor: "#06b6d4" },
       { href: "/suggestions", label: "Suggestions d'action", icon: Lightbulb },
-      { href: "/optimization", label: "Optimisation globale", icon: Globe },
+      { href: "/optimization", label: "Plan d’action SEO", icon: Globe },
     ],
   },
   {
@@ -469,7 +469,7 @@ export function Sidebar() {
               <span className="text-[11px] font-bold text-white">Passez à Pro</span>
             </div>
             <p className="text-[10px] leading-relaxed" style={{ color: "#94a3b8" }}>
-              Débloquez le suivi de position, l'analyse concurrents et les recommandations IA.
+              Débloquez le suivi de position, l&apos;analyse concurrents et les recommandations IA.
             </p>
           </Link>
         </div>

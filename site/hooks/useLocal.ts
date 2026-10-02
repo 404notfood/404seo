@@ -78,7 +78,7 @@ export function useAISuggestReply(listingId: string | null) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (reviewId: string) => apiClient.aiSuggestReply(listingId!, reviewId),
-    onSuccess: (_, reviewId) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["local-reviews", listingId] })
       toast.success("Suggestion IA générée !")
     },

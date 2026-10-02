@@ -54,7 +54,7 @@ export function useCheckAllPositions() {
   return useMutation({
     mutationFn: ({ projectId, domain }: { projectId?: string; domain?: string }) =>
       apiClient.checkAllPositions(projectId, domain),
-    onSuccess: (_, vars) => {
+    onSuccess: () => {
       toast.success("Vérification de toutes les positions lancée")
       setTimeout(() => qc.invalidateQueries({ queryKey: ["rank-tracking"] }), 60_000)
     },

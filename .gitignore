@@ -4,6 +4,7 @@
 
 # ---------- Dependencies ----------
 node_modules/
+node_modules.pre-audit/
 .pnp
 .pnp.*
 .yarn/*
@@ -22,6 +23,8 @@ apps/api/dist/
 
 # Extension Chrome
 apps/extension/dist/
+# Artefact de packaging (généré par `npm run package` / deploy.sh)
+apps/extension/*.zip
 
 # Packages
 packages/*/dist/
@@ -86,6 +89,9 @@ coverage/
 .vercel
 .turbo
 .cache
+.npm-cache/
+.audit-deps/
+.audit-artifacts/
 *.log
 
 # ---------- Claude Code ----------

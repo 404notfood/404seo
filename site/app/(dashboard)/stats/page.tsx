@@ -85,7 +85,7 @@ export default function StatsPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Statistiques</h1>
-          <p className="text-sm text-slate-500">Vue d'ensemble de l'évolution SEO</p>
+          <p className="text-sm text-slate-500">Vue d&apos;ensemble de l&apos;évolution SEO</p>
         </div>
       </div>
 

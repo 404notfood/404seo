@@ -14,12 +14,26 @@
 #   7. Reload PM2 (zero downtime)
 # =============================================================
 
-set -e
+set -euo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
+if [ "$(id -u)" -eq 0 ]; then
+  echo "ERREUR: deploy.sh doit être exécuté par l'utilisateur Hestia, sans sudo."
+  exit 1
+fi
+if [ ! -f "$PROJECT_DIR/.env.production" ]; then
+  echo "ERREUR: configurez .env.production à partir de deployment/.env.example."
+  exit 1
+fi
+chmod 600 "$PROJECT_DIR/.env.production"
+set -a
+source "$PROJECT_DIR/.env.production"
+set +a
+export NODE_ENV=production
 
 echo "=========================================="
 echo "  404seo — Deploiement"
@@ -31,12 +45,12 @@ mkdir -p "$PROJECT_DIR/logs"
 
 # ── Git pull ────────────────────────────────────────────────────────────
 echo ">> Pull des derniers changements..."
-git pull origin main
+git pull --ff-only origin main
 echo ""
 
 # ── Install des dependances ─────────────────────────────────────────────
 echo ">> Installation des dependances..."
-npm install
+npm ci --include=dev
 echo ""
 
 # ── Prisma generate (site + racine pour l'API Fastify) ──────────────────
@@ -44,16 +58,14 @@ echo ">> Generation du client Prisma..."
 cd site && npx prisma generate && cd ..
 echo ""
 
-# ── Migrations ──────────────────────────────────────────────────────────
-echo ">> Application des migrations..."
-cd site && npx prisma migrate deploy && cd ..
-echo ""
+# Vérifier le code et produire les builds avant toute migration.
+npm run typecheck
+npm test
+npm run lint
+npm run build
 
-# ── Build Next.js ───────────────────────────────────────────────────────
-echo ">> Build Next.js..."
-cd site && npm run build && cd ..
-echo ""
-
+# Migrations versionnées, sans reset de la base.
+(cd site && npx prisma migrate deploy)
 # ── Copie des assets statiques dans le standalone ───────────────────────
 # Next.js standalone ne copie pas public/ automatiquement
 echo ">> Copie des assets statiques et chunks SSR..."
@@ -73,9 +85,18 @@ if [ -d "$PROJECT_DIR/site/.next/server" ]; then
 fi
 echo ""
 
+# ── Build + packaging de l'extension Chrome ─────────────────────────────
+# Produit apps/extension/seo-audit-pro-v<version>.zip, récupérable en SFTP
+# puis chargeable dans Chrome ("Charger l'extension non empaquetée").
+# Best-effort : un échec ici ne doit pas interrompre le déploiement du service.
+echo ">> Build + packaging de l'extension Chrome..."
+( cd apps/extension && npm run package ) || echo "AVERTISSEMENT: packaging de l'extension échoué (déploiement poursuivi)"
+echo ""
+
 # ── Reload PM2 (zero downtime) ─────────────────────────────────────────
 echo ">> Reload PM2..."
-pm2 reload "$SCRIPT_DIR/ecosystem.config.cjs" --update-env
+pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.cjs" --update-env
+pm2 save
 echo ""
 
 # ── Verification status PM2 ────────────────────────────────────────────

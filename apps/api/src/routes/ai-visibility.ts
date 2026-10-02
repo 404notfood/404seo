@@ -93,7 +93,7 @@ const aiVisibilityRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/ai-visibility",
     async (request, reply) => {
       const { domain, engine, limit: limitStr } = request.query
-      const limit = Math.min(100, parseInt(limitStr ?? "50"))
+      const limit = Math.min(100, Math.max(1, parseInt(limitStr ?? "50", 10) || 50))
 
       const checks = await prisma.aIVisibilityCheck.findMany({
         where: {
@@ -133,7 +133,7 @@ const aiVisibilityRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/ai-visibility/check — Lancer des vérifications
   fastify.post(
     "/api/ai-visibility/check",
-    { preHandler: [requireRole("MEMBER"), requireFeature("ai")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("ai")], config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
     async (request, reply) => {
       if (!process.env.ANTHROPIC_API_KEY) {
         return reply.status(400).send({ error: "ANTHROPIC_API_KEY non configurée" })

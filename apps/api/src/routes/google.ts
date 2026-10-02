@@ -27,6 +27,7 @@ import {
   type DailyMetric,
 } from "../lib/gbpApi.js"
 
+const OAUTH_COOKIE = process.env.NODE_ENV === "production" ? "__Host-seo_google_oauth" : "seo_google_oauth"
 const STATE_TTL = 600 // 10 minutes
 
 const GoogleAddressSchema = z.object({
@@ -62,12 +63,19 @@ const GoogleLocationPatchSchema = z.object({
 type GoogleAddressInput = z.infer<typeof GoogleAddressSchema>
 
 const googleRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook("preHandler", async (request, reply) => {
+    const path = request.url.split("?")[0]
+    if (path !== "/api/google/callback" && (request.method !== "GET" || path.startsWith("/api/google/auth"))) {
+      await requireRole("MEMBER")(request, reply)
+    }
+  })
   // ─── GET /api/google/auth — Initier OAuth (AUTH REQUIS) ───────────────────
   fastify.get<{ Querystring: { listingId?: string; label?: string } }>(
     "/api/google/auth",
     async (request, reply) => {
       const { listingId, label } = request.query
       const state = randomUUID()
+      reply.setCookie(OAUTH_COOKIE, state, { path: "/", httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: STATE_TTL })
       await redis.set(
         `google_oauth_state:${state}`,
         JSON.stringify({ tenantId: request.tenantId, userId: request.userId, listingId, label }),
@@ -92,6 +100,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/google/auth/analytics",
     async (request, reply) => {
       const state = randomUUID()
+      reply.setCookie(OAUTH_COOKIE, state, { path: "/", httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", maxAge: STATE_TTL })
       await redis.set(
         `google_oauth_state:${state}`,
         JSON.stringify({ tenantId: request.tenantId, userId: request.userId, flow: "analytics" }),
@@ -118,17 +127,17 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       const { code, state, error } = request.query
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "http://localhost:3000"
 
-      if (error || !code || !state) {
+      if (error || !code || !state || request.cookies[OAUTH_COOKIE] !== state) {
         return reply.redirect(`${appUrl}/settings?google=error`)
       }
 
       // Valider le state dans Redis (usage unique)
       const stateKey = `google_oauth_state:${state}`
-      const stateData = await redis.get(stateKey)
+      const stateData = await redis.getdel(stateKey)
       if (!stateData) {
         return reply.redirect(`${appUrl}/settings?google=error`)
       }
-      await redis.del(stateKey)
+      reply.clearCookie(OAUTH_COOKIE, { path: "/" })
 
       let tenantId: string
       let listingId: string | undefined
@@ -136,6 +145,11 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       let flow: string | undefined
       try {
         const parsed = JSON.parse(stateData) as { tenantId: string; userId: string; listingId?: string; label?: string; flow?: string }
+        const owner = await prisma.user.findFirst({
+          where: { id: parsed.userId, tenantId: parsed.tenantId, isBanned: false, role: { in: ["MEMBER", "ADMIN"] }, tenant: { isSuspended: false } },
+          select: { id: true },
+        })
+        if (!owner) return reply.redirect(`${appUrl}/settings?google=error`)
         tenantId = parsed.tenantId
         listingId = parsed.listingId
         label = parsed.label
@@ -233,7 +247,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
           fastify.log.error({ err, tenantId, googleAccountId }, `Échec import GBP: ${errMsg}`)
-          importError = encodeURIComponent(errMsg)
+          importError = encodeURIComponent("Import Google indisponible")
         }
       }
 
@@ -286,11 +300,13 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
           await auth.revokeCredentials()
         } catch { /* Non bloquant */ }
 
-        await prisma.googleAccount.delete({ where: { id: account.id } })
-        await prisma.gBPListing.updateMany({
-          where: { googleAccountId: account.id },
-          data: { isGoogleConnected: false },
-        })
+        await prisma.$transaction([
+          prisma.gBPListing.updateMany({
+            where: { tenantId: request.tenantId, googleAccountId: account.id },
+            data: { isGoogleConnected: false, googleAccountId: null },
+          }),
+          prisma.googleAccount.delete({ where: { id: account.id, tenantId: request.tenantId } }),
+        ])
       }
 
       return reply.send({ success: true })
@@ -311,11 +327,10 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       } catch { /* Non bloquant */ }
     }
 
-    await prisma.googleAccount.deleteMany({ where: { tenantId: request.tenantId } })
-    await prisma.gBPListing.updateMany({
-      where: { tenantId: request.tenantId },
-      data: { isGoogleConnected: false, googleAccountId: null },
-    })
+    await prisma.$transaction([
+      prisma.gBPListing.updateMany({ where: { tenantId: request.tenantId }, data: { isGoogleConnected: false, googleAccountId: null } }),
+      prisma.googleAccount.deleteMany({ where: { tenantId: request.tenantId } }),
+    ])
 
     return reply.send({ success: true })
   })
@@ -582,9 +597,10 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
 
             // Upsert par googleReviewId pour éviter les doublons
             await prisma.gBPReview.upsert({
-              where: { googleReviewId: review.name },
+              where: { tenantId_googleReviewId: { tenantId: request.tenantId, googleReviewId: review.name } },
               create: {
-                listingId: listing.id,
+                tenantId: request.tenantId,
+          listingId: listing.id,
                 googleReviewId: review.name,
                 authorName: review.reviewer.displayName ?? "Anonyme",
                 rating,
@@ -658,9 +674,10 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
             const topicType = post.topicType === "OFFER" ? "OFFER" : post.topicType === "EVENT" ? "EVENT" : "UPDATE"
 
             await prisma.gBPPost.upsert({
-              where: { googlePostName: post.name },
+              where: { tenantId_googlePostName: { tenantId: request.tenantId, googlePostName: post.name } },
               create: {
-                listingId: listing.id,
+                tenantId: request.tenantId,
+          listingId: listing.id,
                 googlePostName: post.name,
                 content: post.summary ?? "",
                 type: topicType as "UPDATE" | "EVENT" | "OFFER",
@@ -739,6 +756,7 @@ const googleRoutes: FastifyPluginAsync = async (fastify) => {
       // Sauvegarder en base
       const post = await prisma.gBPPost.create({
         data: {
+          tenantId: request.tenantId,
           listingId: listing.id,
           googlePostName: googlePost.name,
           content: body.data.content,

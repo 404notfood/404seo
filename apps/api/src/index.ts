@@ -26,11 +26,18 @@ import competitorsRoutes from "./routes/competitors"
 import aiVisibilityRoutes from "./routes/ai-visibility"
 import adminRoutes from "./routes/admin"
 import scheduledRoutes from "./routes/scheduled"
+import actionPlanRoutes from "./routes/action-plan"
 import { captureError } from "./lib/monitoring"
+import { isAllowedOrigin } from "./lib/securityPolicy"
+import { crawlQueue, redis } from "./lib/redis"
+import { prisma } from "./lib/prisma"
+import { assertProductionEnvironment } from "@seo/shared/security"
 
 const isDev = process.env.NODE_ENV !== "production"
 
 const fastify = Fastify({
+  trustProxy: isDev ? false : ["127.0.0.1", "::1"],
+  bodyLimit: 1024 * 1024,
   logger: isDev
     ? {
         transport: {
@@ -38,16 +45,17 @@ const fastify = Fastify({
           options: { translateTime: "HH:MM:ss", ignore: "pid,hostname" },
         },
       }
-    : { level: "info" }, // JSON structuré en production
+    : { level: "info", redact: ["req.headers.authorization", "req.headers.cookie", "res.headers[\"set-cookie\"]"] }, // JSON structuré en production
 })
 
 async function start() {
+  assertProductionEnvironment()
   // Parser raw body pour le webhook Stripe (doit être avant les routes)
   fastify.addContentTypeParser(
     "application/json",
     { parseAs: "buffer" },
     (req, body, done) => {
-      if (req.url === "/api/billing/webhook") {
+      if (req.url.split("?")[0] === "/api/billing/webhook") {
         done(null, body)
       } else {
         try {
@@ -64,21 +72,10 @@ async function start() {
   await fastify.register(cors, {
     origin: (origin, cb) => {
       if (!origin) return cb(null, true)
-      const allowed = [
-        process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-        process.env.BETTER_AUTH_URL,
-        "http://localhost:3000",
-        "https://seo.404notfood.fr",
-      ].filter(Boolean)
-      // Le réseau privé 192.168.x n'est autorisé qu'en développement (jamais en prod)
       const allowLan = isDev && /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)
-      // L'extension Chrome appelle l'API avec le cookie de session : on autorise
-      // toute origine chrome-extension:// (l'auth derrière reste obligatoire).
-      const isChromeExtension = origin.startsWith("chrome-extension://")
-      if (allowed.includes(origin) || allowLan || isChromeExtension) {
-        cb(null, true)
-      } else {
-        cb(new Error("Not allowed by CORS"), false)
+      if (isAllowedOrigin(origin) || allowLan) {
+        cb(null, true)      } else {
+        cb(null, false)
       }
     },
     credentials: true,
@@ -88,7 +85,7 @@ async function start() {
   await fastify.register(rateLimit, {
     max: 100,
     timeWindow: "1 minute",
-    allowList: ["/health", "/api/billing/webhook"],
+    redis,
   })
   await fastify.register(authPlugin)
 
@@ -107,6 +104,7 @@ async function start() {
   await fastify.register(aiVisibilityRoutes)
   await fastify.register(adminRoutes)
   await fastify.register(scheduledRoutes)
+  await fastify.register(actionPlanRoutes)
 
   // Monitoring d'erreurs global
   fastify.setErrorHandler(async (error: { statusCode?: number; message: string }, request, reply) => {
@@ -125,7 +123,7 @@ async function start() {
   fastify.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))
 
   const port = parseInt(process.env.API_PORT || "4000")
-  const host = process.env.API_HOST || "0.0.0.0"
+  const host = process.env.API_HOST || (isDev ? "0.0.0.0" : "127.0.0.1")
   await fastify.listen({ port, host })
   fastify.log.info(`API Fastify démarrée sur http://${host}:${port}`)
 }
@@ -146,3 +144,15 @@ process.on("unhandledRejection", (reason) => {
   captureError(reason instanceof Error ? reason : new Error(String(reason)), { extra: { type: "unhandledRejection" } })
   console.error("Unhandled Rejection:", reason)
 })
+
+let shuttingDown = false
+async function shutdown() {
+  if (shuttingDown) return
+  shuttingDown = true
+  await fastify.close()
+  await crawlQueue.close()
+  await redis.quit()
+  await prisma.$disconnect()
+}
+process.on("SIGTERM", () => void shutdown())
+process.on("SIGINT", () => void shutdown())

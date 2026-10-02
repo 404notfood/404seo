@@ -1,7 +1,10 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": ["NODE_ENV", "NEXT_PUBLIC_*", "BETTER_AUTH_URL"],
+  "globalPassThroughEnv": ["DATABASE_URL", "BETTER_AUTH_SECRET", "RESEND_API_KEY", "EMAIL_FROM", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
   "tasks": {
     "build": {
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "dependsOn": ["^build"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },

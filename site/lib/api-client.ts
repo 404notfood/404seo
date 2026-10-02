@@ -1,4 +1,5 @@
 // lib/api-client.ts — Client HTTP vers l'API Fastify
+import type { ActionPlan, ActionVerification, SearchConsoleProperty, SeoActionStatus } from "@seo/shared"
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
@@ -49,6 +50,14 @@ export interface UserMe {
 }
 
 export const apiClient = {
+  getActionPlan: (projectId: string) => fetcher<ActionPlan>(`/api/projects/${encodeURIComponent(projectId)}/action-plan`),
+  getSearchConsoleProperties: (projectId: string, googleAccountId: string) =>
+    fetcher<{ properties: SearchConsoleProperty[] }>(`/api/projects/${encodeURIComponent(projectId)}/search-console/properties?googleAccountId=${encodeURIComponent(googleAccountId)}`),
+  syncSearchConsole: (projectId: string, data: { googleAccountId: string; propertyUrl: string }) =>
+    fetcher<{ importedAt: string; pageCount: number; rowLimitReached: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/search-console/sync`, { method: "POST", body: JSON.stringify(data) }),
+  updateSeoAction: (projectId: string, checkName: string, data: { status: Exclude<SeoActionStatus, "VERIFIED">; note?: string }) =>
+    fetcher<{ status: SeoActionStatus; note: string }>(`/api/projects/${encodeURIComponent(projectId)}/action-plan/${encodeURIComponent(checkName)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  verifySeoActions: (projectId: string) => fetcher<ActionVerification>(`/api/projects/${encodeURIComponent(projectId)}/action-plan/verify`, { method: "POST", body: "{}" }),
   // User
   getMe: () => fetcher<UserMe>("/api/me"),
 
@@ -293,7 +302,8 @@ export const apiClient = {
       if (opts?.listingId) sp.set("listingId", opts.listingId)
       if (opts?.label) sp.set("label", opts.label)
       const qs = sp.toString()
-      window.location.href = `${API_URL}/api/google/auth${qs ? `?${qs}` : ""}`
+      // Full navigation starts an OAuth redirect chain on the API server.
+      window.location.assign(new URL(`/api/google/auth${qs ? `?${qs}` : ""}`, API_URL || window.location.origin).href)
     }
   },
   disconnectGoogle: () => fetcher<{ success: boolean }>("/api/google/disconnect", { method: "POST" }),
@@ -305,7 +315,7 @@ export const apiClient = {
   getGSCData: (siteUrl: string) => fetcher<GSCData>(`/api/google/search-console?siteUrl=${encodeURIComponent(siteUrl)}`),
   connectGoogleAnalytics: () => {
     if (typeof window !== "undefined") {
-      window.location.href = `${API_URL}/api/google/auth/analytics`
+      window.location.assign(new URL("/api/google/auth/analytics", API_URL || window.location.origin).href)
     }
   },
 

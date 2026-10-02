@@ -48,7 +48,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["src/content/content-script.js"],
+        files: ["content.js"],
       })
       const response = await chrome.tabs.sendMessage(tab.id, { type: "GET_PAGE_DATA" }) as PageAnalysisResponse
       renderResults(tab, response)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useAdminPlans, useUpdateAdminPlan, useSeedAdminPlans, useCreateAdminPlan } from "@/hooks/useAdmin"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
@@ -37,11 +37,6 @@ function PlanCard({ plan, onSaved }: { plan: PlanConfig; onSaved: () => void }) 
   const [form, setForm] = useState<PlanConfig>({ ...plan })
   const [dirty, setDirty] = useState(false)
   const updatePlan = useUpdateAdminPlan()
-
-  useEffect(() => {
-    setForm({ ...plan })
-    setDirty(false)
-  }, [plan])
 
   function set<K extends keyof PlanConfig>(key: K, value: PlanConfig[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -423,12 +418,12 @@ export default function AdminPlansPage() {
 
       {plans.length === 0 ? (
         <div className="bg-white rounded-2xl p-8 text-center border border-slate-200">
-          <p className="text-slate-500 mb-4">Aucun plan configuré. Cliquez sur "Initialiser les plans par défaut" pour créer les 3 plans (Starter, Pro, Agency).</p>
+          <p className="text-slate-500 mb-4">Aucun plan configuré. Cliquez sur &quot;Initialiser les plans par défaut&quot; pour créer les 3 plans (Starter, Pro, Agency).</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {plans.map((plan) => (
-            <PlanCard key={plan.plan} plan={plan} onSaved={() => refetch()} />
+            <PlanCard key={JSON.stringify(plan)} plan={plan} onSaved={() => refetch()} />
           ))}
         </div>
       )}

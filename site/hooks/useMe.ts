@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { apiClient, type UserMe } from "@/lib/api-client"
+import { apiClient } from "@/lib/api-client"
 
 export function useMe() {
   return useQuery({

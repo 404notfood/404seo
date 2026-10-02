@@ -8,8 +8,26 @@ import { requireRole, requireFeature, assertProjectOwner } from "../lib/guards.j
 // Empêche d'injecter des chemins ou des caractères de contrôle dans l'URL d'API.
 const DOMAIN_REGEX = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i
 
+// Normalise une entrée en domaine nu : accepte aussi bien "https://www.exemple.com/path"
+// que "exemple.com". Retire le protocole, un éventuel "www.", le port et le chemin.
+// Retourne null si le résultat n'est pas un domaine valide.
+function normalizeToDomain(input: string): string | null {
+  let host = input.trim()
+  // Si protocole présent, on s'appuie sur URL pour extraire le hostname.
+  if (/^https?:\/\//i.test(host)) {
+    try { host = new URL(host).hostname } catch { return null }
+  } else {
+    // Sinon, on retire un éventuel chemin/port collé au domaine.
+    host = host.split("/")[0]!.split(":")[0]!
+  }
+  host = host.toLowerCase().replace(/^www\./, "").replace(/\.$/, "")
+  return DOMAIN_REGEX.test(host) ? host : null
+}
+
+// On accepte une chaîne libre ici ; la normalisation + validation stricte se fait
+// dans le handler (pour pouvoir renvoyer un message d'erreur clair).
 const FetchBacklinksSchema = z.object({
-  domain: z.string().min(3).max(253).regex(DOMAIN_REGEX, "Domaine invalide"),
+  domain: z.string().min(3).max(2048),
   projectId: z.string().optional(),
 })
 
@@ -42,7 +60,7 @@ async function fetchFromOpenLinkProfiler(
         anchor: String(item.anchor_text ?? item.anchor ?? ""),
         dofollow: String(item.link_type ?? item.type ?? "dofollow") !== "nofollow",
       }
-    }).filter((b) => b.sourceUrl)
+    }).filter((b) => /^https?:\/\//i.test(b.sourceUrl) && (b.targetUrl.startsWith("/") || /^https?:\/\//i.test(b.targetUrl)))
   } catch {
     return []
   }
@@ -75,7 +93,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/backlinks",
     async (request, reply) => {
       const { projectId, domain, page: pageStr } = request.query
-      const page = Math.max(1, parseInt(pageStr ?? "1"))
+      const page = Math.min(10000, Math.max(1, parseInt(pageStr ?? "1", 10) || 1))
       const limit = 50
 
       if (projectId) {
@@ -89,7 +107,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
         projectFilter = { projectId }
       } else {
         const userProjects = await prisma.project.findMany({
-          where: { tenantId: request.tenantId, userId: request.userId },
+          where: { deletedAt: null, tenantId: request.tenantId, userId: request.userId },
           select: { id: true },
         })
         projectFilter = { projectId: { in: userProjects.map((p) => p.id) } }
@@ -111,6 +129,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
           where: {
             tenantId: request.tenantId,
             ...projectFilter,
+            ...(domain ? { sourceDomain: { contains: domain } } : {}),
             isActive: true,
           },
         }),
@@ -118,7 +137,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Stats agrégées
       const all = await prisma.backlink.findMany({
-        where: { tenantId: request.tenantId, isActive: true },
+        where: { tenantId: request.tenantId, ...projectFilter, ...(domain ? { sourceDomain: { contains: domain } } : {}), isActive: true },
         select: { dofollow: true, domainRating: true, sourceDomain: true },
       })
 
@@ -155,7 +174,13 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const parse = FetchBacklinksSchema.safeParse(request.body)
       if (!parse.success) return reply.status(400).send({ error: "Données invalides" })
-      const { domain, projectId } = parse.data
+      const { domain: rawDomain, projectId } = parse.data
+
+      // Accepte une URL complète (https://www.exemple.com/...) ou un domaine nu.
+      const domain = normalizeToDomain(rawDomain)
+      if (!domain) {
+        return reply.status(400).send({ error: "Domaine invalide (ex attendu : exemple.com)" })
+      }
 
       if (projectId) {
         const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
@@ -211,8 +236,8 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [requireRole("MEMBER"), requireFeature("backlinks")] },
     async (request, reply) => {
       const schema = z.object({
-        sourceUrl: z.string().url(),
-        targetUrl: z.string().min(1),
+        sourceUrl: z.string().max(2048).url().refine((value) => /^https?:\/\//i.test(value)),
+        targetUrl: z.string().min(1).max(2048).refine((value) => /^https?:\/\//i.test(value) || (value.startsWith("/") && !value.startsWith("//"))),
         anchor: z.string().optional(),
         dofollow: z.boolean().default(true),
         domainRating: z.number().min(0).max(100).optional(),
@@ -253,7 +278,7 @@ const backlinksRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [requireRole("MEMBER"), requireFeature("backlinks")] },
     async (request, reply) => {
       const bl = await prisma.backlink.findFirst({
-        where: { id: request.params.id, tenantId: request.tenantId },
+        where: { id: request.params.id, tenantId: request.tenantId, project: { userId: request.userId } },
       })
       if (!bl) return reply.status(404).send({ error: "Backlink introuvable" })
       await prisma.backlink.update({

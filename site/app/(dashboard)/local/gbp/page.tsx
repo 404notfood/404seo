@@ -35,23 +35,7 @@ function completionLabel(score: number) {
   return score >= 80 ? "Excellent" : score >= 50 ? "À améliorer" : "Incomplet"
 }
 
-function StarRating({ rating }: { rating: number }) {
-  return (
-    <div className="flex items-center gap-0.5">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <Star
-          key={i}
-          className="h-3.5 w-3.5"
-          style={{
-            fill: i <= Math.round(rating) ? "#f59e0b" : "transparent",
-            color: i <= Math.round(rating) ? "#f59e0b" : "#cbd5e1",
-          }}
-        />
-      ))}
-      <span className="text-xs font-semibold text-slate-700 ml-1">{rating > 0 ? rating.toFixed(1) : "—"}</span>
-    </div>
-  )
-}
+
 
 function CreateListingDialog({ onClose }: { onClose: () => void }) {
   const { mutate: createListing, isPending } = useCreateListing()

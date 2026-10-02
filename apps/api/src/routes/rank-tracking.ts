@@ -4,14 +4,17 @@ import { z } from "zod"
 import { chromium } from "playwright"
 import { prisma } from "../lib/prisma.js"
 import { requireRole, requireFeature, assertProjectOwner } from "../lib/guards.js"
+import { fulfillPublicRequest } from "@seo/shared/security"
 
 const AddKeywordSchema = z.object({
   keyword: z.string().min(1).max(200),
   device: z.enum(["desktop", "mobile"]).default("desktop"),
-  country: z.string().length(2).default("fr"),
+  country: z.string().regex(/^[a-zA-Z]{2}$/).transform((value) => value.toLowerCase()).default("fr"),
   projectId: z.string().optional(),
 })
 
+// Bound Chromium processes even when clients launch simultaneous checks.
+let activePositionChecks = 0
 // ── Scraping Google SERP avec matching domaine ────────────────────────────────
 async function checkPosition(
   keyword: string,
@@ -19,9 +22,13 @@ async function checkPosition(
   device: "desktop" | "mobile",
   country: string
 ): Promise<{ position: number | null; url: string | null; title: string | null }> {
-  const browser = await chromium.launch({ headless: true })
+  if (activePositionChecks >= 2) throw new Error("Vérifications en cours, réessayer plus tard")
+  activePositionChecks++
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
   try {
+    browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH, chromiumSandbox: process.env.NODE_ENV === "production" })
     const context = await browser.newContext({
+      serviceWorkers: "block",
       userAgent:
         device === "mobile"
           ? "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"
@@ -30,6 +37,8 @@ async function checkPosition(
       locale: `fr-${country.toUpperCase()}`,
       extraHTTPHeaders: { "Accept-Language": `fr-${country.toUpperCase()},fr;q=0.9` },
     })
+    await context.route("**/*", (route) => fulfillPublicRequest(route).then(() => {}))
+    await context.routeWebSocket("**/*", (socket) => socket.close())
     const page = await context.newPage()
 
     // Délai aléatoire pour éviter le blocage
@@ -60,7 +69,8 @@ async function checkPosition(
         pos++
         try {
           const url = new URL(href)
-          if (url.hostname.includes(domain) || url.hostname === domain || url.hostname === `www.${domain}`) {
+          const target = new URL(domain.includes("://") ? domain : `https://${domain}`).hostname.replace(/^www\./, "")
+          if (url.hostname === target || url.hostname.endsWith(`.${target}`)) {
             return { position: pos, url: href, title: titleEl.textContent || "" }
           }
         } catch {
@@ -78,7 +88,8 @@ async function checkPosition(
   } catch {
     return { position: null, url: null, title: null }
   } finally {
-    await browser.close()
+    await browser?.close().catch(() => {})
+    activePositionChecks--
   }
 }
 
@@ -100,7 +111,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
         projectFilter = { projectId }
       } else {
         const userProjects = await prisma.project.findMany({
-          where: { tenantId: request.tenantId, userId: request.userId },
+          where: { deletedAt: null, tenantId: request.tenantId, userId: request.userId },
           select: { id: true },
         })
         projectFilter = { projectId: { in: userProjects.map((p) => p.id) } }
@@ -207,7 +218,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
     { preHandler: [requireRole("MEMBER")] },
     async (request, reply) => {
       const kw = await prisma.rankedKeyword.findFirst({
-        where: { id: request.params.id, tenantId: request.tenantId },
+        where: { id: request.params.id, tenantId: request.tenantId, project: { userId: request.userId } },
       })
       if (!kw) return reply.status(404).send({ error: "Mot-clé introuvable" })
       await prisma.rankedKeyword.delete({ where: { id: kw.id } })
@@ -218,10 +229,10 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/rank-tracking/:id/check — Lancer une vérification de position
   fastify.post<{ Params: { id: string }; Body: { domain?: string } }>(
     "/api/rank-tracking/:id/check",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("rank_tracking")] },
     async (request, reply) => {
       const kw = await prisma.rankedKeyword.findFirst({
-        where: { id: request.params.id, tenantId: request.tenantId },
+        where: { id: request.params.id, tenantId: request.tenantId, project: { userId: request.userId } },
         include: { project: { select: { domain: true } } },
       })
       if (!kw) return reply.status(404).send({ error: "Mot-clé introuvable" })
@@ -238,7 +249,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
           const result = await checkPosition(kw.keyword, domain, kw.device as "desktop" | "mobile", kw.country)
           await prisma.rankHistory.create({
             data: {
-              keywordId: kw.id,
+              tenantId: request.tenantId, keywordId: kw.id,
               position: result.position,
               url: result.url,
               title: result.title,
@@ -254,7 +265,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/rank-tracking/check-all — Vérifier tous les mots-clés d'un projet
   fastify.post<{ Body: { domain?: string; projectId?: string } }>(
     "/api/rank-tracking/check-all",
-    { preHandler: [requireRole("MEMBER")] },
+    { preHandler: [requireRole("MEMBER"), requireFeature("rank_tracking")] },
     async (request, reply) => {
       const { domain, projectId } = request.body ?? {}
 
@@ -269,7 +280,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
         projectFilter = { projectId }
       } else {
         const userProjects = await prisma.project.findMany({
-          where: { tenantId: request.tenantId, userId: request.userId },
+          where: { deletedAt: null, tenantId: request.tenantId, userId: request.userId },
           select: { id: true },
         })
         projectFilter = { projectId: { in: userProjects.map((p) => p.id) } }
@@ -298,7 +309,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
               kw.country
             )
             await prisma.rankHistory.create({
-              data: { keywordId: kw.id, position: result.position, url: result.url, title: result.title },
+              data: { tenantId: request.tenantId, keywordId: kw.id, position: result.position, url: result.url, title: result.title },
             })
             // Délai entre chaque requête Google
             await new Promise((r) => setTimeout(r, 3000 + Math.random() * 2000))

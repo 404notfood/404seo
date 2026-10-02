@@ -1,9 +1,8 @@
 "use client"
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiClient, type ScheduledAudit } from "@/lib/api-client"
+import { apiClient } from "@/lib/api-client"
 import { useProjects } from "@/hooks/useProjects"
-import { useActiveProject } from "@/contexts/ProjectContext"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
@@ -21,7 +20,7 @@ import {
 import { formatDistanceToNow } from "@/lib/date"
 
 export default function ScheduledAuditsPage() {
-  const { activeProjectId } = useActiveProject()
+
   const queryClient = useQueryClient()
   const { data: projects } = useProjects()
   const { data: schedules, isLoading } = useQuery({

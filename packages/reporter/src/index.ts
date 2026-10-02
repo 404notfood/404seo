@@ -1,5 +1,6 @@
 // packages/reporter/src/index.ts — Génération PDF via Puppeteer
 import puppeteer from "puppeteer"
+import { fetchPublicUrl, isValidPublicUrl } from "@seo/shared/security"
 import type { SEOScore, Recommendation } from "@seo/scorer"
 import type { CheckResult, SiteKeywordEntry } from "@seo/shared"
 
@@ -42,30 +43,8 @@ function sanitizeBrandColor(color: string | undefined, fallback = "#2563eb"): st
 // bloque file://, javascript:, data: et les hôtes internes pour empêcher
 // la lecture de fichiers locaux (LFI) et le SSRF via Puppeteer.
 function sanitizeLogoUrl(logoUrl: string | undefined): string {
-  if (!logoUrl) return ""
-  try {
-    const url = new URL(logoUrl)
-    if (url.protocol !== "http:" && url.protocol !== "https:") return ""
-    const host = url.hostname.toLowerCase()
-    if (
-      host === "localhost" ||
-      host === "0.0.0.0" ||
-      host.endsWith(".local") ||
-      host.endsWith(".internal") ||
-      /^127\./.test(host) ||
-      /^10\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^169\.254\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    ) {
-      return ""
-    }
-    return url.href
-  } catch {
-    return ""
-  }
+  return logoUrl && isValidPublicUrl(logoUrl) ? logoUrl : ""
 }
-
 function gradeColor(score: number): string {
   if (score >= 90) return "#10b981"
   if (score >= 75) return "#22c55e"
@@ -220,7 +199,7 @@ function renderRecItem(rec: Recommendation, index: number, brandColor: string): 
     <div class="rec-body">
       <div class="rec-header">
         <span class="rec-title">${escapeHtml(rec.title)}</span>
-        <span class="roi-badge" style="background:${brandColor}">ROI ${rec.roi}/10</span>
+        <span class="roi-badge" style="background:${brandColor}">Priorité ${rec.roi}/10</span>
       </div>
       <div class="rec-desc">${escapeHtml(rec.description)}</div>
       <div class="rec-tags">
@@ -587,7 +566,7 @@ function generateReportHTML(data: ReportData): string {
   <div class="page">
     <h2>Plan d'Action Priorisé</h2>
     <p style="color:#64748b;margin-bottom:24px;font-size:13px">
-      Top ${Math.min(recommendations.length, 10)} actions triées par ROI (Impact / Effort). Commencez par le haut.
+      Top ${Math.min(recommendations.length, 10)} actions triées par gravité et effort. Cet indice ne prédit pas un gain de trafic.
     </p>
     ${recommendations.slice(0, 10).map((rec, i) => renderRecItem(rec, i + 1, brandColor)).join("")}
     <div class="page-footer">
@@ -605,21 +584,36 @@ function generateReportHTML(data: ReportData): string {
 // Génération PDF
 // ─────────────────────────────────────────────
 
+let activePdfJobs = 0
 export async function generatePDF(data: ReportData): Promise<Buffer> {
   const html = generateReportHTML(data)
-
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-  })
-
-  let page: Awaited<ReturnType<typeof browser.newPage>> | null = null
+  if (activePdfJobs >= 2) throw Object.assign(new Error("Génération PDF occupée, réessayer"), { statusCode: 503 })
+  activePdfJobs++
+  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined
+  let page: Awaited<ReturnType<Awaited<ReturnType<typeof puppeteer.launch>>["newPage"]>> | null = null
   try {
+    browser = await puppeteer.launch({
+      headless: true, executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, args: ["--disable-dev-shm-usage"],
+    })
     page = await browser.newPage()
+    await page.setJavaScriptEnabled(false)
+    await page.setRequestInterception(true)
+    page.on("request", async (request) => {
+      if (request.resourceType() !== "image" || request.url() !== data.tenantBranding?.logoUrl) {
+        await request.abort().catch(() => {}); return
+      }
+      try {
+        const response = await fetchPublicUrl(request.url(), { maxBytes: 2 * 1024 * 1024, timeoutMs: 5000 })
+        const contentType = response.headers["content-type"]?.split(";")[0]
+        if (!response.ok || !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(contentType)) {
+          await request.abort(); return
+        }
+        await request.respond({ status: 200, contentType, body: response.body })
+      } catch { await request.abort().catch(() => {}) }
+    })
     // Le HTML est statique (pas de réseau externe attendu) ; un timeout borné
     // évite que networkidle0 ne bloque si une ressource distante traîne.
-    await page.setContent(html, { waitUntil: "networkidle0", timeout: 30_000 })
+    await page.setContent(html, { waitUntil: "load", timeout: 30_000 })
 
     const pdf = await page.pdf({
       format: "A4",
@@ -631,6 +625,7 @@ export async function generatePDF(data: ReportData): Promise<Buffer> {
     return Buffer.from(pdf)
   } finally {
     if (page) await page.close().catch(() => {})
-    await browser.close()
+    await browser?.close().catch(() => {})
+    activePdfJobs--
   }
 }

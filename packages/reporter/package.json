@@ -8,7 +8,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "puppeteer": "^24.3.0",
+    "puppeteer": "^25.12.0",
     "@seo/shared": "*",
     "@seo/scorer": "*"
   }

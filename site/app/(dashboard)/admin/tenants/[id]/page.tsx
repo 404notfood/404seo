@@ -243,7 +243,7 @@ export default function AdminTenantDetailPage() {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
           <h3 className="text-sm font-semibold text-slate-900">Features — Overrides admin</h3>
-          <p className="text-xs text-slate-500 mt-0.5">L'override admin est prioritaire sur le défaut du plan. Cliquer sur ↩ pour supprimer l'override.</p>
+          <p className="text-xs text-slate-500 mt-0.5">L&apos;override admin est prioritaire sur le défaut du plan. Cliquer sur ↩ pour supprimer l&apos;override.</p>
         </div>
         <table className="w-full text-sm">
           <thead>

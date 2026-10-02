@@ -1,8 +1,10 @@
-// Plugin d'authentification — vérifie le JWT BetterAuth
+// Plugin d'authentification — vérifie la session BetterAuth en base.
+import { createHmac, timingSafeEqual } from "node:crypto"
 import type { FastifyPluginAsync, FastifyRequest } from "fastify"
 import fp from "fastify-plugin"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "../lib/prisma"
+import { isCrossSiteMutation, isPublicApiRoute } from "../lib/securityPolicy"
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -21,17 +23,29 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
 
   fastify.addHook("preHandler", async (request: FastifyRequest, reply) => {
     // Routes publiques
-    const publicPaths = ["/health", "/api/auth", "/api/billing/webhook", "/api/google/callback", "/api/reports/"]
-    if (publicPaths.some((p) => request.url.startsWith(p))) return
+    if (isPublicApiRoute(request.method, request.url)) return
 
     const authHeader = request.headers.authorization
     const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null
+    if (isCrossSiteMutation(request.method, request.headers.origin, request.headers["sec-fetch-site"] as string | undefined, !!token)) {
+      return reply.status(403).send({ error: "Origine de requête non autorisée" })
+    }
 
     // Aussi vérifier le cookie de session BetterAuth (préfixe __Secure- en HTTPS)
-    const cookieToken = (
+    const signedCookie = (
       request.cookies?.["__Secure-better-auth.session_token"] ||
       request.cookies?.["better-auth.session_token"]
-    )?.split(".")[0]
+    )
+    let cookieToken: string | undefined
+    if (signedCookie && process.env.BETTER_AUTH_SECRET) {
+      const separator = signedCookie.lastIndexOf(".")
+      if (separator > 0) {
+        const value = signedCookie.slice(0, separator)
+        const signature = Buffer.from(signedCookie.slice(separator + 1), "base64")
+        const expected = createHmac("sha256", process.env.BETTER_AUTH_SECRET).update(value).digest()
+        if (signature.length === expected.length && timingSafeEqual(signature, expected)) cookieToken = value
+      }
+    }
     const sessionToken = token || cookieToken
 
     if (!sessionToken) {
@@ -43,7 +57,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       where: { token: sessionToken },
     })
 
-    if (!session || session.expiresAt < new Date()) {
+    if (!session || session.expiresAt <= new Date()) {
       return reply.status(401).send({ error: "Session expirée ou invalide" })
     }
 
@@ -64,7 +78,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       select: userSelect,
     })
 
-    if (!user) {
+    if (!user || user.isBanned) {
       return reply.status(401).send({ error: "Session invalide (utilisateur introuvable)" })
     }
 
@@ -78,6 +92,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       // doivent pas créer deux tenants. La transaction relit le user et ne crée
       // le tenant que si le champ tenantId est encore vide.
       const resolved = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM users WHERE id = ${user.id} FOR UPDATE`
         const fresh = await tx.user.findUnique({
           where: { id: user.id },
           select: { tenantId: true, role: true },
@@ -117,7 +132,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       where: { id: request.tenantId },
       select: { isSuspended: true },
     })
-    if (tenant?.isSuspended) {
+    if (!tenant || tenant.isSuspended) {
       return reply.status(403).send({
         error: "Compte suspendu",
         message: "Votre compte a été suspendu. Contactez le support.",

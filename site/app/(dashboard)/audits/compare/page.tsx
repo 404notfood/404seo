@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { apiClient, type AuditComparison } from "@/lib/api-client"
+import { apiClient } from "@/lib/api-client"
 import { useAudits } from "@/hooks/useAudits"
 import { useActiveProject } from "@/contexts/ProjectContext"
 import { Button } from "@/components/ui/button"
