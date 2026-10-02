@@ -12,6 +12,7 @@ import { PrismaClient } from "@prisma/client"
 import pino from "pino"
 import { isValidPublicUrlWithDns } from "@seo/crawler"
 import type { CrawlJobData } from "@seo/shared"
+import { startServiceHeartbeat } from "@seo/shared"
 
 const logger = pino({
   level: process.env.LOG_LEVEL || "info",
@@ -29,6 +30,7 @@ const redisConnection = {
 
 const prisma = new PrismaClient()
 const crawlQueue = new Queue<CrawlJobData>("crawl", { connection: redisConnection })
+const stopHeartbeat = startServiceHeartbeat(crawlQueue.client, "scheduler")
 
 async function checkScheduledAudits() {
   const now = new Date()
@@ -473,6 +475,7 @@ start().catch((err) => {
 // Graceful shutdown
 async function shutdown() {
   logger.info("SIGTERM reçu, arrêt du schedule worker...")
+  await stopHeartbeat()
   if (tickTimer) clearInterval(tickTimer)
   while (ticking) await new Promise(resolve => setTimeout(resolve, 100))
   await crawlQueue.close()

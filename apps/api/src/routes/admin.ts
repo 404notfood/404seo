@@ -384,6 +384,8 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       featureAI?: boolean
       featureCmsCorrections?: boolean
       cmsMonthlyQuota?: number
+      aiMonthlyQuota?: number
+      aiMonthlyBudgetCents?: number
       featureRankTracking?: boolean
       featureLocalSeo?: boolean
       featureWhiteLabel?: boolean
@@ -407,7 +409,7 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     const body = request.body
     const data: Record<string, unknown> = {}
     const stringFields = ["displayName", "stripePriceId", "stripePriceIdYearly"] as const
-    const numberFields = ["price", "priceYearly", "auditQuota", "pageQuota", "projectQuota", "userQuota", "cmsMonthlyQuota"] as const
+    const numberFields = ["price", "priceYearly", "auditQuota", "pageQuota", "projectQuota", "userQuota", "cmsMonthlyQuota", "aiMonthlyQuota", "aiMonthlyBudgetCents"] as const
     const boolFields = [
       "featureAI", "featureRankTracking", "featureLocalSeo", "featureWhiteLabel",
       "featureApiAccess", "featureCompetitors", "featureBacklinks", "isActive",
@@ -442,6 +444,10 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
     if (cmsQuota !== undefined && (typeof cmsQuota !== "number" || !Number.isInteger(cmsQuota) || cmsQuota < 0 || cmsQuota > 1000000)) {
       return reply.status(400).send({ error: "Quota CMS invalide (0 à 1 000 000)" })
     }
+    for (const field of ["aiMonthlyQuota", "aiMonthlyBudgetCents"] as const) {
+      const value = data[field], max = field === "aiMonthlyQuota" ? 1000000 : 100000
+      if (value !== undefined && (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > max)) return reply.status(400).send({ error: "Quota ou budget IA invalide." })
+    }
     const config = await prisma.planConfig.update({
       where: { plan: plan as Plan },
       data,
@@ -463,6 +469,8 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
       featureAI?: boolean
       featureCmsCorrections?: boolean
       cmsMonthlyQuota?: number
+      aiMonthlyQuota?: number
+      aiMonthlyBudgetCents?: number
       featureRankTracking?: boolean
       featureLocalSeo?: boolean
       featureWhiteLabel?: boolean
@@ -474,6 +482,10 @@ const adminRoutes: FastifyPluginAsync = async (fastify) => {
   }>("/api/admin/plans", async (request, reply) => {
     const validPlans = ["STARTER", "PRO", "AGENCY", "ENTERPRISE"]
     const { plan, displayName, ...rest } = request.body
+    for (const field of ["aiMonthlyQuota", "aiMonthlyBudgetCents"] as const) {
+      const value = rest[field], max = field === "aiMonthlyQuota" ? 1000000 : 100000
+      if (value !== undefined && (!Number.isInteger(value) || value < 0 || value > max)) return reply.status(400).send({ error: "Quota ou budget IA invalide." })
+    }
     if (rest.cmsMonthlyQuota !== undefined && (!Number.isInteger(rest.cmsMonthlyQuota) || rest.cmsMonthlyQuota < 0 || rest.cmsMonthlyQuota > 1000000)) {
       return reply.status(400).send({ error: "Quota CMS invalide (0 à 1 000 000)" })
     }

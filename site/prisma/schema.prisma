@@ -169,6 +169,8 @@ model Project {
   analyticsSnapshots AnalyticsSnapshot[]
   sitemapSnapshots SitemapSnapshot[]
   cmsConnections CmsConnection[]
+  cmsBatches CmsBatch[]
+  aiRequests AiRequest[]
 
   @@index([tenantId])
   @@unique([id, tenantId])
@@ -232,6 +234,7 @@ model CmsConnection {
   disconnectedAt   DateTime?
   project          Project  @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
   corrections      CmsCorrection[]
+  batches          CmsBatch[]
   @@unique([id, tenantId])
   @@index([tenantId, projectId])
   @@map("cms_connections")
@@ -242,6 +245,7 @@ model CmsCorrection {
   tenantId          String
   connectionId      String
   resourceId        Int
+  resourceKind      String   @default("page")
   resourceUrl       String
   title             String
   mode              String
@@ -249,6 +253,8 @@ model CmsCorrection {
   beforeDescription String?
   afterTitle        String?
   afterDescription  String?
+  beforePatchesJson String   @default("[]")
+  afterPatchesJson  String   @default("[]")
   reason            String?
   beforeRevision    String
   appliedRevision   String?
@@ -261,6 +267,50 @@ model CmsCorrection {
   @@index([tenantId, createdAt])
   @@index([connectionId, status])
   @@map("cms_corrections")
+}
+
+model CmsBatch {
+  id               String @id @default(cuid())
+  tenantId         String
+  projectId        String
+  connectionId     String
+  userId           String
+  action           String
+  mode             String @default("SEO")
+  correctionIds    Json
+  status           String @default("QUEUED")
+  completed        Int @default(0)
+  failed           Int @default(0)
+  cancelRequested  Boolean @default(false)
+  runToken         String?
+  leaseUntil       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  finishedAt       DateTime?
+  project          Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  connection       CmsConnection @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@index([status, leaseUntil])
+  @@index([tenantId, projectId, createdAt])
+  @@map("cms_batches")
+}
+
+model AiRequest {
+  id              String @id @default(cuid())
+  tenantId        String
+  projectId       String
+  userId          String
+  purpose         String
+  status          String @default("RESERVED")
+  inputTokens     Int @default(0)
+  outputTokens    Int @default(0)
+  reservedMicros  Int
+  actualMicros    Int?
+  model           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  project         Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@index([tenantId, createdAt])
+  @@map("ai_requests")
 }
 
 model AuditPage {
@@ -554,6 +604,9 @@ model GBPPhoto {
 // ─────────────────────────────────────────────
 
 model RankedKeyword {
+  lastCheckStatus  String @default("NEVER")
+  lastCheckMessage String?
+  lastAttemptAt    DateTime?
   id        String   @id @default(cuid())
   tenantId  String
   projectId String?
@@ -574,6 +627,7 @@ model RankedKeyword {
 }
 
 model RankHistory {
+  resultCount Int @default(0)
   tenantId String
   id        String   @id @default(cuid())
   keywordId String
@@ -885,6 +939,8 @@ model PlanConfig {
   featureAI           Boolean @default(false)
   featureCmsCorrections Boolean @default(false)
   cmsMonthlyQuota       Int     @default(0)
+  aiMonthlyQuota        Int     @default(0)
+  aiMonthlyBudgetCents  Int     @default(0)
   featureRankTracking Boolean @default(false)
   featureLocalSeo     Boolean @default(false)
   featureWhiteLabel   Boolean @default(true)

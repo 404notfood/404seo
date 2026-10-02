@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto"
 import { z } from "zod"
 import { fetchPublicUrl, isValidPublicUrl } from "@seo/shared/security"
-import type { CmsResource } from "@seo/shared"
+import type { CmsResource, CmsTextPatch } from "@seo/shared"
 import { plainCmsText } from "@seo/crawler"
 
 export class CmsError extends Error {
@@ -9,12 +9,14 @@ export class CmsError extends Error {
 }
 
 export function seoText(max: number) { return z.string().max(max).refine(value => !/[<>\u0000-\u001f\u007f]/.test(value), "Texte simple requis") }
+export const CmsTextPatchSchema = z.object({ id: z.string().regex(/^(body|description|short):[ta]:[0-9]{1,6}$/), text: z.string().min(1).max(400).refine(value => !/[<>\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) }).strict()
 export const CmsResourceSchema = z.object({
   id: z.number().int().positive().max(2147483647), url: z.string().url().max(2048),
-  title: z.string().max(500), kind: z.enum(["post", "page", "product"]),
+  title: z.string().max(500), kind: z.enum(["post", "page", "product", "category", "cms"]),
   content: z.string().max(8000),
   seoTitle: seoText(100).nullable(), seoDescription: seoText(320).nullable(),
   revision: z.string().regex(/^[a-f0-9]{64}$/), operationId: z.string().max(100).optional(),
+  segments: z.array(CmsTextPatchSchema.extend({ type: z.enum(["CONTENT", "ALT"]) })).max(32).optional(),
 }).strict()
 export type WordPressResource = z.infer<typeof CmsResourceSchema>
 export interface WordPressCredentials { username: string; applicationPassword: string }
@@ -80,7 +82,7 @@ export class WordPressClient {
     return { label: plainCmsText(data.label, 200) }
   }
   private validateResource(value: unknown): WordPressResource {
-    const resource = CmsResourceSchema.parse(value)
+    const resource = CmsResourceSchema.extend({ kind: z.enum(["post", "page", "product"]) }).parse(value)
     const page = new URL(resource.url), site = new URL(this.siteUrl)
     if (!isValidPublicUrl(resource.url) || page.origin !== site.origin ||
       !page.pathname.startsWith(site.pathname) && page.pathname !== site.pathname.replace(/\/$/, "")) throw new CmsError("La page ne correspond pas au site connecté.", 502)
@@ -90,11 +92,19 @@ export class WordPressClient {
     const data = z.object({ resources: z.array(z.unknown()).max(25), hasMore: z.boolean() }).parse(await this.request("resources?" + new URLSearchParams({ page: String(page), kind })))
     return { resources: data.resources.map(value => this.validateResource(value)), hasMore: data.hasMore }
   }
-  async read(id: number): Promise<WordPressResource> { return this.validateResource(await this.request("resources/" + id)) }
-  async reconcile(id: number, operationId: string): Promise<WordPressResource> {
-    return this.validateResource(await this.request("resources/" + id + "/reconcile", { operationId }))
+  async read(id: number, _kind?: CmsResource["kind"]): Promise<WordPressResource> {
+    const resource = this.validateResource(await this.request("resources/" + id))
+    if (resource.id !== id) throw new CmsError("Le contenu demandé n’est pas confirmé.", 502)
+    return resource
   }
-  async write(id: number, revision: string, operationId: string, title: string | null, description: string | null): Promise<WordPressResource> {
-    return this.validateResource(await this.request("resources/" + id, { revision, operationId, seoTitle: title, seoDescription: description }))
+  async reconcile(id: number, operationId: string, _kind?: CmsResource["kind"]): Promise<WordPressResource> {
+    const resource = this.validateResource(await this.request("resources/" + id + "/reconcile", { operationId }))
+    if (resource.id !== id) throw new CmsError("Le connecteur n’a pas confirmé le contenu demandé.", 502)
+    return resource
+  }
+  async write(id: number, revision: string, operationId: string, title: string | null, description: string | null, _kind?: CmsResource["kind"], patches?: CmsTextPatch[]): Promise<WordPressResource> {
+    const resource = this.validateResource(await this.request("resources/" + id, { revision, operationId, seoTitle: title, seoDescription: description, ...(patches?.length ? { patches } : {}) }))
+    if (resource.id !== id) throw new CmsError("Le connecteur n’a pas confirmé le contenu demandé.", 502)
+    return resource
   }
 }

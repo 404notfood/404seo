@@ -2,6 +2,8 @@
 import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { chromium } from "playwright"
+import { parseGoogleRankHtml } from "@seo/crawler"
+import { resolveFeature } from "../lib/features"
 import { prisma } from "../lib/prisma.js"
 import { requireRole, requireFeature, assertProjectOwner } from "../lib/guards.js"
 import { fulfillPublicRequest } from "@seo/shared/security"
@@ -21,7 +23,7 @@ async function checkPosition(
   targetDomain: string,
   device: "desktop" | "mobile",
   country: string
-): Promise<{ position: number | null; url: string | null; title: string | null }> {
+): Promise<{ position: number | null; url: string | null; title: string | null; resultCount: number }> {
   if (activePositionChecks >= 2) throw new Error("Vérifications en cours, réessayer plus tard")
   activePositionChecks++
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
@@ -50,46 +52,41 @@ async function checkPosition(
       { waitUntil: "domcontentloaded", timeout: 20000 }
     )
 
-    await page.waitForSelector("#search, #rso", { timeout: 10000 }).catch(() => {})
-
-    const results = await page.evaluate((domain: string) => {
-      const found: { position: number; url: string; title: string } | null = null
-      let pos = 0
-      // Cibler les vrais résultats organiques
-      const containers = document.querySelectorAll(
-        "#rso > div, #rso .g, #search .g"
-      )
-      for (const container of containers) {
-        const link = container.querySelector("a[href^='http']") as HTMLAnchorElement | null
-        if (!link) continue
-        const href = link.href
-        if (!href || href.includes("google.") || href.includes("youtube.com")) continue
-        const titleEl = container.querySelector("h3")
-        if (!titleEl) continue
-        pos++
-        try {
-          const url = new URL(href)
-          const target = new URL(domain.includes("://") ? domain : `https://${domain}`).hostname.replace(/^www\./, "")
-          if (url.hostname === target || url.hostname.endsWith(`.${target}`)) {
-            return { position: pos, url: href, title: titleEl.textContent || "" }
-          }
-        } catch {
-          // URL invalide
-        }
-        if (pos >= 100) break
-      }
-      return null
-    }, targetDomain)
-
-    if (results) {
-      return { position: results.position, url: results.url, title: results.title }
-    }
-    return { position: null, url: null, title: null }
-  } catch {
-    return { position: null, url: null, title: null }
+    if (new URL(page.url()).pathname.startsWith("/sorry")) throw new Error("Google blocked")
+    await page.waitForSelector("#search h3, #rso h3", { timeout: 10000 })
+    return parseGoogleRankHtml(await page.content(), targetDomain)
   } finally {
     await browser?.close().catch(() => {})
     activePositionChecks--
+  }
+}
+
+
+async function checkAndSave(id: string, tenantId: string, userId: string, domain: string) {
+  const attempt = new Date()
+  const keyword = await prisma.$transaction(async tx => {
+    await tx.$queryRawUnsafe('SELECT id FROM ranked_keywords WHERE id=$1 AND "tenantId"=$2 FOR UPDATE', id, tenantId)
+    const row = await tx.rankedKeyword.findFirst({ where: { id, tenantId, project: { userId, deletedAt: null } } })
+    if (!row || row.lastCheckStatus === "RUNNING" && row.lastAttemptAt && row.lastAttemptAt > new Date(Date.now()-120000)) return null
+    const [user, tenant] = await Promise.all([tx.user.findFirst({ where: { id: userId, tenantId, isBanned: false, role: { in: ["MEMBER", "ADMIN"] } } }), tx.tenant.findFirst({ where: { id: tenantId, isSuspended: false } })])
+    if (!user || !tenant) return null
+    await tx.rankedKeyword.update({ where: { id }, data: { lastCheckStatus: "RUNNING", lastAttemptAt: attempt, lastCheckMessage: null } })
+    return row
+  })
+  if (!keyword) return
+  try {
+    if (!await resolveFeature(tenantId, "rank_tracking")) throw new Error("Access revoked")
+    const result = await checkPosition(keyword.keyword, domain, keyword.device as "desktop" | "mobile", keyword.country)
+    await prisma.$transaction(async tx => {
+      const user = await tx.user.findFirst({ where: { id: userId, tenantId, isBanned: false, role: { in: ["MEMBER", "ADMIN"] } } })
+      const tenant = await tx.tenant.findFirst({ where: { id: tenantId, isSuspended: false } })
+      if (!user || !tenant) throw new Error("Access revoked")
+      const claimed = await tx.rankedKeyword.updateMany({ where: { id, tenantId, lastAttemptAt: attempt, lastCheckStatus: "RUNNING", project: { userId, deletedAt: null } }, data: { lastCheckStatus: "COMPLETED", lastCheckMessage: null } })
+      if (claimed.count !== 1) return
+      await tx.rankHistory.create({ data: { tenantId, keywordId: id, ...result } })
+    })
+  } catch {
+    await prisma.rankedKeyword.updateMany({ where: { id, tenantId, lastAttemptAt: attempt, lastCheckStatus: "RUNNING" }, data: { lastCheckStatus: "FAILED", lastCheckMessage: "Google n’a pas fourni de résultats exploitables. La dernière mesure confirmée est conservée." } })
   }
 }
 
@@ -117,6 +114,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
         projectFilter = { projectId: { in: userProjects.map((p) => p.id) } }
       }
 
+      await prisma.rankedKeyword.updateMany({ where: { tenantId: request.tenantId, ...projectFilter, lastCheckStatus: "RUNNING", lastAttemptAt: { lt: new Date(Date.now()-120000) } }, data: { lastCheckStatus: "FAILED", lastCheckMessage: "Vérification interrompue. Relancez la mesure." } })
       const keywords = await prisma.rankedKeyword.findMany({
         where: {
           tenantId: request.tenantId,
@@ -135,7 +133,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
         const last = kw.history[0] ?? null
         const prev = kw.history[1] ?? null
         const change =
-          last?.position != null && prev?.position != null
+          last?.position != null && prev?.position != null && last.resultCount > 0 && prev.resultCount > 0
             ? prev.position - last.position // positif = monté
             : null
         return {
@@ -149,6 +147,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
           title: last?.title ?? null,
           change,
           checkedAt: last?.checkedAt ?? null,
+          lastCheckStatus: kw.lastCheckStatus, lastCheckMessage: kw.lastCheckMessage, lastAttemptAt: kw.lastAttemptAt, resultCount: last?.resultCount ?? 0,
           history: kw.history.map((h) => ({
             position: h.position,
             checkedAt: h.checkedAt,
@@ -158,7 +157,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Stats
       const tracked = result.length
-      const withPosition = result.filter((k) => k.position !== null)
+      const withPosition = result.filter((k) => k.position !== null && k.resultCount > 0)
       const avgPosition =
         withPosition.length > 0
           ? Math.round((withPosition.reduce((s, k) => s + k.position!, 0) / withPosition.length) * 10) / 10
@@ -246,15 +245,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
       // Scraping asynchrone
       setImmediate(async () => {
         try {
-          const result = await checkPosition(kw.keyword, domain, kw.device as "desktop" | "mobile", kw.country)
-          await prisma.rankHistory.create({
-            data: {
-              tenantId: request.tenantId, keywordId: kw.id,
-              position: result.position,
-              url: result.url,
-              title: result.title,
-            },
-          })
+          await checkAndSave(kw.id, request.tenantId, request.userId, domain)
         } catch (err) {
           fastify.log.error({ err }, "Erreur scraping rank")
         }
@@ -302,15 +293,7 @@ const rankTrackingRoutes: FastifyPluginAsync = async (fastify) => {
           const targetDomain = domain || kw.project?.domain
           if (!targetDomain) continue
           try {
-            const result = await checkPosition(
-              kw.keyword,
-              targetDomain,
-              kw.device as "desktop" | "mobile",
-              kw.country
-            )
-            await prisma.rankHistory.create({
-              data: { tenantId: request.tenantId, keywordId: kw.id, position: result.position, url: result.url, title: result.title },
-            })
+            await checkAndSave(kw.id, request.tenantId, request.userId, targetDomain)
             // Délai entre chaque requête Google
             await new Promise((r) => setTimeout(r, 3000 + Math.random() * 2000))
           } catch (err) {

@@ -1,13 +1,14 @@
 <?php
 /**
  * Plugin Name: 404 SEO Connector
- * Description: Connexion sécurisée à 404 SEO, propositions et annulation des titres SEO/méta-descriptions.
- * Version: 1.0.0
+ * Description: Connexion sécurisée à 404 SEO, propositions et annulation des champs SEO, extraits de texte et attributs alt existants.
+ * Version: 1.1.0
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * License: GPL-2.0-or-later
  */
 if (!defined('ABSPATH')) { exit; }
+require_once __DIR__ . '/Seo404Text.php';
 
 // Dedicated application passwords only. Never accept anonymous requests or a main login password.
 add_action('application_password_did_authenticate', function () { $GLOBALS['seo404_application_auth'] = true; });
@@ -52,7 +53,8 @@ function seo404_resource($id) {
     return array('id' => (int) $id, 'url' => get_permalink($id), 'title' => seo404_text($post->post_title, 500),
         'kind' => $post->post_type, 'content' => seo404_text($post->post_excerpt . ' ' . $post->post_content, 8000),
         'seoTitle' => $title, 'seoDescription' => $description, 'revision' => hash('sha256', wp_json_encode($revision)),
-        'operationId' => isset($meta['_seo404_operation']) ? (string) $meta['_seo404_operation'] : '');
+        'operationId' => isset($meta['_seo404_operation']) ? (string) $meta['_seo404_operation'] : '',
+        'segments' => Seo404Text::segments($post->post_content, 'body'));
 }
 
 function seo404_storage_ready() {
@@ -102,7 +104,7 @@ function seo404_store($id, $key, $value) {
 function seo404_operation_id($value) { return is_string($value) && preg_match('/^[a-zA-Z0-9-]{1,80}(:restore)?$/D', $value); }
 function seo404_write($request) {
     $data = $request->get_json_params();
-    if (!is_array($data) || count($data) !== 4 || !isset($data['revision'], $data['operationId']) ||
+    if (!is_array($data) || count($data) !== (array_key_exists('patches', $data) ? 5 : 4) || !isset($data['revision'], $data['operationId']) ||
         !array_key_exists('seoTitle', $data) || !array_key_exists('seoDescription', $data) ||
         !is_string($data['revision']) || !preg_match('/^[a-f0-9]{64}$/D', $data['revision']) || !seo404_operation_id($data['operationId'])) {
         return new WP_Error('seo404_input', 'Proposition invalide.', array('status' => 400));
@@ -112,6 +114,10 @@ function seo404_write($request) {
         if ($value !== null && (!is_string($value) || preg_match('/^.{0,' . $max . '}$/usD', $value) !== 1 || preg_match('/[<>\x00-\x1f\x7f]/u', $value))) {
             return new WP_Error('seo404_input', 'Texte simple requis.', array('status' => 400));
         }
+    }
+    if (array_key_exists('patches', $data)) {
+        try { Seo404Text::patches($data['patches']); foreach ($data['patches'] as $patch) { if (strpos($patch['id'], 'body:') !== 0) { throw new RuntimeException('Invalid field'); } } }
+        catch (Throwable $error) { return new WP_Error('seo404_input', 'Textes sélectionnés invalides.', array('status' => 400)); }
     }
     $id = (int) $request['id'];
     return seo404_transaction($id, function () use ($id, $data, $request) {
@@ -125,6 +131,12 @@ function seo404_write($request) {
         if ($current['operationId'] === $data['operationId']) { return $current; }
         if (!hash_equals($current['revision'], $data['revision'])) {
             return new WP_Error('seo404_conflict', 'Contenu modifié depuis la proposition.', array('status' => 409));
+        }
+        if (isset($data['patches'])) {
+            global $wpdb;
+            $post = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->posts} WHERE ID = %d", $id));
+            $content = Seo404Text::apply($post->post_content, 'body', $data['patches']);
+            if ($wpdb->update($wpdb->posts, array('post_content' => $content), array('ID' => $id), array('%s'), array('%d')) === false) { throw new RuntimeException('Content update failed'); }
         }
         seo404_store($id, '_seo404_title', $data['seoTitle']);
         seo404_store($id, '_seo404_description', $data['seoDescription']);

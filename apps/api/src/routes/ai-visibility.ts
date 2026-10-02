@@ -1,203 +1,55 @@
-// routes/ai-visibility.ts — Suivi de visibilité dans les IA génératives
 import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
-import { prisma } from "../lib/prisma.js"
-import { requireRole, requireFeature } from "../lib/guards.js"
-
-const DOMAIN_REGEX = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i
-
-const CheckVisibilitySchema = z.object({
-  domain: z.string().min(3).max(253).regex(DOMAIN_REGEX, "Domaine invalide"),
-  queries: z.array(z.string().min(3).max(500)).min(1).max(10),
-  engine: z.enum(["claude"]).default("claude"), // seul Claude disponible sans clé tierce
-})
-
-const AddQuerySchema = z.object({
-  query: z.string().min(3).max(500),
-  domain: z.string().min(3).max(253).regex(DOMAIN_REGEX, "Domaine invalide"),
-})
-
-// ── Appel API Anthropic via fetch ─────────────────────────────────────────────
-async function callClaude(prompt: string): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": process.env.ANTHROPIC_API_KEY!,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
-      messages: [{ role: "user", content: prompt }],
-    }),
-    signal: AbortSignal.timeout(20000),
+import { prisma } from "../lib/prisma"
+import { assertProjectOwner, requireRole, requireFeature } from "../lib/guards"
+import { CmsError } from "../lib/cmsWordPress"
+import { aiUsage, executeAiRequest, managedAiConfigured } from "../lib/aiBudget"
+import { measureAiMention } from "../lib/aiVisibility"
+const Input = z.object({ projectId: z.string().min(1).max(100), domain: z.string().min(3).max(253).regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i), queries: z.array(z.string().trim().min(3).max(500)).min(1).max(3), engine: z.literal("openai").optional() }).strict()
+const aiVisibilityRoutes: FastifyPluginAsync = async fastify => {
+  fastify.get<{ Querystring: { domain?: string; engine?: string; limit?: string } }>("/api/ai-visibility", async request => {
+    const { domain, engine } = request.query
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit ?? "50", 10) || 50))
+    // Historical Claude records were produced by a provider-error fallback; exclude them from current statistics.
+    const checks = await prisma.aIVisibilityCheck.findMany({ where: { tenantId: request.tenantId, ...(domain ? { domain } : {}), engine: engine ?? { startsWith: "openai:" } }, orderBy: { checkedAt: "desc" }, take: limit })
+    const withPosition = checks.filter(check => check.mentioned && check.position !== null), mentioned = checks.filter(check => check.mentioned).length
+    const byEngine: Record<string, { total: number; mentioned: number }> = {}
+    for (const check of checks) { const stats = byEngine[check.engine] ??= { total: 0, mentioned: 0 }; stats.total++; if (check.mentioned) stats.mentioned++ }
+    const usage = await aiUsage(request.tenantId)
+    return { checks, usage: { ...usage, allowed: usage.allowed && request.role !== "GUEST" },
+      stats: { total: checks.length, mentioned, mentionRate: checks.length ? Math.round(mentioned / checks.length * 100) : 0, avgPosition: withPosition.length ? Math.round(withPosition.reduce((sum, check) => sum + check.position!, 0) / withPosition.length * 10) / 10 : null, byEngine } }
   })
-  if (!res.ok) throw new Error(`Anthropic API ${res.status}`)
-  const data = await res.json() as { content: Array<{ type: string; text?: string }> }
-  return data.content.filter((c) => c.type === "text").map((c) => c.text ?? "").join("")
-}
-
-// ── Vérifier la présence d'un domaine dans une réponse Claude ─────────────────
-async function checkWithClaude(
-  query: string,
-  domain: string
-): Promise<{ mentioned: boolean; position: number | null; snippet: string | null }> {
-  try {
-    const prompt = `Tu es un assistant SEO. Réponds à cette question comme tu le ferais normalement, en recommandant des outils/sites/services si pertinent.
-
-Question : ${query}
-
-Donne une réponse concise et pratique.`
-
-    const responseText = await callClaude(prompt)
-
-    // Détecter si le domaine est mentionné
-    const domainVariants = [
-      domain,
-      domain.replace(/^www\./, ""),
-      `www.${domain.replace(/^www\./, "")}`,
-    ]
-
-    let mentioned = false
-    let position: number | null = null
-    let snippet: string | null = null
-
-    for (const variant of domainVariants) {
-      const idx = responseText.toLowerCase().indexOf(variant.toLowerCase())
-      if (idx !== -1) {
-        mentioned = true
-        // Extraire un snippet autour de la mention
-        const start = Math.max(0, idx - 60)
-        const end = Math.min(responseText.length, idx + 100)
-        snippet = "..." + responseText.slice(start, end) + "..."
-
-        // Estimer la position (numéro d'ordre de la mention parmi tous les domaines/URLs cités)
-        const urlPattern = /(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+\.[a-z]{2,}/gi
-        const allUrls = [...responseText.matchAll(urlPattern)].map((m) => m[0].toLowerCase())
-        const posIdx = allUrls.findIndex((u) => domainVariants.some((v) => u.includes(v.toLowerCase())))
-        position = posIdx !== -1 ? posIdx + 1 : 1
+  fastify.post("/api/ai-visibility/check", { preHandler: [requireRole("MEMBER"), requireFeature("ai")], config: { rateLimit: { max: 3, timeWindow: "1 minute" } } }, async request => {
+    const parsed = Input.safeParse(request.body)
+    if (!parsed.success || new Set(parsed.data.queries).size !== parsed.data.queries.length) throw new CmsError("Sélectionnez un projet et une à trois questions distinctes (500 caractères maximum).")
+    const { projectId, domain, queries } = parsed.data, actor = { projectId, tenantId: request.tenantId, userId: request.userId }
+    const project = await assertProjectOwner(projectId, request.userId, request.tenantId)
+    if (!project) throw new CmsError("Projet introuvable.", 404)
+    if (new URL(project.domain).hostname.replace(/^www\./i, "").toLowerCase() !== domain.replace(/^www\./i, "").toLowerCase()) throw new CmsError("Le domaine doit correspondre au projet sélectionné.")
+    if (!managedAiConfigured()) throw new CmsError("Le fournisseur IA et ses tarifs doivent être configurés.", 503)
+    let completed = 0, failed = 0
+    for (const query of queries) {
+      try {
+        const result = await executeAiRequest(actor, "VISIBILITY", record => measureAiMention(query, domain, record))
+        await prisma.$transaction(async tx => {
+          await tx.$queryRawUnsafe('SELECT id FROM tenants WHERE id=$1 FOR UPDATE', request.tenantId)
+          const [tenant, user, owned] = await Promise.all([tx.tenant.findUnique({ where: { id: request.tenantId } }), tx.user.findFirst({ where: { id: request.userId, tenantId: request.tenantId, isBanned: false, role: { in: ["ADMIN", "MEMBER"] } } }), tx.project.findFirst({ where: { id: projectId, tenantId: request.tenantId, userId: request.userId, deletedAt: null } })])
+          if (!tenant || tenant.isSuspended || !user || !owned) throw new CmsError("Accès refusé.", 403)
+          await tx.aIVisibilityCheck.create({ data: { tenantId: request.tenantId, query, domain: domain.toLowerCase(), engine: "openai:" + process.env.OPENAI_SEO_MODEL, ...result } })
+        })
+        completed++
+      } catch (error) {
+        failed = queries.length - completed
+        if (!completed) { if (error instanceof CmsError) throw error; throw new CmsError("La mesure IA a échoué. Aucun résultat n’a été enregistré.", 502) }
         break
       }
     }
-
-    return { mentioned, position, snippet }
-  } catch {
-    return { mentioned: false, position: null, snippet: null }
-  }
-}
-
-const aiVisibilityRoutes: FastifyPluginAsync = async (fastify) => {
-  // GET /api/ai-visibility — Résultats des checks
-  fastify.get<{ Querystring: { domain?: string; engine?: string; limit?: string } }>(
-    "/api/ai-visibility",
-    async (request, reply) => {
-      const { domain, engine, limit: limitStr } = request.query
-      const limit = Math.min(100, Math.max(1, parseInt(limitStr ?? "50", 10) || 50))
-
-      const checks = await prisma.aIVisibilityCheck.findMany({
-        where: {
-          tenantId: request.tenantId,
-          ...(domain ? { domain } : {}),
-          ...(engine ? { engine } : {}),
-        },
-        orderBy: { checkedAt: "desc" },
-        take: limit,
-      })
-
-      // Stats
-      const total = checks.length
-      const mentioned = checks.filter((c) => c.mentioned).length
-      const mentionRate = total > 0 ? Math.round((mentioned / total) * 100) : 0
-      const withPosition = checks.filter((c) => c.mentioned && c.position != null)
-      const avgPosition =
-        withPosition.length > 0
-          ? Math.round((withPosition.reduce((s, c) => s + (c.position ?? 0), 0) / withPosition.length) * 10) / 10
-          : null
-
-      // Par moteur
-      const byEngine = checks.reduce<Record<string, { total: number; mentioned: number }>>((acc, c) => {
-        if (!acc[c.engine]) acc[c.engine] = { total: 0, mentioned: 0 }
-        acc[c.engine]!.total++
-        if (c.mentioned) acc[c.engine]!.mentioned++
-        return acc
-      }, {})
-
-      return reply.send({
-        checks,
-        stats: { total, mentioned, mentionRate, avgPosition, byEngine },
-      })
-    }
-  )
-
-  // POST /api/ai-visibility/check — Lancer des vérifications
-  fastify.post(
-    "/api/ai-visibility/check",
-    { preHandler: [requireRole("MEMBER"), requireFeature("ai")], config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
-    async (request, reply) => {
-      if (!process.env.ANTHROPIC_API_KEY) {
-        return reply.status(400).send({ error: "ANTHROPIC_API_KEY non configurée" })
-      }
-
-      const parse = CheckVisibilitySchema.safeParse(request.body)
-      if (!parse.success) return reply.status(400).send({ error: "Données invalides" })
-      const { domain, queries } = parse.data
-
-      reply.status(202).send({ message: `${queries.length} vérifications lancées`, domain })
-
-      // Checks asynchrones séquentiels (éviter flood API)
-      setImmediate(async () => {
-        for (const query of queries) {
-          try {
-            const result = await checkWithClaude(query, domain)
-            await prisma.aIVisibilityCheck.create({
-              data: {
-                tenantId: request.tenantId,
-                query,
-                engine: "claude",
-                domain,
-                mentioned: result.mentioned,
-                position: result.position,
-                snippet: result.snippet,
-              },
-            })
-            // Délai pour éviter de saturer l'API
-            await new Promise((r) => setTimeout(r, 1500))
-          } catch (err) {
-            fastify.log.error({ err }, `Erreur AI visibility check pour "${query}"`)
-          }
-        }
-      })
-    }
-  )
-
-  // GET /api/ai-visibility/queries — Liste des requêtes suggérées
-  fastify.get("/api/ai-visibility/queries", async (request, reply) => {
-    // Retourner les requêtes déjà utilisées par ce tenant + suggestions basées sur les mots-clés SEO
-    const existing = await prisma.aIVisibilityCheck.findMany({
-      where: { tenantId: request.tenantId },
-      select: { query: true, domain: true },
-      distinct: ["query"],
-      orderBy: { checkedAt: "desc" },
-      take: 20,
-    })
-
-    return reply.send({ queries: existing })
+    return { completed, failed, message: `${completed} réponse(s) mesurée(s), ${failed} question(s) non mesurée(s).` }
   })
-
-  // DELETE /api/ai-visibility/:id
-  fastify.delete<{ Params: { id: string } }>(
-    "/api/ai-visibility/:id",
-    { preHandler: [requireRole("MEMBER"), requireFeature("ai")] },
-    async (request, reply) => {
-      const check = await prisma.aIVisibilityCheck.findFirst({
-        where: { id: request.params.id, tenantId: request.tenantId },
-      })
-      if (!check) return reply.status(404).send({ error: "Check introuvable" })
-      await prisma.aIVisibilityCheck.delete({ where: { id: check.id } })
-      return reply.status(204).send()
-    }
-  )
+  fastify.get("/api/ai-visibility/queries", async request => ({ queries: await prisma.aIVisibilityCheck.findMany({ where: { tenantId: request.tenantId }, select: { query: true, domain: true }, distinct: ["query"], orderBy: { checkedAt: "desc" }, take: 20 }) }))
+  fastify.delete<{ Params: { id: string } }>("/api/ai-visibility/:id", { preHandler: [requireRole("MEMBER"), requireFeature("ai")] }, async (request, reply) => {
+    const removed = await prisma.aIVisibilityCheck.deleteMany({ where: { id: request.params.id, tenantId: request.tenantId } })
+    return removed.count ? reply.status(204).send() : reply.status(404).send({ error: "Mesure introuvable." })
+  })
 }
-
 export default aiVisibilityRoutes

@@ -49,16 +49,24 @@ class Dispatcher {
 class FixtureLink {
     public function getBaseLink($shop, $ssl) { return 'https://example.com/shop/'; }
     public function getProductLink($id, $alias, $category, $ean, $lang, $shop) { return 'https://example.com/shop/' . $lang . '/product-' . $id; }
+    public function getCategoryLink($id, $alias, $lang, $filters, $shop) { return 'https://example.com/shop/' . $lang . '/category-' . $id; }
+    public function getCMSLink($id, $alias, $ssl, $lang, $shop) { return 'https://example.com/shop/' . $lang . '/cms-' . $id; }
 }
 require dirname(__DIR__, 2) . '/integrations/prestashop/seo404connector/seo404connector.php';
 require dirname(__DIR__, 2) . '/integrations/prestashop/seo404connector/classes/Seo404Gateway.php';
 $db = Db::$instance = new Db($pdo);
 $context = (object) array('shop' => (object) array('id' => 1, 'name' => 'Boutique'), 'link' => new FixtureLink());
-$tables = array('product', 'product_shop', 'product_lang', 'lang', 'lang_shop', 'seo404_settings', 'seo404_operations');
+$tables = array('product', 'product_shop', 'product_lang', 'category', 'category_shop', 'category_lang', 'cms', 'cms_shop', 'cms_lang', 'lang', 'lang_shop', 'seo404_settings', 'seo404_operations', 'seo404_content_operations');
 try {
     $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'product` (id_product INT PRIMARY KEY, date_upd VARCHAR(30)) ENGINE=InnoDB');
     $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'product_shop` (id_product INT, id_shop INT, active INT, visibility VARCHAR(20), PRIMARY KEY(id_product,id_shop)) ENGINE=InnoDB');
     $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'product_lang` (id_product INT,id_shop INT,id_lang INT,name TEXT,link_rewrite TEXT,description TEXT,description_short TEXT,meta_title VARCHAR(255),meta_description VARCHAR(512),PRIMARY KEY(id_product,id_shop,id_lang)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'category` (id_category INT PRIMARY KEY, active INT, date_upd VARCHAR(30), id_parent INT) ENGINE=InnoDB');
+    $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'category_shop` (id_category INT,id_shop INT,PRIMARY KEY(id_category,id_shop)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'category_lang` (id_category INT,id_shop INT,id_lang INT,name TEXT,link_rewrite TEXT,description TEXT,meta_title VARCHAR(255),meta_description VARCHAR(512),PRIMARY KEY(id_category,id_shop,id_lang)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'cms` (id_cms INT PRIMARY KEY, active INT, indexation INT) ENGINE=InnoDB');
+    $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'cms_shop` (id_cms INT,id_shop INT,PRIMARY KEY(id_cms,id_shop)) ENGINE=InnoDB');
+    $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'cms_lang` (id_cms INT,id_shop INT,id_lang INT,meta_title VARCHAR(255),head_seo_title VARCHAR(255),link_rewrite TEXT,content TEXT,meta_description VARCHAR(512),PRIMARY KEY(id_cms,id_shop,id_lang)) ENGINE=InnoDB');
     $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'lang` (id_lang INT PRIMARY KEY,active INT) ENGINE=InnoDB');
     $pdo->exec('CREATE TABLE `' . _DB_PREFIX_ . 'lang_shop` (id_lang INT,id_shop INT,PRIMARY KEY(id_lang,id_shop)) ENGINE=InnoDB');
     check((new Seo404connector())->install(), 'Module installation failed');
@@ -121,6 +129,53 @@ try {
     $write['operationId'] = 'late';
     $refuse(function () use ($fresh, $write) { $fresh->dispatch('POST', array('action'=>'write','scope'=>'1:1','id'=>'1'), json_encode($write)); }, 409);
     Dispatcher::$customSeoUrl = true; $refuse(function () use ($call) { $call('connection'); }, 503); Dispatcher::$customSeoUrl = false;
+    // The same numeric ID in different resource types must have independent operation ledgers.
+    $pdo->exec('INSERT INTO `' . _DB_PREFIX_ . 'category` VALUES (3,1,\'2026-10-02\',2)');
+    $pdo->exec('INSERT INTO `' . _DB_PREFIX_ . 'cms` VALUES (3,1,1)');
+    foreach (array(1,2) as $shop) {
+        foreach (array('category','cms') as $kind) { $pdo->exec('INSERT INTO `' . _DB_PREFIX_ . $kind . '_shop` VALUES (3,' . $shop . ')'); }
+        foreach (array(1,2) as $lang) {
+            $pdo->exec('INSERT INTO `' . _DB_PREFIX_ . 'category_lang` VALUES (3,' . $shop . ',' . $lang . ',\'Catégorie\',\'categorie\',\'<p>Contenu conservé</p>\',\'Titre catégorie\',\'Description catégorie\')');
+            $pdo->exec('INSERT INTO `' . _DB_PREFIX_ . 'cms_lang` VALUES (3,' . $shop . ',' . $lang . ',\'Titre visible\',\'Titre SEO\',\'page\',\'<p>Page conservée</p>\',\'Description page\')');
+        }
+    }
+    foreach (array('category','cms') as $kind) {
+        $query = array('action'=>'read','scope'=>'1:1','id'=>'3','kind'=>$kind);
+        $native = $gateway->dispatch('GET', $query, ''); check($native['kind'] === $kind, 'Resource kind');
+        $query['action'] = 'resources'; $query['page'] = '1'; check(count($gateway->dispatch('GET', $query, '')['resources']) === 1, 'Resources list');
+        $query['action'] = 'write';
+        $body = array('revision'=>$native['revision'],'operationId'=>'shared-marker','seoTitle'=>'Titre corrigé','seoDescription'=>'Description corrigée');
+        $published = $gateway->dispatch('POST', $query, json_encode($body)); check($published['seoTitle'] === 'Titre corrigé', 'Native SEO write');
+        $refuse(function () use ($gateway,$query,$body) { $body['operationId']='stale'; $gateway->dispatch('POST',$query,json_encode($body)); },409);
+        $body['revision']=$published['revision']; $body['operationId']='undo-' . $kind; $body['seoTitle']=$native['seoTitle']; $body['seoDescription']=$native['seoDescription'];
+        check($gateway->dispatch('POST',$query,json_encode($body))['seoTitle'] === $native['seoTitle'], 'Native restore');
+        $field = $kind === 'cms' ? 'head_seo_title' : 'meta_title';
+        $all = $pdo->query('SELECT * FROM `' . _DB_PREFIX_ . $kind . '_lang`')->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($all as $row) {
+            check($row[$field] === $native['seoTitle'], 'Other language/shop unchanged');
+            if ($kind === 'cms') { check($row['meta_title'] === 'Titre visible' && $row['content'] === '<p>Page conservée</p>', 'CMS visible title and HTML unchanged'); }
+            else { check($row['description'] === '<p>Contenu conservé</p>', 'Category HTML unchanged'); }
+        }
+        $query['action']='reconcile'; $gateway->dispatch('POST',$query,json_encode(array('operationId'=>'cancel-' . $kind)));
+        $query['action']='write'; $body['operationId']='cancel-' . $kind;
+        $refuse(function () use ($gateway,$query,$body) { $gateway->dispatch('POST',$query,json_encode($body)); },409);
+    }
+    $refuse(function () use ($gateway) { $gateway->dispatch('GET',array('action'=>'read','scope'=>'1:1','id'=>'3','kind'=>'cms_lang;DROP'), ''); },400);
+    foreach (array('product','category','cms') as $kind) {
+        $id = $kind === 'product' ? 1 : 3; $field = $kind === 'cms' ? 'content' : 'description';
+        $html = '<p class="keep">Des chaussure à 25 €.</p><img src="/image.jpg" alt="Chaussure rouje"><code>ne pa toucher</code>';
+        $pdo->prepare('UPDATE `' . _DB_PREFIX_ . $kind . '_lang` SET `' . $field . '`=? WHERE id_' . $kind . '=? AND id_shop=1 AND id_lang=1')->execute(array($html, $id));
+        $query = array('action'=>'read','scope'=>'1:1','id'=>(string) $id,'kind'=>$kind); $native = $gateway->dispatch('GET',$query,'');
+        $selected = array_values(array_filter($native['segments'], function ($segment) { return strpos($segment['id'], 'description:') === 0; }));
+        check(count($selected) === 2, 'Compatible text/alt segments');
+        $body = array('revision'=>$native['revision'],'operationId'=>'text-' . $kind,'seoTitle'=>$native['seoTitle'],'seoDescription'=>$native['seoDescription'], 'patches'=>array(array('id'=>$selected[0]['id'],'text'=>'Des chaussures à 25 €.'),array('id'=>$selected[1]['id'],'text'=>'Chaussure rouge')));
+        $query['action']='write'; $published = $gateway->dispatch('POST',$query,json_encode($body));
+        $readHtml = function () use ($pdo,$kind,$id,$field) { return $pdo->query('SELECT `' . $field . '` FROM `' . _DB_PREFIX_ . $kind . '_lang` WHERE id_' . $kind . '=' . $id . ' AND id_shop=1 AND id_lang=1')->fetchColumn(); };
+        check($readHtml() === str_replace(array('Des chaussure','Chaussure rouje'),array('Des chaussures','Chaussure rouge'),$html), 'Only selected text/alt changes, HTML preserved');
+        $body['revision']=$published['revision']; $body['operationId']='undo-text-' . $kind; $body['patches']=array_map(function ($segment) { return array('id'=>$segment['id'],'text'=>$segment['text']); },$selected);
+        $db->failMarker=true; $refuse(function () use ($gateway,$query,$body) { $gateway->dispatch('POST',$query,json_encode($body)); },503); check($readHtml() !== $html, 'Failed restore rolls text back');
+        $gateway->dispatch('POST',$query,json_encode($body)); check($readHtml() === $html, 'Native text restore');
+    }
     $pdo->exec('UPDATE `' . _DB_PREFIX_ . 'seo404_settings` SET id_lang=2 WHERE id=1');
     $refuse(function () use ($call) { $call('read'); }, 409);
     $context->shop->id = 2; $refuse(function () use ($call) { $call('connection', null, '1:2'); }, 403); $context->shop->id = 1;
@@ -131,7 +186,7 @@ try {
     check($pdo->query('SELECT token_hash FROM `' . _DB_PREFIX_ . 'seo404_settings` WHERE id=1')->fetchColumn() === '', 'Uninstall revokes key');
     check((int) $pdo->query('SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'seo404_operations`')->fetchColumn() === $ledgerCount, 'Uninstall retains cancellation ledger');
     $zip = new ZipArchive(); check($zip->open(dirname(__DIR__,2) . '/site/public/downloads/seo404-prestashop.zip') === true, 'ZIP');
-    foreach (array('seo404connector.php','classes/Seo404Gateway.php','controllers/front/api.php') as $path) {
+    foreach (array('seo404connector.php','classes/Seo404Gateway.php','classes/Seo404Text.php','controllers/front/api.php','upgrade/upgrade-1.1.0.php') as $path) {
         check($zip->getFromName('seo404connector/' . $path) === file_get_contents(dirname(__DIR__,2) . '/integrations/prestashop/seo404connector/' . $path), 'ZIP source mismatch');
     }
     $zip->close(); echo "InnoDB locks, rollback and scoped cancellation passed\n";

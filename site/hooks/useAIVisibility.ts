@@ -14,11 +14,11 @@ export function useCheckAIVisibility() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: CheckVisibilityInput) => apiClient.checkAIVisibility(data),
-    onSuccess: () => {
-      toast.success("Vérification IA lancée — résultats disponibles dans quelques secondes")
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["ai-visibility"] }), 15_000)
+    onSuccess: (result) => {
+      toast.success(result.message)
+      void qc.invalidateQueries({ queryKey: ["ai-visibility"] })
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => { toast.error(err.message); void qc.invalidateQueries({ queryKey: ["ai-visibility"] }) },
   })
 }
 

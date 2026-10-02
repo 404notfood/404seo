@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path"
 
 // Deterministic, uncompressed ZIP. No third-party packager or executable install hooks.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const entries = ["seo404connector.php", "classes/Seo404Gateway.php", "controllers/front/api.php"]
+const entries = ["seo404connector.php", "classes/Seo404Gateway.php", "classes/Seo404Text.php", "controllers/front/api.php", "upgrade/upgrade-1.1.0.php"]
 const locals = [], centrals = []
 let offset = 0
 for (const entry of entries) {

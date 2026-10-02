@@ -18,7 +18,7 @@ const ALL_PLANS = ["STARTER", "PRO", "AGENCY", "ENTERPRISE"]
 
 const FEATURES_META = [
   { key: "featureCmsCorrections", label: "Corrections CMS" },
-  { key: "featureAI",           label: "Visibilité IA" },
+  { key: "featureAI",           label: "Agent, visibilité et propositions IA" },
   { key: "featureRankTracking", label: "Suivi de positions" },
   { key: "featureLocalSeo",     label: "SEO Local" },
   { key: "featureWhiteLabel",   label: "Marque blanche" },
@@ -139,6 +139,8 @@ function PlanCard({ plan, onSaved }: { plan: PlanConfig; onSaved: () => void }) 
               { key: "projectQuota", label: "Projets" },
               { key: "userQuota", label: "Utilisateurs" },
               { key: "cmsMonthlyQuota", label: "Propositions CMS/mois (0 = désactivé)" },
+              { key: "aiMonthlyQuota", label: "Appels agent, CMS et visibilité/mois (0 = désactivé)" },
+              { key: "aiMonthlyBudgetCents", label: "Budget IA/mois (centimes USD)" },
             ] as { key: keyof PlanConfig; label: string }[]
           ).map(({ key, label }) => (
             <label key={key} className="space-y-1">
@@ -204,6 +206,8 @@ function CreatePlanModal({ existingPlans, onClose, onCreated }: {
     featureAI: false,
     featureCmsCorrections: false,
     cmsMonthlyQuota: 0,
+    aiMonthlyQuota: 0,
+    aiMonthlyBudgetCents: 0,
     featureRankTracking: false,
     featureLocalSeo: false,
     featureWhiteLabel: true,
@@ -302,6 +306,8 @@ function CreatePlanModal({ existingPlans, onClose, onCreated }: {
                 { key: "projectQuota", label: "Projets" },
                 { key: "userQuota", label: "Utilisateurs" },
                 { key: "cmsMonthlyQuota", label: "Propositions CMS/mois (0 = désactivé)" },
+                { key: "aiMonthlyQuota", label: "Appels agent, CMS et visibilité/mois (0 = désactivé)" },
+                { key: "aiMonthlyBudgetCents", label: "Budget IA/mois (centimes USD)" },
               ].map(({ key, label }) => (
                 <label key={key} className="space-y-1">
                   <span className="text-xs text-slate-500">{label} (-1=∞)</span>

@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify"
+import type {} from "../types/auth.types"
 
 type Role = "ADMIN" | "MEMBER" | "GUEST"
 

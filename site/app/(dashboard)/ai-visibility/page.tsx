@@ -25,7 +25,7 @@ const SUGGESTED_QUERIES = [
 export default function AIVisibilityPage() {
   const { activeProjectId } = useActiveProject()
   const { data: projects } = useProjects()
-  const { data, isLoading, refetch } = useAIVisibility()
+  const { data, isLoading } = useAIVisibility()
   const { mutate: checkVisibility, isPending: isChecking } = useCheckAIVisibility()
   const { mutate: deleteCheck } = useDeleteAICheck()
 
@@ -36,11 +36,11 @@ export default function AIVisibilityPage() {
   const activeProject = projects?.find((p) => p.id === activeProjectId)
 
   function toggleQuery(q: string) {
-    setQueries((prev) => prev.includes(q) ? prev.filter((x) => x !== q) : [...prev, q])
+    setQueries((prev) => prev.includes(q) ? prev.filter((x) => x !== q) : prev.length < 3 ? [...prev, q] : prev)
   }
 
   function addCustomQuery() {
-    if (!customQuery.trim() || queries.includes(customQuery.trim())) return
+    if (!customQuery.trim() || queries.includes(customQuery.trim()) || queries.length >= 3) return
     setQueries((prev) => [...prev, customQuery.trim()])
     setCustomQuery("")
   }
@@ -48,10 +48,11 @@ export default function AIVisibilityPage() {
   function handleCheck(e: React.FormEvent) {
     e.preventDefault()
     const targetDomain = domain.trim() || activeProject?.domain || ""
-    if (!targetDomain || queries.length === 0) return
+    if (!targetDomain || queries.length === 0 || !activeProjectId) return
+    let hostname: string
+    try { hostname = new URL(targetDomain.includes("://") ? targetDomain : "https://" + targetDomain).hostname } catch { return }
     checkVisibility(
-      { domain: targetDomain, queries, engine: "claude" },
-      { onSuccess: () => setTimeout(() => refetch(), 15_000) }
+      { projectId: activeProjectId, domain: hostname, queries, engine: "openai" }
     )
   }
 
@@ -79,7 +80,8 @@ export default function AIVisibilityPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Visibilité IA</h1>
-          <p className="text-sm text-slate-500">Détectez si votre site est mentionné par les IA génératives</p>
+          <p className="text-sm text-slate-500">Mesurez les mentions de votre domaine dans les réponses du modèle configuré.</p>
+          <p className="text-xs text-slate-500">Échantillons API sans recherche web : ils ne mesurent pas le classement Google, ChatGPT ou les AI Overviews. La position est l’ordre de citation des domaines dans une réponse.</p>
         </div>
       </div>
 
@@ -87,9 +89,9 @@ export default function AIVisibilityPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           { label: "Requêtes testées", value: stats?.total ?? 0, color: "#0f172a" },
-          { label: "Taux de mention", value: stats?.mentionRate != null ? `${stats.mentionRate}%` : "—", color: "#06b6d4" },
+          { label: "Taux de mention", value: stats?.total ? `${stats.mentionRate}%` : "—", color: "#06b6d4" },
           { label: "Mentions", value: stats?.mentioned ?? 0, color: "#10b981" },
-          { label: "Position moy.", value: stats?.avgPosition ?? "—", color: "#2563eb" },
+          { label: "Ordre de citation moy.", value: stats?.avgPosition ?? "—", color: "#2563eb" },
         ].map((s) => (
           <Card key={s.label} className="border-slate-100 rounded-2xl shadow-sm">
             <CardContent className="py-4 px-5 text-center">
@@ -123,7 +125,7 @@ export default function AIVisibilityPage() {
             {/* Requêtes suggérées */}
             <div>
               <label className="text-xs font-medium text-slate-600 mb-2 block">
-                Requêtes à tester ({queries.length} sélectionnées)
+                Requêtes à tester ({queries.length} / 3 sélectionnées)
               </label>
               <div className="flex flex-wrap gap-2">
                 {SUGGESTED_QUERIES.map((q) => (
@@ -147,6 +149,7 @@ export default function AIVisibilityPage() {
             <div className="flex gap-2">
               <Input
                 value={customQuery}
+                maxLength={500}
                 onChange={(e) => setCustomQuery(e.target.value)}
                 placeholder="Ajouter une requête personnalisée…"
                 className="flex-1 border-slate-200 text-sm"
@@ -173,7 +176,7 @@ export default function AIVisibilityPage() {
 
             <Button
               type="submit"
-              disabled={isChecking || queries.length === 0 || (!domain.trim() && !activeProject?.domain)}
+              disabled={isChecking || queries.length === 0 || !activeProjectId || !data?.usage.configured || !data.usage.allowed || data.usage.quota - data.usage.used < queries.length || data.usage.nextRequestUsd === null || data.usage.committedUsd + data.usage.nextRequestUsd * queries.length > data.usage.budgetUsd}
               className="btn-glow gap-1.5"
               style={{ background: "#06b6d4" }}
             >
@@ -183,11 +186,9 @@ export default function AIVisibilityPage() {
               }
             </Button>
 
-            {!process.env.NEXT_PUBLIC_HAS_ANTHROPIC && (
-              <p className="text-xs text-amber-600">
-                Requiert <code>ANTHROPIC_API_KEY</code> dans <code>apps/api/.env</code>
-              </p>
-            )}
+            <p className="text-xs text-slate-500">Une question consomme un appel du budget IA partagé avec l’agent et les corrections CMS. {data?.usage.used ?? 0} / {data?.usage.quota ?? 0} appels utilisés.</p>
+            {!data?.usage.configured && <p className="text-xs text-amber-600">Le fournisseur et les tarifs doivent être activés par l’administrateur.</p>}
+            {!activeProjectId && <p className="text-xs text-amber-600">Sélectionnez le projet client dans la barre de navigation.</p>}
           </form>
         </CardContent>
       </Card>

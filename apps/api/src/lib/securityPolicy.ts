@@ -14,7 +14,7 @@ export function isAllowedOrigin(origin: string): boolean {
 
 export function isPublicApiRoute(method: string, rawUrl: string): boolean {
   const path = rawUrl.split("?")[0]
-  return (method === "GET" && (path === "/health" || path === "/api/google/callback" ||
+  return (method === "GET" && (path === "/health" || path === "/health/ready" || path === "/api/google/callback" ||
     /^\/api\/reports\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(path))) ||
     (method === "POST" && path === "/api/billing/webhook")
 }

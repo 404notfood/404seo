@@ -14,7 +14,7 @@ import { SEOCrawler } from "@seo/crawler"
 import { analyzePage, type AnalysisResult, type CheckResult } from "@seo/analyzer"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import type { CrawlJobData, AnalyzeJobData, ReportJobData } from "@seo/shared"
-import { aggregateSiteKeywords } from "@seo/shared"
+import { aggregateSiteKeywords, startServiceHeartbeat } from "@seo/shared"
 import type { KeywordEntry } from "@seo/shared"
 
 const logger = pino({
@@ -487,9 +487,11 @@ reportWorker.on("failed", async (job, err) => {
   } catch { /* best effort */ }
 })
 
+const stopHeartbeat = startServiceHeartbeat(crawlWorker.client, "crawl")
 // Graceful shutdown
 async function shutdown() {
   logger.info("Workers shutting down...")
+  await stopHeartbeat()
   await Promise.all([
     crawlWorker.close(),
     analyzeWorker.close(),

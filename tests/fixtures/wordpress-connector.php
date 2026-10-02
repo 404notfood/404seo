@@ -33,11 +33,12 @@ class Database {
         return $rows;
     }
     function query($query) {
-        if ($query === 'START TRANSACTION') { $this->snapshot = $GLOBALS['meta']; }
-        if ($query === 'ROLLBACK') { $GLOBALS['meta'] = $this->snapshot; }
+        if ($query === 'START TRANSACTION') { $this->snapshot = array($GLOBALS['meta'], clone $GLOBALS['post']); }
+        if ($query === 'ROLLBACK') { $GLOBALS['meta'] = $this->snapshot[0]; $GLOBALS['post'] = $this->snapshot[1]; }
         return 1;
     }
     function delete($table, $where, $types) { unset($GLOBALS['meta'][$where['meta_key']]); return 1; }
+    function update($table, $data, $where, $types, $whereTypes) { foreach ($data as $key => $value) { $GLOBALS['post']->$key = $value; } return 1; }
     function insert($table, $data, $types) {
         if ($this->failInsert) { $this->failInsert = false; return false; }
         $GLOBALS['meta'][$data['meta_key']] = $data['meta_value']; return 1;
@@ -93,4 +94,16 @@ $new = $delayed; $new['operationId'] = 'new-approved-request'; check(seo404_writ
 $fresh = seo404_resource(1); $GLOBALS['post']->post_content = 'Changed by editor';
 $stale = $body; $stale['operationId'] = 'stale-request'; $stale['revision'] = $fresh['revision'];
 check(seo404_write(new Request($stale))->data['status'] === 409, 'Native content edit causes conflict');
+$html = '<!-- wp:paragraph --><p class="x">Des chaussure rouges à 25 € &amp; confortables.</p><img src="/rouge.jpg" alt="Chaussure rouje" width="100"><pre>ne pa toucher</pre><a href="/achat">acheter</a><script>var secret = "x";</script><!-- /wp:paragraph -->';
+$GLOBALS['post']->post_content = $html; $fresh = seo404_resource(1);
+check(count($fresh['segments']) === 2, 'Only compatible visible text and existing image alt are exposed');
+$patches = array(array('id' => $fresh['segments'][0]['id'], 'text' => 'Des chaussures rouges à 25 € & confortables.'), array('id' => $fresh['segments'][1]['id'], 'text' => 'Chaussure rouge'));
+$body = array('revision' => $fresh['revision'], 'operationId' => 'text-approved', 'seoTitle' => $fresh['seoTitle'], 'seoDescription' => $fresh['seoDescription'], 'patches' => $patches);
+$wpdb->failInsert = true; check(seo404_write(new Request($body))->data['status'] === 503, 'Text and metadata fail atomically'); check($GLOBALS['post']->post_content === $html, 'Text rollback');
+$next = seo404_write(new Request($body)); check(!is_wp_error($next), 'Text publication');
+$expected = str_replace(array('Des chaussure', 'Chaussure rouje'), array('Des chaussures', 'Chaussure rouge'), $html);
+check($GLOBALS['post']->post_content === $expected, 'Markup, comments, protected text, attributes and factual data preserved');
+$restore = array('revision' => $next['revision'], 'operationId' => 'text-restore', 'seoTitle' => $fresh['seoTitle'], 'seoDescription' => $fresh['seoDescription'], 'patches' => array_map(function ($segment) { return array('id' => $segment['id'], 'text' => $segment['text']); }, $fresh['segments']));
+check(!is_wp_error(seo404_write(new Request($restore))) && $GLOBALS['post']->post_content === $html, 'Text and alt restoration');
+$bad = $restore; $bad['operationId'] = 'bad-text'; $bad['patches'][0]['text'] = '<script>x</script>'; check(seo404_write(new Request($bad))->data['status'] === 400, 'Patch HTML rejected');
 echo "Plugin permissions, validation, CAS, transaction failure, rendering hooks, restoration and delayed cancellation passed.\n";

@@ -1,134 +1,47 @@
 "use client"
-
 import { useState, useRef, useEffect } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import type { AiChatMessage } from "@seo/shared"
+import { Bot, Send } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Bot, Send, User } from "lucide-react"
-import { ComingSoonBanner } from "@/components/layout/ComingSoonBanner"
+import { Skeleton } from "@/components/ui/skeleton"
+import { apiClient } from "@/lib/api-client"
+import { useActiveProject } from "@/contexts/ProjectContext"
+import { useProjects } from "@/hooks/useProjects"
 
-interface Message {
-  role: "user" | "assistant"
-  content: string
-}
-
-const INITIAL_MESSAGES: Message[] = [
-  {
-    role: "assistant",
-    content: "Bonjour ! Je suis votre agent IA SEO. Je peux analyser vos audits, identifier des opportunités d'optimisation et vous proposer des plans d'action. Que souhaitez-vous savoir ?",
-  },
-]
-
-const MOCK_RESPONSES: Record<string, string> = {
-  default: "Cette fonctionnalité sera bientôt disponible avec l'intégration de l'API Claude. En attendant, consultez la page Recommandations IA pour des insights basés sur vos audits.",
-  score: "Votre score SEO global est calculé à partir de 4 axes : technique, on-page, performance et UX mobile. Pour l'améliorer, concentrez-vous d'abord sur les problèmes critiques identifiés dans la page Problèmes & Erreurs.",
-  performance: "Pour améliorer les performances, commencez par optimiser les images (compression WebP), activez la mise en cache navigateur, et minimisez les fichiers CSS/JS. Consultez la page Vitesse & Performance pour les détails.",
-  contenu: "Un bon contenu SEO doit contenir au minimum 300 mots, inclure vos mots-clés principaux dans le titre, la meta description et le H1. Vérifiez l'Audit de contenu pour identifier les pages à améliorer.",
-}
-
-function getMockResponse(input: string): string {
-  const lower = input.toLowerCase()
-  if (lower.includes("score")) return MOCK_RESPONSES.score
-  if (lower.includes("performance") || lower.includes("vitesse") || lower.includes("lent")) return MOCK_RESPONSES.performance
-  if (lower.includes("contenu") || lower.includes("texte") || lower.includes("mot")) return MOCK_RESPONSES.contenu
-  return MOCK_RESPONSES.default
-}
-
-export default function AIAgentPage() {
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES)
-  const [input, setInput] = useState("")
-  const [isTyping, setIsTyping] = useState(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
-
-  function handleSend() {
-    if (!input.trim() || isTyping) return
-    const userMsg: Message = { role: "user", content: input.trim() }
-    setMessages((prev) => [...prev, userMsg])
-    setInput("")
-    setIsTyping(true)
-
-    setTimeout(() => {
-      const response = getMockResponse(userMsg.content)
-      setMessages((prev) => [...prev, { role: "assistant", content: response }])
-      setIsTyping(false)
-    }, 1200)
+function ProjectChat({ projectId }: { projectId: string }) {
+  const [messages, setMessages] = useState<AiChatMessage[]>([]), [input, setInput] = useState("")
+  const bottom = useRef<HTMLDivElement>(null), cache = useQueryClient()
+  const context = useQuery({ queryKey: ["ai-agent", projectId], queryFn: () => apiClient.getAiAgent(projectId), retry: false })
+  const ask = useMutation({ mutationFn: (history: AiChatMessage[]) => apiClient.askAiAgent(projectId, history),
+    onSuccess: result => { setMessages(previous => [...previous, { role: "assistant", content: result.content }]); setInput("") },
+    onSettled: () => cache.invalidateQueries({ queryKey: ["ai-agent", projectId] }) })
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }) }, [messages, ask.isPending])
+  const ready = !!context.data?.auditId && context.data.usage.configured && context.data.usage.allowed && context.data.usage.used < context.data.usage.quota && context.data.usage.nextRequestUsd !== null && context.data.usage.committedUsd + context.data.usage.nextRequestUsd <= context.data.usage.budgetUsd
+  function send() {
+    if (!ready || !input.trim() || ask.isPending) return
+    const history: AiChatMessage[] = [...(ask.isError && messages.at(-1)?.role === "user" ? messages.slice(0, -1) : messages), { role: "user", content: input.trim() }]
+    setMessages(history); ask.mutate(history.slice(-8))
   }
-
-  return (
-    <div className="p-6 space-y-6 flex flex-col h-[calc(100vh-2rem)]">
-      <div className="flex items-center gap-3 shrink-0">
-        <div className="p-2 rounded-xl" style={{ background: "rgba(6,182,212,0.1)" }}>
-          <Bot className="h-6 w-6" style={{ color: "#06b6d4" }} />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Agent IA SEO</h1>
-          <p className="text-sm text-slate-500">Posez vos questions SEO à l&apos;IA</p>
-        </div>
-      </div>
-
-      <ComingSoonBanner feature="L'agent IA avec Claude API" />
-
-      {/* Chat area */}
-      <Card className="border-slate-100 rounded-2xl shadow-sm flex-1 flex flex-col min-h-0">
-        <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
-              {msg.role === "assistant" && (
-                <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center" style={{ background: "rgba(6,182,212,0.1)" }}>
-                  <Bot className="h-4 w-4" style={{ color: "#06b6d4" }} />
-                </div>
-              )}
-              <div
-                className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-100 text-slate-700"
-                }`}
-              >
-                {msg.content}
-              </div>
-              {msg.role === "user" && (
-                <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center bg-blue-600">
-                  <User className="h-4 w-4 text-white" />
-                </div>
-              )}
-            </div>
-          ))}
-          {isTyping && (
-            <div className="flex gap-3">
-              <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center" style={{ background: "rgba(6,182,212,0.1)" }}>
-                <Bot className="h-4 w-4" style={{ color: "#06b6d4" }} />
-              </div>
-              <div className="bg-slate-100 rounded-2xl px-4 py-3 text-sm text-slate-400">
-                <span className="animate-pulse">En train de réfléchir...</span>
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </CardContent>
-
-        {/* Input */}
-        <div className="p-4 border-t border-slate-100">
-          <form
-            onSubmit={(e) => { e.preventDefault(); handleSend() }}
-            className="flex gap-2"
-          >
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Posez votre question SEO..."
-              className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
-            />
-            <Button type="submit" size="sm" disabled={!input.trim() || isTyping} className="px-4">
-              <Send className="h-4 w-4" />
-            </Button>
-          </form>
-        </div>
-      </Card>
-    </div>
-  )
+  if (context.isLoading) return <Skeleton className="h-64" />
+  if (context.error) return <p role="alert" className="text-destructive">{context.error.message}</p>
+  return <div className="space-y-4"><div className="rounded-lg border p-4 text-sm space-y-2">
+    <p>{context.data?.auditedAt ? "Contexte : audit du " + new Date(context.data.auditedAt).toLocaleString("fr-FR") : "Terminez un audit sur ce projet pour interroger l’agent."}</p>
+    {context.data && <p>Appels IA ce mois : {context.data.usage.used} / {context.data.usage.quota} · budget engagé : {context.data.usage.committedUsd.toFixed(4)} / {context.data.usage.budgetUsd.toFixed(2)} USD.</p>}
+    {!context.data?.usage.configured && <p>Le fournisseur et ses tarifs doivent être configurés par l’administrateur.</p>}
+    {!context.data?.usage.allowed && <p>L’IA n’est pas incluse dans votre abonnement.</p>}
+    <p className="text-muted-foreground">L’agent explique les résultats de l’audit et propose des actions. Les publications se valident dans Connexions CMS.</p>
+  </div><Card><CardContent className="p-4 space-y-4"><div className="max-h-[55vh] overflow-y-auto space-y-4" aria-live="polite">
+    {!messages.length && <p className="text-sm text-muted-foreground">Exemple : « Quelles sont les trois corrections prioritaires sur ce projet ? »</p>}
+    {messages.map((message, index) => <div key={index} className={message.role === "user" ? "ml-4 rounded-lg bg-primary p-3 text-primary-foreground" : "mr-4 rounded-lg bg-muted p-3"}><p className="mb-1 text-xs font-medium">{message.role === "user" ? "Vous" : "Agent IA"}</p><p className="whitespace-pre-wrap break-words text-sm">{message.content}</p></div>)}
+    {ask.isPending && <p className="text-sm text-muted-foreground">Analyse de l’audit en cours…</p>}<div ref={bottom} />
+  </div>{ask.error && <p role="alert" className="text-sm text-destructive">{ask.error.message}</p>}
+  <form className="flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); send() }}><label htmlFor="seo-agent-question" className="sr-only">Votre question SEO</label><textarea id="seo-agent-question" maxLength={1500} rows={2} value={input} onChange={event => setInput(event.target.value)} disabled={ask.isPending} placeholder="Votre question sur l’audit…" className="min-w-0 flex-1 rounded-md border bg-background p-3 text-sm" /><Button type="submit" disabled={!ready || ask.isPending || !input.trim()}><Send className="mr-2 h-4 w-4" />Envoyer</Button></form>
+  <Button variant="outline" disabled={ask.isPending || !messages.length} onClick={() => { setMessages([]); ask.reset() }}>Nouvelle conversation</Button>
+  </CardContent></Card></div>
+}
+export default function AIAgentPage() {
+  const { activeProjectId, setActiveProjectId } = useActiveProject(), projects = useProjects()
+  return <div className="p-4 md:p-6 space-y-6"><div className="flex items-center gap-3"><Bot className="h-6 w-6 text-primary" /><div><h1 className="text-2xl font-semibold">Agent IA SEO</h1><p className="text-sm text-muted-foreground">Des réponses fondées sur l’audit de votre client.</p></div></div><label className="block text-sm space-y-2">Projet client<select className="block w-full max-w-md rounded-md border bg-background p-2" value={activeProjectId ?? ""} onChange={event => setActiveProjectId(event.target.value || null)}><option value="">Choisir un projet</option>{projects.data?.map(project => <option key={project.id} value={project.id}>{project.name} — {project.domain}</option>)}</select></label>{activeProjectId ? <ProjectChat key={activeProjectId} projectId={activeProjectId} /> : <p className="text-muted-foreground">Choisissez le projet à analyser.</p>}</div>
 }

@@ -5,12 +5,12 @@ class Seo404connector extends Module
 {
     public function __construct()
     {
-        $this->name = 'seo404connector'; $this->tab = 'seo'; $this->version = '1.0.0';
+        $this->name = 'seo404connector'; $this->tab = 'seo'; $this->version = '1.1.0';
         $this->author = '404 SEO'; $this->bootstrap = true;
         $this->ps_versions_compliancy = array('min' => '8.0.0', 'max' => '9.99.99');
         parent::__construct();
         $this->displayName = '404 SEO Connector';
-        $this->description = 'Propositions, publication et annulation des champs SEO produits, dans une boutique et une langue choisies.';
+        $this->description = 'Champs SEO et extraits de texte des produits, catégories et pages CMS : propositions, publication et annulation dans une boutique/langue choisie.';
     }
     public function install()
     {
@@ -24,7 +24,15 @@ class Seo404connector extends Module
                 id_product INT NOT NULL, id_shop INT NOT NULL, id_lang INT NOT NULL,
                 operation_id VARCHAR(100) NOT NULL DEFAULT \'\', cancelled MEDIUMTEXT NOT NULL,
                 PRIMARY KEY (id_product, id_shop, id_lang)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4') && parent::install();
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4') && $this->installContentLedger() && parent::install();
+    }
+    public function installContentLedger()
+    {
+        return Db::getInstance()->execute('CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'seo404_content_operations` (
+            resource_kind VARCHAR(16) NOT NULL, id_resource INT NOT NULL, id_shop INT NOT NULL, id_lang INT NOT NULL,
+            operation_id VARCHAR(100) NOT NULL DEFAULT \'\', cancelled MEDIUMTEXT NOT NULL,
+            PRIMARY KEY (resource_kind, id_resource, id_shop, id_lang)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     }
     // Keep the operation ledger on uninstall: deleting cancellation markers could replay a delayed request.
     public function uninstall()
@@ -42,7 +50,7 @@ class Seo404connector extends Module
         }
         $shop = (int) $this->context->shop->id;
         $languages = Language::getLanguages(true, $shop);
-        $html = '<h2>404 SEO — connexion dédiée</h2><p>La clé autorise uniquement la lecture et les deux champs SEO des produits de la boutique et de la langue choisies. Une seule boutique/langue est autorisée à la fois sur cette installation.</p>';
+        $html = '<h2>404 SEO — connexion dédiée</h2><p>La clé autorise les champs SEO et la correction des extraits de texte et attributs alt existants des descriptions des produits, catégories et pages CMS de la boutique/langue choisie. Les balises HTML sont conservées. Le titre visible des pages CMS reste inchangé. Une seule boutique/langue est autorisée à la fois sur cette installation.</p>';
         $csrf = Tools::getAdminTokenLite('AdminModules');
         if (Tools::isSubmit('seo404_generate')) {
             $posted = Tools::getValue('seo404_csrf'); $lang = (int) Tools::getValue('seo404_language');

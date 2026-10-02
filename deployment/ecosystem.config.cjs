@@ -15,6 +15,26 @@ const productionEnv = result.parsed;
 
 module.exports = {
   apps: [
+    {
+      name: "404seo-cms-worker",
+      cwd: root,
+      script: path.join(root, "node_modules/.bin/tsx"),
+      args: "workers/cms-worker.ts",
+      interpreter: "node",
+      env: { ...productionEnv, NODE_ENV: "production" },
+      instances: 1,
+      exec_mode: "fork",
+      kill_timeout: 120000,
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 5000,
+      watch: false,
+      max_memory_restart: "256M",
+      log_date_format: "YYYY-MM-DD HH:mm:ss",
+      error_file: path.join(root, "logs/cms-worker-error.log"),
+      out_file: path.join(root, "logs/cms-worker-out.log"),
+      merge_logs: true,
+    },
     // ── Next.js 16 Frontend (:3030) ──────────────────────────────────────────
     {
       name: "404seo-site",

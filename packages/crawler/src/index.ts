@@ -10,6 +10,7 @@ import { googleRobotsMeta, readGoogleRobotsRules } from "./robotsDirectives"
 
 export type { PageData }
 export { plainCmsText } from "./cmsText"
+export { parseGoogleRankHtml } from "./rankResults"
 export { collectSitemapInventory, parseSitemapXml, sitemapRootsFromRobots, SITEMAP_IMPORT_LIMITS } from "./sitemaps"
 export type { SitemapFetch } from "./sitemaps"
 

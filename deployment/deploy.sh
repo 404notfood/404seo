@@ -11,7 +11,7 @@
 #   4. Applique les migrations
 #   5. Build Next.js
 #   6. Copie les assets statiques dans le standalone
-#   7. Reload PM2 (zero downtime)
+#   7. Relance PM2 avec arrêt gracieux des workers
 # =============================================================
 
 set -euo pipefail
@@ -51,6 +51,7 @@ echo ""
 # ── Install des dependances ─────────────────────────────────────────────
 echo ">> Installation des dependances..."
 npm ci --include=dev
+node deployment/preflight.mjs --config-only
 echo ""
 
 # ── Prisma generate (site + racine pour l'API Fastify) ──────────────────
@@ -64,6 +65,8 @@ npm test
 npm run lint
 npm run build
 
+# Une sauvegarde complète doit réussir avant les migrations.
+node deployment/backup.mjs create
 # Migrations versionnées, sans reset de la base.
 (cd site && npx prisma migrate deploy)
 # ── Copie des assets statiques dans le standalone ───────────────────────
@@ -93,10 +96,16 @@ echo ">> Build + packaging de l'extension Chrome..."
 ( cd apps/extension && npm run package ) || echo "AVERTISSEMENT: packaging de l'extension échoué (déploiement poursuivi)"
 echo ""
 
-# ── Reload PM2 (zero downtime) ─────────────────────────────────────────
+# ── Relance PM2 (les workers utilisent le mode fork) ──────────────────
 echo ">> Reload PM2..."
 pm2 startOrReload "$SCRIPT_DIR/ecosystem.config.cjs" --update-env
 pm2 save
+for attempt in {1..12}; do
+  if curl --fail --silent --max-time 5 http://127.0.0.1:4000/health/ready >/dev/null; then break; fi
+  if [ "$attempt" -eq 12 ]; then echo "ERREUR : les services ne sont pas prêts après le redémarrage."; exit 1; fi
+  sleep 5
+done
+node deployment/preflight.mjs
 echo ""
 
 # ── Verification status PM2 ────────────────────────────────────────────

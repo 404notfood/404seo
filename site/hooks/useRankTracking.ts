@@ -7,7 +7,7 @@ export function useRankTracking(projectId?: string | null) {
     queryKey: ["rank-tracking", projectId],
     queryFn: () => apiClient.getRankTracking(projectId),
     staleTime: 60_000,
-    refetchInterval: false,
+    refetchInterval: query => query.state.data?.keywords.some(keyword => keyword.lastCheckStatus === "RUNNING") ? 5000 : false,
   })
 }
 
@@ -42,6 +42,7 @@ export function useCheckKeywordPosition() {
       apiClient.checkKeywordPosition(id, domain),
     onSuccess: () => {
       toast.success("Vérification lancée en arrière-plan")
+      void qc.invalidateQueries({ queryKey: ["rank-tracking"] })
       // Rafraîchir après 30s
       setTimeout(() => qc.invalidateQueries({ queryKey: ["rank-tracking"] }), 30_000)
     },
@@ -56,6 +57,7 @@ export function useCheckAllPositions() {
       apiClient.checkAllPositions(projectId, domain),
     onSuccess: () => {
       toast.success("Vérification de toutes les positions lancée")
+      void qc.invalidateQueries({ queryKey: ["rank-tracking"] })
       setTimeout(() => qc.invalidateQueries({ queryKey: ["rank-tracking"] }), 60_000)
     },
     onError: (err: Error) => toast.error(err.message),

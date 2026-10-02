@@ -31,6 +31,7 @@ import analyticsRoutes from "./routes/analytics"
 import internalLinkRoutes from "./routes/internal-links"
 import urlInventoryRoutes from "./routes/url-inventory"
 import cmsRoutes from "./routes/cms"
+import aiAgentRoutes from "./routes/ai-agent"
 import { captureError } from "./lib/monitoring"
 import { isAllowedOrigin } from "./lib/securityPolicy"
 import { crawlQueue, redis } from "./lib/redis"
@@ -113,6 +114,7 @@ async function start() {
   await fastify.register(internalLinkRoutes)
   await fastify.register(urlInventoryRoutes)
   await fastify.register(cmsRoutes)
+  await fastify.register(aiAgentRoutes)
 
   // Monitoring d'erreurs global
   fastify.setErrorHandler(async (error: { statusCode?: number; message: string }, request, reply) => {
@@ -129,6 +131,18 @@ async function start() {
 
   // Health check
   fastify.get("/health", async () => ({ status: "ok", ts: new Date().toISOString() }))
+  fastify.get("/health/ready", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (_request, reply) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const checks = await Promise.race([
+        Promise.all([prisma.$queryRaw`SELECT 1`, redis.ping(), redis.mget("seo404:heartbeat:crawl", "seo404:heartbeat:scheduler", "seo404:heartbeat:cms")]),
+        new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("readiness timeout")), 3000) }),
+      ])
+      if (checks[1] !== "PONG" || checks[2].some(value => !value)) return reply.code(503).send({ status: "unavailable" })
+      return { status: "ready" }
+    } catch { return reply.code(503).send({ status: "unavailable" }) }
+    finally { if (timer) clearTimeout(timer) }
+  })
 
   const port = parseInt(process.env.API_PORT || "4000")
   const host = process.env.API_HOST || (isDev ? "0.0.0.0" : "127.0.0.1")

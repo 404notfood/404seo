@@ -23,6 +23,8 @@ test("PrestaShop: scoped credentials, fixed endpoint, plain content and preserva
   foreign = true; await assert.rejects(client.read(1), /correspond/); foreign = false
   siteUrl = "https://example.com/other/"; await assert.rejects(client.verify(), /autre boutique/)
   await assert.rejects(client.list(1, "page"), /produits/)
+  await assert.rejects(client.reconcile(2, "fixture"), /contenu demandé/)
+  await assert.rejects(client.write(1, "a".repeat(64), "fixture", "Titre", "Description", "category"), /contenu demandé/)
 })
 
 test("PrestaShop module: real MySQL/InnoDB locks, native fields, language/shop isolation, CAS, rollback and durable cancellation", { skip: !process.env.TEST_CMS_MYSQL_DSN || !process.env.PHP_BINARY }, () => {

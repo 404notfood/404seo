@@ -15,9 +15,9 @@ export function useFetchBacklinks() {
   return useMutation({
     mutationFn: ({ domain, projectId }: { domain: string; projectId?: string }) =>
       apiClient.fetchBacklinks(domain, projectId),
-    onSuccess: () => {
-      toast.success("Import lancé — les backlinks apparaîtront dans quelques secondes")
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["backlinks"] }), 15_000)
+    onSuccess: result => {
+      toast.success(result.message)
+      void qc.invalidateQueries({ queryKey: ["backlinks"] })
     },
     onError: (err: Error) => toast.error(err.message),
   })

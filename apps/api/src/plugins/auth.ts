@@ -5,15 +5,7 @@ import fp from "fastify-plugin"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "../lib/prisma"
 import { isCrossSiteMutation, isPublicApiRoute } from "../lib/securityPolicy"
-
-declare module "fastify" {
-  interface FastifyRequest {
-    userId: string
-    tenantId: string
-    role: "ADMIN" | "MEMBER" | "GUEST"
-    isSuperAdmin: boolean
-  }
-}
+import type {} from "../types/auth.types"
 
 const authPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.decorateRequest("userId", "")

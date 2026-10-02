@@ -8,7 +8,7 @@ import type { IncomingMessage, RequestOptions } from "node:http"
 import { fetchPublicUrl } from "../packages/shared/src/utils/publicUrl"
 import { plainCmsText } from "../packages/crawler/src/cmsText"
 import { encryptCmsCredentials, decryptCmsCredentials, wordpressBase, WordPressClient } from "../apps/api/src/lib/cmsWordPress"
-import { generateCmsProposal } from "../apps/api/src/lib/cmsAI"
+import { generateCmsProposal, generateCmsTextProposal, validatePatchProposal } from "../apps/api/src/lib/cmsAI"
 
 test("CMS credentials are encrypted, bound to tenant/project/connection and never transferable", () => {
   const previous = process.env.CMS_CREDENTIAL_KEY; process.env.CMS_CREDENTIAL_KEY = randomBytes(32).toString("hex")
@@ -81,4 +81,22 @@ test("AI generation sends bounded content without CMS credentials and handles re
     assert.equal((await generateCmsProposal(resource, "SPELLING")).seoTitle, "Chaussures rouges")
     for (state of ["invalid", "refusal", "incomplete"]) await assert.rejects(generateCmsProposal(resource, "SEO"), /exploitable/)
   } finally { mock.restoreAll(); delete process.env.OPENAI_API_KEY; delete process.env.OPENAI_SEO_MODEL }
+})
+
+test("CMS text proposals preserve segment identity, factual numbers, whitespace and plain text with metered structured responses", async () => {
+  const resource = { id: 1, url: "https://example.com/", kind: "page" as const, title: "Produit", content: "", seoTitle: null, seoDescription: null, revision: "a".repeat(64), segments: [
+    { id: "body:t:1", text: " Des chaussure à 25 €. ", type: "CONTENT" as const }, { id: "body:a:3", text: "Chaussure rouje", type: "ALT" as const },
+  ] }
+  const proposal = { patches: [{ id: "body:t:1", text: " Des chaussures à 25 €. " }], reason: "Accord corrigé." }
+  assert.deepEqual(validatePatchProposal(resource, "CONTENT", proposal), proposal)
+  for (const patch of [{ id: "body:t:999", text: "Autre texte" }, { id: "body:t:1", text: " Des chaussures à 30 €. " }, { id: "body:t:1", text: "Des chaussures à 25 €." }, { id: "body:t:1", text: "<b>Texte</b>" }]) assert.throws(() => validatePatchProposal(resource, "CONTENT", { ...proposal, patches: [patch] }))
+  assert.throws(() => validatePatchProposal(resource, "CONTENT", { ...proposal, patches: [proposal.patches[0], proposal.patches[0]] }))
+  let usage = 0
+  mock.method(globalThis, "fetch", async (_url: string, options: RequestInit) => {
+    const sent = JSON.parse(options.body as string) as { input: string; store: boolean; max_output_tokens: number; text: { format: { schema: { required: string[] } } } }
+    assert.equal(sent.store, false); assert.equal(sent.max_output_tokens, 1500); assert.deepEqual(sent.text.format.schema.required, ["patches", "reason"])
+    assert.ok(!sent.input.includes("Chaussure rouje"), "Different targets are not sent to the model")
+    return new Response(JSON.stringify({ status: "completed", usage: { input_tokens: 100, output_tokens: 50 }, output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(proposal) }] }] }))
+  })
+  try { assert.deepEqual(await generateCmsTextProposal(resource, "CONTENT", async tokens => { usage = tokens.output_tokens }), proposal); assert.equal(usage, 50) } finally { mock.restoreAll() }
 })

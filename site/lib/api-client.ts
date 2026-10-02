@@ -4,7 +4,8 @@ import type { SearchInsights, SearchInsightMode, SeoActionMeasurement } from "@s
 import type { AnalyticsProperty, AnalyticsMeasurement, ProjectAnalytics } from "@seo/shared"
 import type { ProjectInternalLinks, InternalLinkView } from "@seo/shared"
 import type { ProjectUrlInventory, UrlInventoryMode, SitemapSyncResult } from "@seo/shared"
-import type { ProjectCms, CmsResource, CmsCorrectionSummary, ConnectWordPressInput, ConnectPrestaShopInput } from "@seo/shared"
+import type { ProjectCms, CmsResource, CmsCorrectionMode, CmsCorrectionSummary, CmsBatchSummary, ConnectWordPressInput, ConnectPrestaShopInput } from "@seo/shared"
+import type { AiAgentReply, AiChatMessage, AiUsageSummary } from "@seo/shared"
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
@@ -55,12 +56,17 @@ export interface UserMe {
 }
 
 export const apiClient = {
+  getAiAgent: (projectId: string) => fetcher<{ auditId: string | null; auditedAt: string | null; usage: AiUsageSummary }>("/api/projects/" + encodeURIComponent(projectId) + "/ai-agent"),
+  askAiAgent: (projectId: string, messages: AiChatMessage[]) => fetcher<AiAgentReply>("/api/projects/" + encodeURIComponent(projectId) + "/ai-agent", { method: "POST", body: JSON.stringify({ messages }) }),
   getProjectCms: (projectId: string) => fetcher<ProjectCms>("/api/projects/" + encodeURIComponent(projectId) + "/cms"),
   connectWordPress: (projectId: string, data: ConnectWordPressInput) => fetcher<{ connected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "POST", body: JSON.stringify(data) }),
   connectPrestaShop: (projectId: string, data: ConnectPrestaShopInput) => fetcher<{ connected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "POST", body: JSON.stringify(data) }),
   disconnectCms: (projectId: string) => fetcher<{ disconnected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "DELETE", body: "{}" }),
   getCmsResources: (projectId: string, kind: CmsResource["kind"], page: number) => fetcher<{ resources: CmsResource[]; hasMore: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/resources?" + new URLSearchParams({ kind, page: String(page) })),
-  generateCmsCorrection: (projectId: string, resourceId: number, mode: "SEO" | "SPELLING") => fetcher<CmsCorrectionSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/corrections", { method: "POST", body: JSON.stringify({ resourceId, mode }) }),
+  generateCmsCorrection: (projectId: string, resourceId: number, mode: CmsCorrectionMode, kind?: CmsResource["kind"]) => fetcher<CmsCorrectionSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/corrections", { method: "POST", body: JSON.stringify({ resourceId, mode, kind }) }),
+  generateCmsBatch: (projectId: string, resources: { id: number; kind: CmsResource["kind"] }[], mode: CmsCorrectionMode) => fetcher<CmsBatchSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/batches", { method: "POST", body: JSON.stringify({ action: "GENERATE", resources, mode }) }),
+  applyCmsBatch: (projectId: string, correctionIds: string[]) => fetcher<CmsBatchSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/batches", { method: "POST", body: JSON.stringify({ action: "APPLY", correctionIds, confirmed: true }) }),
+  cancelCmsBatch: (projectId: string, id: string) => fetcher<CmsBatchSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/batches/" + encodeURIComponent(id) + "/cancel", { method: "POST", body: "{}" }),
   publishCmsCorrection: (projectId: string, id: string, action: "apply" | "restore" | "reconcile") => fetcher<CmsCorrectionSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/corrections/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: "{}" }),
   getUrlInventory: (projectId: string, params: { mode: UrlInventoryMode; q: string; page: number }) =>
     fetcher<ProjectUrlInventory>(`/api/projects/${encodeURIComponent(projectId)}/url-inventory?${new URLSearchParams({ mode: params.mode, q: params.q, page: String(params.page) })}`),
@@ -792,6 +798,10 @@ export interface RankedKeyword {
   title: string | null
   change: number | null // positif = monté, négatif = descendu
   checkedAt: string | null
+  lastCheckStatus: "NEVER" | "RUNNING" | "COMPLETED" | "FAILED"
+  lastCheckMessage: string | null
+  lastAttemptAt: string | null
+  resultCount: number
   history: Array<{ position: number | null; checkedAt: string }>
 }
 
@@ -903,6 +913,7 @@ export interface AIVisibilityCheck {
 
 export interface AIVisibilityData {
   checks: AIVisibilityCheck[]
+  usage: AiUsageSummary
   stats: {
     total: number
     mentioned: number
@@ -913,9 +924,10 @@ export interface AIVisibilityData {
 }
 
 export interface CheckVisibilityInput {
+  projectId: string
   domain: string
   queries: string[]
-  engine?: "claude"
+  engine?: "openai"
 }
 
 // ─── Types Google OAuth ───────────────────────
@@ -1105,6 +1117,8 @@ export interface PlanConfig {
   featureAI: boolean
   featureCmsCorrections: boolean
   cmsMonthlyQuota: number
+  aiMonthlyQuota: number
+  aiMonthlyBudgetCents: number
   featureRankTracking: boolean
   featureLocalSeo: boolean
   featureWhiteLabel: boolean

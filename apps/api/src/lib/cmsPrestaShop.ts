@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { fetchPublicUrl, isValidPublicUrl } from "@seo/shared/security"
-import type { CmsResource } from "@seo/shared"
+import type { CmsResource, CmsTextPatch } from "@seo/shared"
 import { plainCmsText } from "@seo/crawler"
 import { CmsError, CmsResourceSchema, seoText } from "./cmsWordPress"
 import type { CmsFetch, WordPressResource } from "./cmsWordPress"
@@ -32,7 +32,7 @@ export class PrestaShopClient {
     return { label: plainCmsText(data.label, 200), scope: data.scope }
   }
   private resource(value: unknown): WordPressResource {
-    const data = CmsResourceSchema.extend({ kind: z.literal("product"), seoTitle: seoText(255), seoDescription: seoText(512), scope: Scope }).parse(value)
+    const data = CmsResourceSchema.extend({ kind: z.enum(["product", "category", "cms"]), seoTitle: seoText(255), seoDescription: seoText(512), scope: Scope }).parse(value)
     if (!this.scope || data.scope !== this.scope) throw new CmsError("La langue ou la boutique ne correspond pas à la connexion.", 409)
     const page = new URL(data.url), site = new URL(this.siteUrl)
     if (!isValidPublicUrl(data.url) || page.origin !== site.origin || !page.pathname.startsWith(site.pathname)) throw new CmsError("Le produit ne correspond pas au site connecté.", 502)
@@ -40,13 +40,24 @@ export class PrestaShopClient {
     return { ...resource, title: plainCmsText(resource.title, 500), content: plainCmsText(resource.content, 8000) }
   }
   async list(page: number, kind: CmsResource["kind"]): Promise<{ resources: CmsResource[]; hasMore: boolean }> {
-    if (kind !== "product") throw new CmsError("Le pilote PrestaShop concerne les produits.")
-    const data = z.object({ resources: z.array(z.unknown()).max(25), hasMore: z.boolean() }).parse(await this.request("resources", { page: String(page) }))
-    return { resources: data.resources.map(value => this.resource(value)), hasMore: data.hasMore }
+    if (!["product", "category", "cms"].includes(kind)) throw new CmsError("Types autorisés : produits, catégories et pages CMS.")
+    const data = z.object({ resources: z.array(z.unknown()).max(25), hasMore: z.boolean() }).parse(await this.request("resources", { page: String(page), kind }))
+    const resources = data.resources.map(value => this.resource(value))
+    if (resources.some(resource => resource.kind !== kind)) throw new CmsError("Mettez à jour le module PrestaShop : le type demandé n’est pas confirmé.", 502)
+    return { resources, hasMore: data.hasMore }
   }
-  async read(id: number): Promise<WordPressResource> { return this.resource(await this.request("read", { id: String(id) })) }
-  async reconcile(id: number, operationId: string): Promise<WordPressResource> { return this.resource(await this.request("reconcile", { id: String(id) }, { operationId })) }
-  async write(id: number, revision: string, operationId: string, seoTitle: string | null, seoDescription: string | null): Promise<WordPressResource> {
-    return this.resource(await this.request("write", { id: String(id) }, { revision, operationId, seoTitle, seoDescription }))
+  async read(id: number, kind: CmsResource["kind"] = "product"): Promise<WordPressResource> {
+    const resource = this.resource(await this.request("read", { id: String(id), kind }))
+    if (resource.kind !== kind || resource.id !== id) throw new CmsError("Mettez à jour le module PrestaShop : le contenu demandé n’est pas confirmé.", 502)
+    return resource
+  }
+  private confirmed(value: unknown, id: number, kind: CmsResource["kind"]) {
+    const resource = this.resource(value)
+    if (resource.id !== id || resource.kind !== kind) throw new CmsError("Le connecteur n’a pas confirmé le contenu demandé.", 502)
+    return resource
+  }
+  async reconcile(id: number, operationId: string, kind: CmsResource["kind"] = "product"): Promise<WordPressResource> { return this.confirmed(await this.request("reconcile", { id: String(id), kind }, { operationId }), id, kind) }
+  async write(id: number, revision: string, operationId: string, seoTitle: string | null, seoDescription: string | null, kind: CmsResource["kind"] = "product", patches?: CmsTextPatch[]): Promise<WordPressResource> {
+    return this.confirmed(await this.request("write", { id: String(id), kind }, { revision, operationId, seoTitle, seoDescription, ...(patches?.length ? { patches } : {}) }), id, kind)
   }
 }

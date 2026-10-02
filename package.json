@@ -17,6 +17,9 @@
     "build:wordpress-connector": "node scripts/package-wordpress-connector.mjs",
     "build:prestashop-connector": "node scripts/package-prestashop-connector.mjs",
     "lint": "turbo run lint",
+    "deployment:check": "node deployment/preflight.mjs",
+    "deployment:monitor": "node deployment/monitor.mjs",
+    "deployment:backup": "node deployment/backup.mjs create",
     "db:migrate": "cd site && npx prisma migrate dev",
     "db:generate": "cd site && npx prisma generate",
     "db:studio": "cd site && npx prisma studio"
