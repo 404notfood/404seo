@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { CheckCircle2, ExternalLink, ListChecks, RefreshCw, Search } from "lucide-react"
-import type { ActionPlan, SeoActionItem, SeoActionStatus } from "@seo/shared"
+import type { ActionPlan, SeoActionItem, SeoActionStatus, ProjectAnalytics } from "@seo/shared"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,9 @@ import { useLaunchAudit } from "@/hooks/useAudits"
 import { useActionPlan, useSearchConsoleProperties, useSyncSearchConsole, useUpdateSeoAction, useVerifySeoActions } from "@/hooks/useActionPlan"
 import { apiClient } from "@/lib/api-client"
 import { ActionOutcome } from "./ActionOutcome"
+import { AnalyticsPanel } from "./AnalyticsPanel"
+import { AnalyticsOutcome } from "./AnalyticsOutcome"
+import { useProjectAnalytics } from "@/hooks/useAnalytics"
 
 const STATUS_LABELS: Record<SeoActionStatus, string> = { OPEN: "À faire", IN_PROGRESS: "En cours", IMPLEMENTED: "Correction effectuée", VERIFIED: "Vérifiée par audit", DISMISSED: "Écartée" }
 const EFFORT_LABELS = { LOW: "Faible", MEDIUM: "Moyen", HIGH: "Élevé" }
@@ -67,7 +70,7 @@ function SearchConsolePanel({ projectId, snapshot, canEdit }: { projectId: strin
   </Card>
 }
 
-function ActionCard({ action, projectId, canEdit, rank, hasSearchConsole }: { action: SeoActionItem; projectId: string; canEdit: boolean; rank: number; hasSearchConsole: boolean }) {
+function ActionCard({ action, projectId, canEdit, rank, hasSearchConsole, analytics }: { action: SeoActionItem; projectId: string; canEdit: boolean; rank: number; hasSearchConsole: boolean; analytics?: ProjectAnalytics }) {
   const update = useUpdateSeoAction(projectId)
   const [draftNote, setDraftNote] = useState<string | null>(null)
   const isRegression = action.status === "VERIFIED" && action.affectedPages > 0
@@ -105,6 +108,7 @@ function ActionCard({ action, projectId, canEdit, rank, hasSearchConsole }: { ac
       </div>
       {update.error && <p role="alert" className="text-sm text-destructive">{update.error.message}</p>}
       <ActionOutcome key={action.implementedAt} action={action} projectId={projectId} canEdit={canEdit} hasSearchConsole={hasSearchConsole} />
+      <AnalyticsOutcome key={`ga4-${action.implementedAt}-${analytics?.actions.find(item => item.checkName === action.checkName)?.measurement?.id ?? "none"}`} action={action} analytics={analytics} projectId={projectId} canEdit={canEdit} />
     </CardContent>
   </Card>
 }
@@ -113,6 +117,7 @@ function ProjectActionPlan({ projectId, prioritiesOnly }: { projectId: string; p
   const router = useRouter()
   const { isMember } = useRole()
   const { data, isLoading, error, refetch, isFetching } = useActionPlan(projectId)
+  const analytics = useProjectAnalytics(projectId)
   const verify = useVerifySeoActions(projectId)
   const launch = useLaunchAudit({ onAuditCreated: id => router.push(`/audits/${id}`) })
   const [showClosed, setShowClosed] = useState(false)
@@ -123,13 +128,15 @@ function ProjectActionPlan({ projectId, prioritiesOnly }: { projectId: string; p
   const visible = prioritiesOnly ? open.slice(0, 3) : showClosed ? data.actions : open
   return <div className="space-y-6">
     <SearchConsolePanel projectId={projectId} snapshot={data.searchConsole} canEdit={isMember} />
+    <AnalyticsPanel projectId={projectId} data={analytics.data} canEdit={isMember} isLoading={analytics.isLoading} error={analytics.error} />
+    <p className="text-sm"><Link href="/internal-linking" className="text-primary underline">Explorer le maillage interne et les suggestions de liens</Link></p>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="text-sm text-muted-foreground">{data.audit ? <p>Dernier audit : {data.audit.completedAt ? date(data.audit.completedAt) : "—"} · {data.audit.pageCount} pages · <Link className="underline" href={`/audits/${data.audit.id}`}>détails</Link></p> : <p>Lancez un premier audit pour construire votre plan d’action.</p>}</div>
       <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={isFetching} onClick={() => void refetch()}><RefreshCw className="size-4" />Actualiser</Button><Button size="sm" variant="outline" disabled={!isMember || verify.isPending || !data.audit} onClick={() => verify.mutate()}><CheckCircle2 className="size-4" />Vérifier les corrections</Button><Button size="sm" disabled={!isMember || launch.isPending} onClick={() => launch.mutate({ projectId })}>{launch.isPending ? "Lancement…" : "Relancer un audit"}</Button></div>
     </div>
     {!prioritiesOnly && <Button size="sm" variant="ghost" onClick={() => setShowClosed(value => !value)}>{showClosed ? "Masquer" : "Afficher"} les actions vérifiées et écartées ({data.actions.length - open.length})</Button>}
     {prioritiesOnly && <p className="text-sm text-muted-foreground">Les trois premières actions actives. <Link href="/optimization" className="underline">Voir tout le plan ({open.length})</Link></p>}
-    {visible.length === 0 ? <Card><CardContent className="py-10 text-center text-muted-foreground">{data.audit ? "Aucune action active dans le périmètre du dernier audit." : "Aucun audit terminé pour ce projet."}</CardContent></Card> : visible.map((action, index) => <ActionCard key={`${projectId}-${action.checkName}`} action={action} projectId={projectId} canEdit={isMember} hasSearchConsole={!!data.searchConsole} rank={index + 1} />)}
+    {visible.length === 0 ? <Card><CardContent className="py-10 text-center text-muted-foreground">{data.audit ? "Aucune action active dans le périmètre du dernier audit." : "Aucun audit terminé pour ce projet."}</CardContent></Card> : visible.map((action, index) => <ActionCard key={`${projectId}-${action.checkName}`} action={action} projectId={projectId} canEdit={isMember} hasSearchConsole={!!data.searchConsole} analytics={analytics.data} rank={index + 1} />)}
     {verify.data && verify.data.pending.length > 0 && <Card><CardContent className="pt-6 space-y-2"><p className="font-medium">Vérifications en attente</p>{verify.data.pending.map(item => <p key={item.checkName} className="text-sm text-muted-foreground">{data.actions.find(action => action.checkName === item.checkName)?.title ?? item.checkName} : {item.reason}</p>)}</CardContent></Card>}
     {verify.error && <p role="alert" className="text-sm text-destructive">{verify.error.message}</p>}
   </div>

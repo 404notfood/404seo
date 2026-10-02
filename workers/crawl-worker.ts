@@ -172,6 +172,7 @@ const crawlWorker = new Worker<CrawlJobData>(
             smallTapTargets: page.smallTapTargets,
             smallFontSizes: page.smallFontSizes,
             topKeywords: JSON.parse(JSON.stringify(page.topKeywords ?? [])),
+            ...(page.linkingData ? { linkingData: JSON.parse(JSON.stringify(page.linkingData)) } : {}),
           },
         })
         savedPageIds.push(saved.id)

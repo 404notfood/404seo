@@ -41,6 +41,7 @@ export interface PageData {
   wordCount?: number
   bodyText?: string
   topKeywords?: import("../keywords").KeywordEntry[]
+  linkingData?: import("./internalLinks.types").LinkingPageData
   hasRobotsTxt?: boolean
   hasSitemap?: boolean
   hasResponsiveMeta?: boolean

@@ -61,6 +61,7 @@ L'installateur choisit les templates web (Nginx seul) ou proxy (Nginx + Apache) 
 
 - Stripe : clés serveur, signature webhook https://seo.404notfood.fr/api/billing/webhook, prix dans PlanConfig via l'administration. Tester souscription, renouvellement et résiliation avant passage en mode réel.
 - Google : autoriser https://seo.404notfood.fr/api/auth/callback/google pour la connexion et https://seo.404notfood.fr/api/google/callback pour GBP/Analytics. Les permissions GBP dépendent du compte et du projet Google Cloud.
+- GA4 : activer **Google Analytics Admin API** et **Google Analytics Data API** dans le projet Google Cloud OAuth. Le scope `analytics.readonly` est inclus dans la connexion Analytics + Search Console. Renseigner une propriété et un flux web couvrant le projet, puis vérifier l’import et les comparaisons avec un compte réel. Voir [ANALYTICS.md](../ANALYTICS.md).
 - Resend : clé et expéditeur vérifié pour inscription/récupération. Sans clé, emails et obligation de vérification d'adresse sont désactivés.
 - Extension : origine exacte chrome-extension://ID dans CHROME_EXTENSION_ORIGINS ; utiliser un ID stable.
 
@@ -78,3 +79,5 @@ Le script récupère main en fast-forward, utilise npm ci, vérifie TypeScript/t
 ## Recette sur le VPS
 
 Contrôler pm2 status, les logs des quatre services, nginx -t, connexion/inscription, un audit réel et son PDF, les notifications et chaque intégration activée. Confirmer que 3030, 4000, 5432 et 6379 ne sont pas accessibles depuis Internet. Les tests du dépôt ne remplacent pas cette recette sur le serveur.
+
+Après la migration du maillage, relancer un audit puis vérifier `/internal-linking` : les anciens audits n’ont pas de paragraphes ni d’ancres contextualisées. Voir [INTERNAL_LINKING.md](../INTERNAL_LINKING.md) pour les bornes et la recette.

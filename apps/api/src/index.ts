@@ -27,6 +27,9 @@ import aiVisibilityRoutes from "./routes/ai-visibility"
 import adminRoutes from "./routes/admin"
 import scheduledRoutes from "./routes/scheduled"
 import actionPlanRoutes from "./routes/action-plan"
+import analyticsRoutes from "./routes/analytics"
+import internalLinkRoutes from "./routes/internal-links"
+import urlInventoryRoutes from "./routes/url-inventory"
 import { captureError } from "./lib/monitoring"
 import { isAllowedOrigin } from "./lib/securityPolicy"
 import { crawlQueue, redis } from "./lib/redis"
@@ -105,6 +108,9 @@ async function start() {
   await fastify.register(adminRoutes)
   await fastify.register(scheduledRoutes)
   await fastify.register(actionPlanRoutes)
+  await fastify.register(analyticsRoutes)
+  await fastify.register(internalLinkRoutes)
+  await fastify.register(urlInventoryRoutes)
 
   // Monitoring d'erreurs global
   fastify.setErrorHandler(async (error: { statusCode?: number; message: string }, request, reply) => {

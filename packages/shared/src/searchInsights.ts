@@ -2,8 +2,8 @@ import { normalizePageUrl } from "./actionPlan"
 import type { SearchConsolePageMetric } from "./types/actionPlan.types"
 import type { SearchComparisonResult, SearchComparisonWindows, SearchConsoleQueryMetric, SearchMetricSummary, SearchQueryInsight } from "./types/searchInsights.types"
 
-export function googleCalendarDate(value: Date): string {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value)
+export function googleCalendarDate(value: Date, timeZone = "America/Los_Angeles"): string {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value)
   const part = (name: string) => parts.find(item => item.type === name)!.value
   return `${part("year")}-${part("month")}-${part("day")}`
 }
@@ -14,11 +14,11 @@ export function shiftCalendarDate(value: string, days: number): string {
   return date.toISOString().slice(0, 10)
 }
 
-export function searchComparisonWindows(implementedAt: Date, windowDays: 7 | 28, now = new Date()): SearchComparisonWindows {
-  const day = googleCalendarDate(implementedAt)
+export function searchComparisonWindows(implementedAt: Date, windowDays: 7 | 28, now = new Date(), timeZone = "America/Los_Angeles"): SearchComparisonWindows {
+  const day = googleCalendarDate(implementedAt, timeZone)
   const beforeEndDate = shiftCalendarDate(day, -1)
   const afterEndDate = shiftCalendarDate(day, windowDays)
-  const availableThrough = shiftCalendarDate(googleCalendarDate(now), -3)
+  const availableThrough = shiftCalendarDate(googleCalendarDate(now, timeZone), -3)
   return { windowDays, beforeStartDate: shiftCalendarDate(day, -windowDays), beforeEndDate,
     afterStartDate: shiftCalendarDate(day, 1), afterEndDate, readyOn: shiftCalendarDate(afterEndDate, 3), availableThrough,
     ready: availableThrough >= afterEndDate }

@@ -110,6 +110,7 @@ const sections: NavSection[] = [
     defaultOpen: false,
     items: [
       { href: "/content-audit", label: "Audit de contenu", icon: PenTool },
+      { href: "/internal-linking", label: "Maillage interne", icon: Link2 },
       { href: "/backlinks", label: "Backlinks", icon: Link2, badge: "Bientôt", badgeColor: "#7c3aed" },
       { href: "/reports", label: "Rapports PDF", icon: FileText },
       { href: "/stats", label: "Statistiques", icon: BarChart3 },

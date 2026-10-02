@@ -1,6 +1,9 @@
 // lib/api-client.ts — Client HTTP vers l'API Fastify
 import type { ActionPlan, ActionVerification, SearchConsoleProperty, SeoActionStatus } from "@seo/shared"
 import type { SearchInsights, SearchInsightMode, SeoActionMeasurement } from "@seo/shared"
+import type { AnalyticsProperty, AnalyticsMeasurement, ProjectAnalytics } from "@seo/shared"
+import type { ProjectInternalLinks, InternalLinkView } from "@seo/shared"
+import type { ProjectUrlInventory, UrlInventoryMode, SitemapSyncResult } from "@seo/shared"
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
@@ -51,6 +54,18 @@ export interface UserMe {
 }
 
 export const apiClient = {
+  getUrlInventory: (projectId: string, params: { mode: UrlInventoryMode; q: string; page: number }) =>
+    fetcher<ProjectUrlInventory>(`/api/projects/${encodeURIComponent(projectId)}/url-inventory?${new URLSearchParams({ mode: params.mode, q: params.q, page: String(params.page) })}`),
+  syncSitemaps: (projectId: string, sitemapUrl?: string) => fetcher<SitemapSyncResult>(`/api/projects/${encodeURIComponent(projectId)}/url-inventory/sitemaps/sync`, { method: "POST", body: JSON.stringify(sitemapUrl ? { sitemapUrl } : {}) }),
+  getInternalLinks: (projectId: string, params: { view: InternalLinkView; q: string; page: number; unlinked: boolean }) =>
+    fetcher<ProjectInternalLinks>(`/api/projects/${encodeURIComponent(projectId)}/internal-links?${new URLSearchParams({ view: params.view, q: params.q, page: String(params.page), unlinked: String(params.unlinked) })}`),
+  getProjectAnalytics: (projectId: string, page = 1) => fetcher<ProjectAnalytics>(`/api/projects/${encodeURIComponent(projectId)}/analytics?page=${page}`),
+  getAnalyticsProperty: (projectId: string, googleAccountId: string, propertyId: string) =>
+    fetcher<AnalyticsProperty>(`/api/projects/${encodeURIComponent(projectId)}/analytics/property?${new URLSearchParams({ googleAccountId, propertyId })}`),
+  syncAnalytics: (projectId: string, data: { googleAccountId: string; propertyId: string; streamId: string }) =>
+    fetcher<{ importedAt: string; pageCount: number }>(`/api/projects/${encodeURIComponent(projectId)}/analytics/sync`, { method: "POST", body: JSON.stringify(data) }),
+  measureAnalyticsAction: (projectId: string, checkName: string, windowDays: 7 | 28) =>
+    fetcher<AnalyticsMeasurement>(`/api/projects/${encodeURIComponent(projectId)}/analytics/actions/${encodeURIComponent(checkName)}/measure`, { method: "POST", body: JSON.stringify({ windowDays }) }),
   getSearchInsights: (projectId: string, params?: { q?: string; mode?: SearchInsightMode; page?: number }) => {
     const query = new URLSearchParams()
     if (params?.q) query.set("q", params.q)

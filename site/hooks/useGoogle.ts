@@ -22,6 +22,9 @@ export function useDisconnectGoogle() {
       queryClient.removeQueries({ queryKey: ["search-insights"] })
       queryClient.removeQueries({ queryKey: ["search-console-properties"] })
       queryClient.invalidateQueries({ queryKey: ["action-plan"] })
+      queryClient.removeQueries({ queryKey: ["analytics-property"] })
+      queryClient.invalidateQueries({ queryKey: ["project-analytics"] })
+      queryClient.invalidateQueries({ queryKey: ["url-inventory"] })
     },
     onError: (err: Error) => {
       toast.error(err.message || "Erreur lors de la déconnexion")
@@ -41,6 +44,9 @@ export function useDisconnectGoogleAccount() {
       queryClient.removeQueries({ queryKey: ["search-insights"] })
       queryClient.removeQueries({ queryKey: ["search-console-properties"] })
       queryClient.invalidateQueries({ queryKey: ["action-plan"] })
+      queryClient.removeQueries({ queryKey: ["analytics-property"] })
+      queryClient.invalidateQueries({ queryKey: ["project-analytics"] })
+      queryClient.invalidateQueries({ queryKey: ["url-inventory"] })
     },
     onError: (err: Error) => {
       toast.error(err.message || "Erreur lors de la déconnexion")

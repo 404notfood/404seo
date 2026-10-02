@@ -146,6 +146,8 @@ model Tenant {
 model Project {
   deletedAt DateTime?
   gscSyncStartedAt DateTime?
+  analyticsSyncStartedAt DateTime?
+  sitemapSyncStartedAt DateTime?
   id          String   @id @default(cuid())
   tenantId    String
   userId      String
@@ -164,6 +166,8 @@ model Project {
   scheduledAudits ScheduledAudit[]
   searchConsoleSnapshots SearchConsoleSnapshot[]
   seoActions SeoAction[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  sitemapSnapshots SitemapSnapshot[]
 
   @@index([tenantId])
   @@unique([id, tenantId])
@@ -198,6 +202,21 @@ model Audit {
   @@map("audits")
 }
 
+model SitemapSnapshot {
+  id         String   @id @default(cuid())
+  tenantId   String
+  projectId  String
+  importedAt DateTime @default(now())
+  pageCount  Int
+  data       Json
+
+  project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId, importedAt])
+  @@map("sitemap_snapshots")
+}
+
 model AuditPage {
   tenantId String
   id              String   @id @default(cuid())
@@ -227,6 +246,7 @@ model AuditPage {
   brokenLinks     Int?
   // URLs des liens (pour affichage cliquable) — String[] dédupliqué côté crawler
   internalLinkUrls String[]
+  linkingData     Json?
   externalLinkUrls String[]
   // Schema.org
   hasSchemaOrg    Boolean?
@@ -614,6 +634,8 @@ model GoogleAccount {
   listings GBPListing[] // fiches associées à ce compte Google
   searchConsoleSnapshots SearchConsoleSnapshot[]
   seoActionMeasurements SeoActionMeasurement[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  analyticsMeasurements AnalyticsActionMeasurement[]
 
   @@index([tenantId])
   @@unique([id, tenantId])
@@ -675,6 +697,7 @@ model SeoAction {
   updatedAt DateTime @updatedAt
   project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
   measurements SeoActionMeasurement[]
+  analyticsMeasurements AnalyticsActionMeasurement[]
 
   @@unique([projectId, checkName])
   @@unique([id, tenantId])
@@ -721,6 +744,70 @@ model SeoActionMeasurement {
   @@unique([actionId, implementedAt, windowDays])
   @@index([tenantId, actionId])
   @@map("seo_action_measurements")
+}
+
+model AnalyticsSnapshot {
+  id String @id @default(cuid())
+  tenantId String
+  projectId String
+  googleAccountId String
+  propertyId String
+  displayName String
+  streamId String
+  timeZone String
+  currencyCode String
+  startDate String
+  endDate String
+  quality Json
+  importedAt DateTime @default(now())
+  project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  pages AnalyticsPageMetric[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId, importedAt])
+  @@map("analytics_snapshots")
+}
+
+model AnalyticsPageMetric {
+  id String @id @default(cuid())
+  tenantId String
+  snapshotId String
+  pageUrl String @db.Text
+  sessions Float
+  keyEvents Float
+  purchaseRevenue Float?
+  snapshot AnalyticsSnapshot @relation(fields: [snapshotId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([snapshotId, pageUrl])
+  @@index([tenantId, snapshotId])
+  @@map("analytics_page_metrics")
+}
+
+model AnalyticsActionMeasurement {
+  id String @id @default(cuid())
+  tenantId String
+  actionId String
+  googleAccountId String
+  propertyId String
+  streamId String
+  timeZone String
+  currencyCode String
+  implementedAt DateTime
+  windowDays Int
+  beforeStartDate String
+  beforeEndDate String
+  afterStartDate String
+  afterEndDate String
+  quality Json
+  result Json
+  measuredAt DateTime @default(now())
+  action SeoAction @relation(fields: [actionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([actionId, implementedAt, windowDays])
+  @@index([tenantId, actionId])
+  @@map("analytics_action_measurements")
 }
 
 enum SeoActionStatus {

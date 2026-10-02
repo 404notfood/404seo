@@ -5,8 +5,12 @@ import { URL } from "url"
 
 import type { PageData } from "@seo/shared"
 import { extractPageKeywords } from "@seo/shared"
+import { extractLinkingData, resolveDocumentBaseUrl } from "./linkingData"
+import { googleRobotsMeta, readGoogleRobotsRules } from "./robotsDirectives"
 
 export type { PageData }
+export { collectSitemapInventory, parseSitemapXml, sitemapRootsFromRobots, SITEMAP_IMPORT_LIMITS } from "./sitemaps"
+export type { SitemapFetch } from "./sitemaps"
 
 // ─────────────────────────────────────────────
 // Anti-SSRF
@@ -145,6 +149,8 @@ function parsePageContent(
 ): Omit<PageData, "url" | "statusCode" | "responseTime" | "pageSize"> {
   const $ = cheerio.load(html)
   const parsedBase = new URL(baseUrl)
+  const linkingData = extractLinkingData($, baseUrl)
+  const documentBase = resolveDocumentBaseUrl($, baseUrl)
 
   const title = $("title").first().text().trim() || undefined
   const metaDescription = $('meta[name="description"]').attr("content")?.trim()
@@ -158,9 +164,14 @@ function parsePageContent(
   $("h3").each((_, el) => { h3.push($(el).text().trim()) })
   $("h4").each((_, el) => { h4.push($(el).text().trim()) })
 
-  const canonicalUrl = $('link[rel="canonical"]').attr("href")?.trim()
-  const metaRobots = $('meta[name="robots"]').attr("content")?.toLowerCase()
-  const isIndexable = !metaRobots?.includes("noindex")
+  const canonicalHref = $('link[rel="canonical"]').attr("href")?.trim()
+  let canonicalUrl = canonicalHref
+  if (canonicalHref) {
+    try { canonicalUrl = new URL(canonicalHref, documentBase).href } catch { /* Retain invalid canonicals for diagnostics. */ }
+  }
+  const robotsRules = readGoogleRobotsRules(googleRobotsMeta($))
+  const metaRobots = robotsRules.raw || undefined
+  const isIndexable = !robotsRules.noindex
 
   const images: PageData["images"] = []
   $("img").each((_, el) => {
@@ -181,7 +192,7 @@ function parsePageContent(
     const href = $(el).attr("href")
     if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return
     try {
-      const linkUrl = new URL(href, baseUrl)
+      const linkUrl = new URL(href, documentBase)
       if (!["http:", "https:"].includes(linkUrl.protocol)) return
       if (linkUrl.hostname === parsedBase.hostname) {
         internalLinks.push(linkUrl.href)
@@ -243,6 +254,7 @@ function parsePageContent(
 
   return {
     title,
+    linkingData,
     metaDescription,
     h1,
     headings: { h2, h3, h4 },
@@ -374,6 +386,14 @@ export class SEOCrawler {
 
       // Capture response headers (sécurité)
       const rawHeaders = response?.headers() ?? {}
+      const robotsHeaders = (await response?.headersArray() ?? []).filter(header => header.name.toLowerCase() === "x-robots-tag").map(header => header.value)
+      const rules = readGoogleRobotsRules(parsed.metaRobots ? [parsed.metaRobots] : [], robotsHeaders)
+      parsed.isIndexable = !rules.noindex
+      parsed.metaRobots = rules.raw || undefined
+      if (rules.nofollow && parsed.linkingData) {
+        parsed.linkingData.pageNofollow = true
+        for (const link of parsed.linkingData.links) link.nofollow = true
+      }
       const responseHeaders: Record<string, string> = {}
       for (const key of ["strict-transport-security", "x-content-type-options", "x-frame-options", "content-security-policy", "referrer-policy", "permissions-policy"]) {
         if (rawHeaders[key]) responseHeaders[key] = rawHeaders[key]
