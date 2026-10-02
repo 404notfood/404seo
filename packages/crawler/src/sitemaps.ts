@@ -89,7 +89,15 @@ async function requestDocument(url: string, projectUrl: string, fetcher: Sitemap
     if (!safeDocumentUrl(current, projectUrl)) throw new SitemapFormatError("REDIRECT_BLOCKED")
     const remaining = deadline - now()
     if (remaining <= 0) throw new SitemapFormatError("FETCH_ERROR")
-    const response = await fetcher(current, { maxBytes, timeoutMs: Math.min(SITEMAP_IMPORT_LIMITS.requestMs, remaining) })
+    const timeoutMs = Math.min(SITEMAP_IMPORT_LIMITS.requestMs, remaining)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let response: SitemapFetchResponse
+    try {
+      response = await Promise.race([
+        fetcher(current, { maxBytes, timeoutMs }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new SitemapFormatError("FETCH_ERROR")), timeoutMs) }),
+      ])
+    } finally { clearTimeout(timer) }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const target = normalizeInternalLinkUrl(response.headers.location ?? "", current)
       if (!target || !safeDocumentUrl(target, projectUrl)) throw new SitemapFormatError("REDIRECT_BLOCKED")

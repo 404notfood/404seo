@@ -78,6 +78,8 @@ Le script récupère main en fast-forward, utilise npm ci, vérifie TypeScript/t
 
 ## Recette sur le VPS
 
+La migration additive 20261002040000_url_inventory ajoute les snapshots sitemap et leur verrou par projet. Dans /internal-linking, ouvrir l’inventaire sitemap/GSC et importer les sitemaps publics du projet. Vérifier les preuves, les avertissements de couverture et les dates avant de corriger des pages candidates. Voir [URL_INVENTORY.md](../URL_INVENTORY.md). L’import réseau conserve les protections SSRF communes et ne lance aucun crawl automatique des URLs trouvées.
+
 Contrôler pm2 status, les logs des quatre services, nginx -t, connexion/inscription, un audit réel et son PDF, les notifications et chaque intégration activée. Confirmer que 3030, 4000, 5432 et 6379 ne sont pas accessibles depuis Internet. Les tests du dépôt ne remplacent pas cette recette sur le serveur.
 
 Après la migration du maillage, relancer un audit puis vérifier `/internal-linking` : les anciens audits n’ont pas de paragraphes ni d’ancres contextualisées. Voir [INTERNAL_LINKING.md](../INTERNAL_LINKING.md) pour les bornes et la recette.

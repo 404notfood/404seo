@@ -20,7 +20,7 @@ Chaque paire source/destination compte une fois, même si la page comporte plusi
 
 La profondeur correspond au plus court chemin depuis l’URL de départ de l’audit, en suivant les liens entre pages présentes. « Non atteinte » signifie que ce graphe ne contient pas de chemin depuis cette URL. Une redirection du point de départ peut également empêcher cette mesure. Les URLs liées mais non auditées sont comptabilisées séparément ; leur code HTTP et leur indexabilité restent inconnus.
 
-« Sans entrant observé » exclut le point de départ. Ce signal ne prouve pas qu’une page est orpheline sur tout le site : le crawl peut être incomplet, et les pages totalement isolées ne sont pas nécessairement découvertes par un crawl de liens. La livraison ne rapproche pas encore le graphe avec un inventaire exhaustif de sitemap ou de Search Console.
+« Sans entrant observé » exclut le point de départ. Ce signal ne prouve pas qu’une page est orpheline sur tout le site : le crawl peut être incomplet, et les pages totalement isolées ne sont pas nécessairement découvertes par un crawl de liens. Le cinquième lot ajoute un [inventaire sitemap et Search Console](URL_INVENTORY.md) pour examiner les URLs absentes du crawl, avec provenance et limites de couverture.
 
 ## Propositions et preuves
 

@@ -101,4 +101,9 @@ test("sitemaps: document, URL, depth and time limits are explicit; total failure
   assert.equal(timed.limits.time, true); assert.equal(timed.documents.length, 3)
   await assert.rejects(collectSitemapInventory(origin, origin + "/missing-index.xml", { fetch: transport({ [origin + "/missing-index.xml"]: response(xml([origin + "/missing.xml"], true)) }) }))
   await assert.rejects(collectSitemapInventory(origin, origin + "/html", { fetch: async () => response("<html/>") }))
+  let clockCalls = 0
+  await assert.rejects(collectSitemapInventory(origin, origin + "/hung.xml", {
+    now: () => clockCalls++ === 0 ? 0 : 19_999,
+    fetch: () => new Promise(() => {}),
+  }), "Even a transport stalled after its own timeout must not hold the import open")
 })
