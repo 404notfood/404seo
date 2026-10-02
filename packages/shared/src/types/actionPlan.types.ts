@@ -44,6 +44,7 @@ export interface SeoActionItem {
   implementedAt: string | null
   verifiedAt: string | null
   verifiedAuditId: string | null
+  measurement?: import("./searchInsights.types").SeoActionMeasurement | null
 }
 
 export interface ActionPlan {
@@ -57,6 +58,8 @@ export interface ActionPlan {
     pageCount: number
     rowLimitReached: boolean
     stale: boolean
+    queriesIncluded: boolean
+    queryRowLimitReached: boolean
   } | null
   actions: SeoActionItem[]
 }

@@ -17,6 +17,7 @@ export function useSyncSearchConsole(projectId: string) {
     mutationFn: (data: { googleAccountId: string; propertyUrl: string }) => apiClient.syncSearchConsole(projectId, data),
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ["action-plan", projectId] })
+      void queryClient.invalidateQueries({ queryKey: ["search-insights", projectId] })
       toast.success(`${data.pageCount} page(s) Search Console importée(s)`)
     }, onError: (error: Error) => toast.error(error.message),
   })

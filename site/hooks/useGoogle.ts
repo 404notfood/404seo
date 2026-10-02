@@ -19,6 +19,9 @@ export function useDisconnectGoogle() {
       queryClient.invalidateQueries({ queryKey: ["google-status"] })
       queryClient.invalidateQueries({ queryKey: ["local-listings"] })
       toast.success("Tous les comptes Google déconnectés")
+      queryClient.removeQueries({ queryKey: ["search-insights"] })
+      queryClient.removeQueries({ queryKey: ["search-console-properties"] })
+      queryClient.invalidateQueries({ queryKey: ["action-plan"] })
     },
     onError: (err: Error) => {
       toast.error(err.message || "Erreur lors de la déconnexion")
@@ -35,6 +38,9 @@ export function useDisconnectGoogleAccount() {
       queryClient.invalidateQueries({ queryKey: ["google-status"] })
       queryClient.invalidateQueries({ queryKey: ["local-listings"] })
       toast.success("Compte Google déconnecté")
+      queryClient.removeQueries({ queryKey: ["search-insights"] })
+      queryClient.removeQueries({ queryKey: ["search-console-properties"] })
+      queryClient.invalidateQueries({ queryKey: ["action-plan"] })
     },
     onError: (err: Error) => {
       toast.error(err.message || "Erreur lors de la déconnexion")

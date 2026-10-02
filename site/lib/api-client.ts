@@ -1,5 +1,6 @@
 // lib/api-client.ts — Client HTTP vers l'API Fastify
 import type { ActionPlan, ActionVerification, SearchConsoleProperty, SeoActionStatus } from "@seo/shared"
+import type { SearchInsights, SearchInsightMode, SeoActionMeasurement } from "@seo/shared"
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
@@ -50,6 +51,15 @@ export interface UserMe {
 }
 
 export const apiClient = {
+  getSearchInsights: (projectId: string, params?: { q?: string; mode?: SearchInsightMode; page?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.q) query.set("q", params.q)
+    if (params?.mode) query.set("mode", params.mode)
+    if (params?.page) query.set("page", String(params.page))
+    return fetcher<SearchInsights>(`/api/projects/${encodeURIComponent(projectId)}/search-insights?${query}`)
+  },
+  measureSeoAction: (projectId: string, checkName: string, windowDays: 7 | 28) =>
+    fetcher<SeoActionMeasurement>(`/api/projects/${encodeURIComponent(projectId)}/action-plan/${encodeURIComponent(checkName)}/measure`, { method: "POST", body: JSON.stringify({ windowDays }) }),
   getActionPlan: (projectId: string) => fetcher<ActionPlan>(`/api/projects/${encodeURIComponent(projectId)}/action-plan`),
   getSearchConsoleProperties: (projectId: string, googleAccountId: string) =>
     fetcher<{ properties: SearchConsoleProperty[] }>(`/api/projects/${encodeURIComponent(projectId)}/search-console/properties?googleAccountId=${encodeURIComponent(googleAccountId)}`),

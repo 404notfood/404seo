@@ -1,11 +1,13 @@
 import type { FastifyPluginAsync } from "fastify"
+import { createHash } from "node:crypto"
 import { z } from "zod"
-import { buildActionItems, correctionVerification, formatCheckTitle, normalizePageUrl } from "@seo/shared"
-import type { ActionPlan, ActionPlanCheck, ActionVerification, SeoActionItem } from "@seo/shared"
+import { buildActionItems, buildSearchQueryInsights, compareSearchPages, correctionVerification, formatCheckTitle, normalizePageUrl, normalizeSearchQuery, searchComparisonWindows } from "@seo/shared"
+import type { ActionPlan, ActionPlanCheck, ActionVerification, SeoActionItem, SearchInsights } from "@seo/shared"
 import { prisma } from "../lib/prisma"
 import { assertProjectOwner, requireRole } from "../lib/guards"
 import { pageBelongsToProject, propertyCoversProject, searchConsoleProvider, searchConsoleWindow } from "../lib/searchConsole"
 import type { SearchConsoleProvider } from "../lib/searchConsole"
+import { measurementDto } from "../lib/actionMeasurement"
 
 const Scope = z.object({ projectId: z.string().min(1).max(100) })
 const Account = z.object({ googleAccountId: z.string().min(1).max(100) })
@@ -14,6 +16,11 @@ const UpdateInput = z.object({
   status: z.enum(["OPEN", "IN_PROGRESS", "IMPLEMENTED", "DISMISSED"]),
   note: z.string().max(2000).optional(),
 }).strict()
+const InsightsQuery = z.object({
+  q: z.string().trim().max(200).default(""), mode: z.enum(["all", "opportunities", "overlap"]).default("all"),
+  page: z.coerce.number().int().min(1).max(1000).default(1), limit: z.coerce.number().int().min(1).max(100).default(25),
+})
+const MeasureInput = z.object({ windowDays: z.union([z.literal(7), z.literal(28)]).default(28) }).strict()
 
 async function latestAudit(projectId: string, tenantId: string, userId: string) {
   return prisma.audit.findFirst({
@@ -56,16 +63,18 @@ const actionPlanRoutes: FastifyPluginAsync<ActionPlanOptions> = async (fastify, 
     const [audit, snapshot, records] = await Promise.all([
       latestAudit(projectId, tenantId, request.userId),
       prisma.searchConsoleSnapshot.findFirst({ where: { projectId, tenantId }, orderBy: { importedAt: "desc" }, include: { pages: true } }),
-      prisma.seoAction.findMany({ where: { projectId, tenantId } }),
+      prisma.seoAction.findMany({ where: { projectId, tenantId }, include: { measurements: { where: { tenantId }, orderBy: { measuredAt: "desc" }, take: 2 } } }),
     ])
     const stale = snapshot ? Date.now() - snapshot.importedAt.getTime() > 35 * 86_400_000 : false
     const actions = buildActionItems(audit ? await auditChecks(audit.id, tenantId) : [], stale ? [] : snapshot?.pages ?? [])
     for (const record of records) {
+      const measurement = record.measurements.find(item => item.implementedAt.getTime() === record.implementedAt?.getTime())
       let action = actions.find(item => item.checkName === record.checkName)
       if (!action) { action = noLongerFailingAction(record); actions.push(action) }
       Object.assign(action, {
         status: record.status, note: record.note, implementedAt: record.implementedAt?.toISOString() ?? null,
         verifiedAt: record.verifiedAt?.toISOString() ?? null, verifiedAuditId: record.verifiedAuditId,
+        measurement: measurement ? measurementDto(measurement) : null,
       })
       if (record.status === "VERIFIED" && action.affectedPages > 0) action.reason = `Régression détectée dans le dernier audit. ${action.reason}`
       else if (record.status === "VERIFIED") action.reason = "Correction confirmée par l’audit de preuve enregistré. Les pages omises dans un audit ultérieur ne sont pas revalidées."
@@ -73,7 +82,8 @@ const actionPlanRoutes: FastifyPluginAsync<ActionPlanOptions> = async (fastify, 
     const result: ActionPlan = {
       audit: audit ? { id: audit.id, completedAt: audit.completedAt?.toISOString() ?? null, pageCount: audit._count.pages } : null,
       searchConsole: snapshot ? { propertyUrl: snapshot.propertyUrl, googleAccountId: snapshot.googleAccountId, importedAt: snapshot.importedAt.toISOString(),
-        startDate: snapshot.startDate, endDate: snapshot.endDate, pageCount: snapshot.pages.length, rowLimitReached: snapshot.rowLimitReached, stale } : null,
+        startDate: snapshot.startDate, endDate: snapshot.endDate, pageCount: snapshot.pages.length, rowLimitReached: snapshot.rowLimitReached,
+        queriesIncluded: snapshot.queriesIncluded, queryRowLimitReached: snapshot.queryRowLimitReached, stale } : null,
       actions,
     }
     return reply.send(result)
@@ -122,22 +132,116 @@ const actionPlanRoutes: FastifyPluginAsync<ActionPlanOptions> = async (fastify, 
         return reply.status(403).send({ error: "Accès Google refusé à cette propriété." })
       }
       const window = searchConsoleWindow()
-      const imported = await provider.fetchPages(tenantId, googleAccountId, propertyUrl, window.startDate, window.endDate)
+      const [imported, queries] = await Promise.all([
+        provider.fetchPages(tenantId, googleAccountId, propertyUrl, window.startDate, window.endDate),
+        provider.fetchQueryPages(tenantId, googleAccountId, propertyUrl, window.startDate, window.endDate),
+      ])
       const pages = [...new Map(imported.pages.filter(page => pageBelongsToProject(page.pageUrl, project.domain)).map(page => [page.pageUrl, page])).values()]
+      const queryPages = [...new Map(queries.pages.filter(page => pageBelongsToProject(page.pageUrl, project.domain)).map(page => {
+        const query = page.query.trim()
+        const rowKey = createHash("sha256").update(query).update("\0").update(page.pageUrl).digest("hex")
+        return [rowKey, { ...page, query, rowKey }] as const
+      })).values()]
       const snapshot = await prisma.$transaction(async tx => {
         const validLease = await tx.project.updateMany({ where: { id: projectId, tenantId, deletedAt: null, gscSyncStartedAt: lease }, data: { gscSyncStartedAt: null } })
         if (!validLease.count) throw new Error("Import lease expired")
-        const result = await tx.searchConsoleSnapshot.create({ data: { tenantId, projectId, googleAccountId, propertyUrl, ...window, rowLimitReached: imported.rowLimitReached } })
+        const result = await tx.searchConsoleSnapshot.create({ data: { tenantId, projectId, googleAccountId, propertyUrl, ...window,
+          rowLimitReached: imported.rowLimitReached, queriesIncluded: true, queryRowLimitReached: queries.rowLimitReached } })
         for (let offset = 0; offset < pages.length; offset += 1000) {
           await tx.searchConsolePageMetric.createMany({ data: pages.slice(offset, offset + 1000).map(page => ({ tenantId, snapshotId: result.id, ...page })) })
+        }
+        for (let offset = 0; offset < queryPages.length; offset += 1000) {
+          await tx.searchConsoleQueryMetric.createMany({ data: queryPages.slice(offset, offset + 1000).map(page => ({ tenantId, snapshotId: result.id, ...page })) })
         }
         const previous = await tx.searchConsoleSnapshot.findMany({ where: { tenantId, projectId }, orderBy: { importedAt: "desc" }, skip: 12, select: { id: true } })
         if (previous.length) await tx.searchConsoleSnapshot.deleteMany({ where: { tenantId, projectId, id: { in: previous.map(item => item.id) } } })
         return result
       }, { timeout: 30_000 })
-      return reply.send({ importedAt: snapshot.importedAt.toISOString(), pageCount: pages.length, rowLimitReached: imported.rowLimitReached })
+      return reply.send({ importedAt: snapshot.importedAt.toISOString(), pageCount: pages.length, queryRowCount: queryPages.length, rowLimitReached: imported.rowLimitReached, queryRowLimitReached: queries.rowLimitReached })
     } catch {
       return reply.status(502).send({ error: "L’import Search Console a échoué. Les dernières données enregistrées sont conservées." })
+    } finally {
+      await prisma.project.updateMany({ where: { id: projectId, tenantId, gscSyncStartedAt: lease }, data: { gscSyncStartedAt: null } })
+    }
+  })
+
+  fastify.get<{ Params: { projectId: string } }>("/api/projects/:projectId/search-insights", async (request, reply) => {
+    const parsed = InsightsQuery.safeParse(request.query)
+    if (!parsed.success) return reply.status(400).send({ error: "Filtres de requêtes invalides" })
+    const snapshot = await prisma.searchConsoleSnapshot.findFirst({
+      where: { tenantId: request.tenantId, projectId: request.params.projectId }, orderBy: { importedAt: "desc" },
+      include: { queryPages: { where: { tenantId: request.tenantId }, select: { query: true, pageUrl: true, clicks: true, impressions: true, ctr: true, position: true } } },
+    })
+    const items = buildSearchQueryInsights(snapshot?.queryPages ?? [])
+    const { mode, q, limit } = parsed.data
+    const search = normalizeSearchQuery(q)
+    const filtered = items.filter(item => (!search || item.query.includes(search)) && (mode === "all" || (mode === "opportunities" ? item.opportunity !== null : item.overlap !== null)))
+    if (mode === "opportunities") filtered.sort((a, b) => (b.opportunity?.signalScore ?? 0) - (a.opportunity?.signalScore ?? 0))
+    const pageCount = Math.max(1, Math.ceil(filtered.length / limit))
+    const page = Math.min(parsed.data.page, pageCount)
+    const result: SearchInsights = {
+      snapshot: snapshot ? { propertyUrl: snapshot.propertyUrl, startDate: snapshot.startDate, endDate: snapshot.endDate, importedAt: snapshot.importedAt.toISOString(),
+        queriesIncluded: snapshot.queriesIncluded, rowLimitReached: snapshot.queryRowLimitReached, stale: Date.now() - snapshot.importedAt.getTime() > 35 * 86400_000 } : null,
+      summary: { queryCount: items.length, opportunityCount: items.filter(item => item.opportunity).length, overlapCount: items.filter(item => item.overlap).length },
+      items: filtered.slice((page - 1) * limit, page * limit), page, pageCount, total: filtered.length,
+    }
+    return reply.send(result)
+  })
+
+  fastify.post<{ Params: { projectId: string; checkName: string } }>("/api/projects/:projectId/action-plan/:checkName/measure", {
+    preHandler: requireRole("MEMBER"), config: { rateLimit: { max: 3, timeWindow: "1 hour" } },
+  }, async (request, reply) => {
+    const parsed = MeasureInput.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: "Choisissez une période de 7 ou 28 jours" })
+    const { projectId, checkName } = request.params
+    const tenantId = request.tenantId
+    const [action, snapshot, project] = await Promise.all([
+      prisma.seoAction.findFirst({ where: { projectId, tenantId, checkName } }),
+      prisma.searchConsoleSnapshot.findFirst({ where: { projectId, tenantId }, orderBy: { importedAt: "desc" } }),
+      assertProjectOwner(projectId, request.userId, tenantId),
+    ])
+    if (!action || !action.implementedAt || !["IMPLEMENTED", "VERIFIED"].includes(action.status) || !action.expectedPageUrls.length) {
+      return reply.status(409).send({ error: "Déclarez d’abord la correction effectuée sur ses pages de référence." })
+    }
+    const windows = searchComparisonWindows(action.implementedAt, parsed.data.windowDays)
+    if (!windows.ready) return reply.status(409).send({ error: `La période après correction sera disponible à partir du ${windows.readyOn.split("-").reverse().join("/")}.`, readyOn: windows.readyOn })
+    if (!snapshot || !project || !propertyCoversProject(snapshot.propertyUrl, project.domain)) {
+      return reply.status(409).send({ error: "Importez d’abord Search Console pour ce projet afin de choisir une propriété autorisée." })
+    }
+    const lease = new Date()
+    const acquired = await prisma.project.updateMany({ where: { id: projectId, tenantId, userId: request.userId, deletedAt: null,
+      OR: [{ gscSyncStartedAt: null }, { gscSyncStartedAt: { lt: new Date(lease.getTime() - 180_000) } }] }, data: { gscSyncStartedAt: lease } })
+    if (!acquired.count) return reply.status(409).send({ error: "Une opération Search Console est déjà en cours sur ce projet." })
+    try {
+      const properties = await provider.listProperties(tenantId, snapshot.googleAccountId)
+      if (!properties.some(property => property.siteUrl === snapshot.propertyUrl && property.permissionLevel !== "siteUnverifiedUser")) {
+        return reply.status(403).send({ error: "Accès Google refusé à la propriété de référence." })
+      }
+      const [before, after] = await Promise.all([
+        provider.fetchPages(tenantId, snapshot.googleAccountId, snapshot.propertyUrl, windows.beforeStartDate, windows.beforeEndDate),
+        provider.fetchPages(tenantId, snapshot.googleAccountId, snapshot.propertyUrl, windows.afterStartDate, windows.afterEndDate),
+      ])
+      const result = compareSearchPages(action.expectedPageUrls,
+        before.pages.filter(page => pageBelongsToProject(page.pageUrl, project.domain)), after.pages.filter(page => pageBelongsToProject(page.pageUrl, project.domain)))
+      const persistedResult = { ...result, before: result.before ? { ...result.before } : null, after: result.after ? { ...result.after } : null, changes: result.changes ? { ...result.changes } : null }
+      const measurement = await prisma.$transaction(async tx => {
+        const validLease = await tx.project.updateMany({ where: { id: projectId, tenantId, deletedAt: null, gscSyncStartedAt: lease }, data: { gscSyncStartedAt: null } })
+        if (!validLease.count) throw new Error("Import lease expired")
+        // Serialize against status changes while validating and saving this correction's measurement.
+        await tx.$queryRaw`SELECT "id" FROM "seo_actions" WHERE "id" = ${action.id} AND "tenantId" = ${tenantId} FOR UPDATE`
+        const current = await tx.seoAction.findFirst({ where: { id: action.id, tenantId, projectId, implementedAt: action.implementedAt, status: { in: ["IMPLEMENTED", "VERIFIED"] } } })
+        if (!current) throw new Error("Correction baseline changed")
+        const data = { tenantId, googleAccountId: snapshot.googleAccountId, propertyUrl: snapshot.propertyUrl, windowDays: windows.windowDays,
+          beforeStartDate: windows.beforeStartDate, beforeEndDate: windows.beforeEndDate, afterStartDate: windows.afterStartDate, afterEndDate: windows.afterEndDate,
+          result: persistedResult, rowLimitReached: before.rowLimitReached || after.rowLimitReached, measuredAt: new Date() }
+        return tx.seoActionMeasurement.upsert({
+          where: { actionId_implementedAt_windowDays: { actionId: action.id, implementedAt: action.implementedAt!, windowDays: windows.windowDays } },
+          create: { ...data, actionId: action.id, implementedAt: action.implementedAt! }, update: data,
+        })
+      })
+      return reply.send(measurementDto(measurement))
+    } catch {
+      return reply.status(502).send({ error: "La comparaison Search Console a échoué. La dernière mesure enregistrée est conservée." })
     } finally {
       await prisma.project.updateMany({ where: { id: projectId, tenantId, gscSyncStartedAt: lease }, data: { gscSyncStartedAt: null } })
     }

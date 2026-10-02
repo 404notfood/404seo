@@ -99,7 +99,7 @@ const sections: NavSection[] = [
     defaultOpen: false,
     items: [
       { href: "/rank-tracking", label: "Suivi de position", icon: TrendingUp, badge: "Bientôt", badgeColor: "#7c3aed" },
-      { href: "/keywords", label: "Recherche de mots-clés", icon: Search },
+      { href: "/keywords", label: "Requêtes Google", icon: Search },
       { href: "/competitors", label: "Analyse concurrents", icon: Target, badge: "Bientôt", badgeColor: "#7c3aed" },
       { href: "/ai-visibility", label: "Visibilité IA", icon: Eye, badge: "Bientôt", badgeColor: "#7c3aed" },
     ],

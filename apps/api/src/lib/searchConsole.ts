@@ -1,11 +1,12 @@
 import { google } from "googleapis"
-import type { SearchConsolePageMetric, SearchConsoleProperty } from "@seo/shared"
-import { normalizePageUrl } from "@seo/shared"
+import type { SearchConsolePageMetric, SearchConsoleProperty, SearchConsoleQueryMetric } from "@seo/shared"
+import { googleCalendarDate, shiftCalendarDate, normalizePageUrl } from "@seo/shared"
 import { getAuthenticatedClient } from "./googleOAuth"
 
 export interface SearchConsoleProvider {
   listProperties(tenantId: string, accountId: string): Promise<SearchConsoleProperty[]>
   fetchPages(tenantId: string, accountId: string, propertyUrl: string, startDate: string, endDate: string): Promise<{ pages: SearchConsolePageMetric[]; rowLimitReached: boolean }>
+  fetchQueryPages(tenantId: string, accountId: string, propertyUrl: string, startDate: string, endDate: string): Promise<{ pages: SearchConsoleQueryMetric[]; rowLimitReached: boolean }>
 }
 
 export const searchConsoleProvider: SearchConsoleProvider = {
@@ -27,9 +28,28 @@ export const searchConsoleProvider: SearchConsoleProvider = {
     const pages = rows.flatMap(row => {
       const pageUrl = normalizePageUrl(row.keys?.[0] ?? "")
       const { clicks, impressions, ctr, position } = row
-      if (!pageUrl || ![clicks, impressions, ctr, position].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
+      if (!pageUrl || pageUrl.length > 2048 || ![clicks, impressions, ctr, position].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
         || clicks! > impressions! || ctr! > 1) return []
       return [{ pageUrl, clicks: clicks!, impressions: impressions!, ctr: ctr!, position: position! }]
+    })
+    return { pages, rowLimitReached: rows.length >= 25_000 }
+  },
+  async fetchQueryPages(tenantId, accountId, propertyUrl, startDate, endDate) {
+    const auth = await getAuthenticatedClient(tenantId, accountId)
+    const api = google.searchconsole({ version: "v1", auth })
+    const response = await api.searchanalytics.query({
+      siteUrl: propertyUrl,
+      requestBody: { startDate, endDate, dimensions: ["query", "page"], type: "web", dataState: "final", rowLimit: 25_000, aggregationType: "byPage" },
+    }, { timeout: 30_000, retry: false })
+    const rows = response.data.rows ?? []
+    const pages = rows.flatMap(row => {
+      const query = row.keys?.[0]?.trim()
+      const pageUrl = normalizePageUrl(row.keys?.[1] ?? "")
+      const { clicks, impressions, ctr, position } = row
+      if (!query || query.length > 2048 || !pageUrl || pageUrl.length > 2048
+        || ![clicks, impressions, ctr, position].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
+        || clicks! > impressions! || ctr! > 1) return []
+      return [{ query, pageUrl, clicks: clicks!, impressions: impressions!, ctr: ctr!, position: position! }]
     })
     return { pages, rowLimitReached: rows.length >= 25_000 }
   },
@@ -37,13 +57,8 @@ export const searchConsoleProvider: SearchConsoleProvider = {
 
 /** Dates use Search Console's Pacific calendar. Delay three days and request finalized data. */
 export function searchConsoleWindow(now = new Date()): { startDate: string; endDate: string } {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now)
-  const part = (name: string) => parts.find(value => value.type === name)!.value
-  const end = new Date(`${part("year")}-${part("month")}-${part("day")}T00:00:00Z`)
-  end.setUTCDate(end.getUTCDate() - 3)
-  const start = new Date(end)
-  start.setUTCDate(start.getUTCDate() - 27)
-  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) }
+  const endDate = shiftCalendarDate(googleCalendarDate(now), -3)
+  return { startDate: shiftCalendarDate(endDate, -27), endDate }
 }
 
 export function propertyCoversProject(propertyUrl: string, domain: string): boolean {

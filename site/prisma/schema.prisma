@@ -613,6 +613,7 @@ model GoogleAccount {
   tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   listings GBPListing[] // fiches associées à ce compte Google
   searchConsoleSnapshots SearchConsoleSnapshot[]
+  seoActionMeasurements SeoActionMeasurement[]
 
   @@index([tenantId])
   @@unique([id, tenantId])
@@ -629,10 +630,13 @@ model SearchConsoleSnapshot {
   startDate String
   endDate String
   rowLimitReached Boolean @default(false)
+  queriesIncluded Boolean @default(false)
+  queryRowLimitReached Boolean @default(false)
   importedAt DateTime @default(now())
   project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
   googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
   pages SearchConsolePageMetric[]
+  queryPages SearchConsoleQueryMetric[]
 
   @@unique([id, tenantId])
   @@index([tenantId, projectId, importedAt])
@@ -670,10 +674,53 @@ model SeoAction {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  measurements SeoActionMeasurement[]
 
   @@unique([projectId, checkName])
+  @@unique([id, tenantId])
   @@index([tenantId, projectId])
   @@map("seo_actions")
+}
+
+model SearchConsoleQueryMetric {
+  id String @id @default(cuid())
+  tenantId String
+  snapshotId String
+  rowKey String
+  query String @db.Text
+  pageUrl String @db.Text
+  clicks Float
+  impressions Float
+  ctr Float
+  position Float
+  snapshot SearchConsoleSnapshot @relation(fields: [snapshotId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([snapshotId, rowKey])
+  @@index([tenantId, snapshotId])
+  @@map("search_console_query_metrics")
+}
+
+model SeoActionMeasurement {
+  id String @id @default(cuid())
+  tenantId String
+  actionId String
+  googleAccountId String
+  propertyUrl String
+  implementedAt DateTime
+  windowDays Int
+  beforeStartDate String
+  beforeEndDate String
+  afterStartDate String
+  afterEndDate String
+  result Json
+  rowLimitReached Boolean @default(false)
+  measuredAt DateTime @default(now())
+  action SeoAction @relation(fields: [actionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([actionId, implementedAt, windowDays])
+  @@index([tenantId, actionId])
+  @@map("seo_action_measurements")
 }
 
 enum SeoActionStatus {

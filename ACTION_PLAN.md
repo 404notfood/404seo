@@ -1,4 +1,4 @@
-# Plan d’action SEO — première livraison
+# Plan d’action SEO et performances Google
 
 Les pages **Optimisation** (`/optimization`) et **Suggestions** (`/suggestions`) utilisent désormais un plan d’action propre au projet. Suggestions présente les trois premières actions actives ; le plan complet conserve aussi les actions écartées et vérifiées.
 
@@ -19,9 +19,21 @@ Connecter **Analytics + Search Console** dans les paramètres ou depuis le plan,
 
 Les propriétés doivent couvrir le projet. Un compte Google appartenant à un autre tenant est refusé avant tout appel externe. Les pages d’une propriété Domaine sont limitées à l’origine et au chemin du projet. Les tokens OAuth ne sont jamais envoyés au navigateur par ces endpoints.
 
-La première version importe au maximum 25 000 lignes par requête. Google fournit les principales lignes et ne garantit pas l’exhaustivité, même sous cette limite : [référence Search Analytics](https://developers.google.com/webmaster-tools/v1/searchanalytics/query). La période, la date d’import et l’atteinte de la limite sont affichées. Après 35 jours, un import ne pondère plus les priorités.
+L’import demande séparément les métriques par page et par requête/page, avec au maximum 25 000 lignes pour chacun des deux appels. Google fournit les principales lignes et ne garantit pas l’exhaustivité, même sous cette limite : [référence Search Analytics](https://developers.google.com/webmaster-tools/v1/searchanalytics/query). La période, la date d’import et l’atteinte de chaque limite sont affichées dans le module concerné. Après 35 jours, un import ne pondère plus les priorités.
 
-L’import est manuel, limité à trois requêtes par heure et par clé du limiteur API. Un verrou de trois minutes sur le projet bloque les imports concurrents entre processus. L’écriture du snapshot, des métriques et leur rétention est transactionnelle. Un échec conserve les derniers résultats. Douze snapshots sont conservés par projet. Déconnecter le compte Google supprime ses snapshots et leurs métriques.
+L’import est manuel, limité à trois demandes par heure et par clé du limiteur API. Un verrou de trois minutes sur le projet bloque les opérations Search Console concurrentes entre processus. L’écriture du snapshot, des deux jeux de métriques et leur rétention est transactionnelle. Un échec d’un appel conserve les derniers résultats sans import partiel. Douze snapshots sont conservés par projet. Déconnecter le compte Google supprime ses snapshots, leurs métriques et les mesures liées au compte ; les caches des nouveaux modules sont invalidés dans le navigateur.
+
+## Requêtes, opportunités et chevauchements
+
+La page **Requêtes Google** (`/keywords`) exploite le dernier import du projet. Elle propose recherche textuelle, filtres **Opportunités de CTR** et **Chevauchements entre URLs**, et pagination. Les anciens snapshots restent utilisables pour les priorités ; un nouvel import est nécessaire pour disposer de leurs requêtes.
+
+Les variantes de casse et d’espacement sont regroupées, en conservant les accents. Les clics et impressions des URLs sont additionnés, le CTR recalculé et la position moyenne pondérée par les impressions. Ces sommes ne représentent ni des recherches uniques ni le volume d’un marché : plusieurs pages peuvent apparaître lors de la même recherche. Les requêtes anonymisées et les lignes que Google n’envoie pas restent absentes.
+
+Une opportunité nécessite au moins 100 impressions, une position moyenne entre 4 et 20, et un CTR inférieur à 75 % de la médiane des requêtes du même import dans la tranche 4–10 ou 11–20. La référence nécessite dix requêtes éligibles, chacune avec au moins 100 impressions ; chaque requête, y compris celle évaluée, compte une fois. Sans cet échantillon, aucun signal de CTR n’est affiché. Le classement utilise l’écart à la médiane multiplié par les impressions ; cet indice n’est pas une prévision de clics. Examiner l’intention, la marque et les extraits de résultats avant une modification.
+
+Un chevauchement nécessite au moins 100 impressions cumulées et deux URLs ayant chacune au moins 20 impressions, 20 % des impressions de leurs pages, une position de 1 à 20 et une position moyenne distante de cinq places au plus de l’URL la plus exposée. Il signale un cas à examiner, sans affirmer une cannibalisation. Chaque requête expose jusqu’à cinq URLs de preuve.
+
+Le vocabulaire extrait des audits reste accessible à la demande, avec des libellés de fréquence et de présence dans les balises. Ses graphiques sont chargés seulement à l’ouverture du panneau ; les occurrences ne sont pas présentées comme des positions Google.
 
 ## Suivi et vérification
 
@@ -33,9 +45,19 @@ Le nouvel audit doit avoir démarré après la déclaration de correction, contr
 
 La vérification est déclenchée par le bouton, sans modifier les statuts lors d’une simple lecture. Elle confirme les contrôles observés dans le périmètre du crawl, sans prouver un effet causal sur les performances Google.
 
+## Comparaison après correction
+
+Une action déclarée **Correction effectuée** ou **Vérifiée par audit** propose **Mesurer l’évolution**, sur 7 ou 28 jours. La période avant se termine la veille de la correction ; la période après commence le lendemain. Le jour déclaré est exclu, dans le calendrier Pacifique utilisé par Google. Le bouton attend une période après complète et le décalage de trois jours, puis l’API demande uniquement des données finalisées. Ce délai ne garantit pas que toutes les pages auront des données.
+
+La mesure relit les droits du compte et de la propriété choisis lors du dernier import. Deux requêtes API, regroupées par page, comparent les périodes sur les URLs enregistrées lors de la déclaration. Seules les URLs observées dans les deux périodes entrent dans les totaux ; les pages absentes sont comptées séparément et ne deviennent pas des zéros. Une référence à zéro n’engendre pas de pourcentage de croissance infini. Sans URL comparable, les performances restent absentes.
+
+Le résultat conserve en PostgreSQL la propriété, la date de déclaration, la longueur et les dates des périodes, la date de mesure, la couverture, la limite Google et les clics, impressions, CTR et positions avant/après avec leurs écarts. Une position plus basse correspond à une amélioration. L’évolution ne démontre pas que la correction a causé le changement : saisonnalité, changements Google et composition des impressions interviennent aussi.
+
+Une nouvelle mesure remplace celle de la même déclaration et de la même longueur de période. Une nouvelle déclaration ne récupère pas une ancienne mesure. Si la référence change pendant les appels Google, l’enregistrement est rejeté. En cas d’échec, la dernière mesure reste conservée. Le verrou de projet est partagé avec les imports ; les mesures ont également une limite de trois demandes par heure. Les invités restent en lecture seule.
+
 ## Migration et validation
 
-Migration additive : `site/prisma/migrations/20261002000000_action_plan_search_console/migration.sql`. Le déploiement HestiaCP existant applique `prisma migrate deploy`. Générer le client Prisma avant le démarrage. Les migrations ont été appliquées uniquement à une base de test isolée pendant le développement.
+Migrations additives : `site/prisma/migrations/20261002000000_action_plan_search_console/migration.sql` et `site/prisma/migrations/20261002010000_search_insights_measurements/migration.sql`. La seconde ajoute les requêtes/pages et les mesures, avec clés étrangères composites par tenant. Les clés de lignes requête/page utilisent SHA-256 pour éviter d’indexer des textes longs. Le déploiement HestiaCP existant applique `prisma migrate deploy`. Générer le client Prisma avant le démarrage. Les migrations ont été appliquées uniquement à une base de test isolée pendant le développement.
 
 ```powershell
 npm run db:generate
@@ -46,10 +68,10 @@ npm test
 npm run build
 ```
 
-Les tests d’intégration refusent une URL de base autre que `127.0.0.1/seo_security_audit`. Ils couvrent la séparation des tenants et les contraintes SQL, l’import concurrent, la conservation après échec, la rétention, les rôles, la persistance, la vérification après recrawl et les régressions. Les appels Google sont simulés ; la connexion à un compte réel reste à valider avec les identifiants OAuth du déploiement.
+Les tests d’intégration refusent une URL de base autre que `127.0.0.1/seo_security_audit`. Ils couvrent la séparation des tenants et les contraintes SQL, l’import concurrent, la conservation après échec, la rétention, les rôles, la persistance, la vérification après recrawl et les régressions. Le module de requêtes ajoute les filtres et les imports atomiques ; les mesures ajoutent les données absentes, les périodes complètes, la persistance, le changement concurrent de référence et les comptes Google étrangers. Les appels Google sont simulés ; la connexion à un compte réel reste à valider avec les identifiants OAuth du déploiement.
 
-Validation effectuée : 16 tests réussis, TypeScript sur les neuf workspaces, ESLint sans erreur, build de production et diff Prisma vide après les 19 migrations. Chromium confirme l’import GSC simulé, les notes et statuts après rechargement, les preuves, la vérification en attente, Suggestions, l’absence d’erreurs React, l’absence de débordement sur écran de 390 pixels et l’ouverture/fermeture du menu mobile. Un PDF réel a également été généré avec les libellés de priorité corrigés. Les services de test et le domaine virtuel utilisés pour ce contrôle sont locaux ; le site n’a pas été publié.
+Validation effectuée : 22 tests réussis, TypeScript sur les neuf workspaces, ESLint sans erreur, build de production et diff Prisma vide après les 20 migrations. Chromium confirme l’import GSC simulé, les filtres de requêtes/CTR/chevauchements, les notes et statuts, la mesure avant/après après rechargement, l’attente d’une période complète, les preuves, la vérification en attente, Suggestions, l’absence d’erreurs React, l’absence de débordement sur écran de 390 pixels et la navigation mobile. La livraison précédente a aussi généré un PDF réel avec les libellés de priorité corrigés. Les services de test et le domaine virtuel utilisés pour ces contrôles sont locaux ; le site n’a pas été publié.
 
 ## Suites prévues
 
-Cette livraison pose le parcours décision → correction → preuve. Restent à développer : conversions GA4 et comparaison temporelle, analyse des requêtes et cannibalisation, maillage avancé, connecteurs CMS avec aperçu et retour arrière, attribution aux collaborateurs, données concurrentielles fournies par un prestataire, et visibilité IA sur plusieurs moteurs. L’agent IA de démonstration existant n’est pas remplacé par cette livraison.
+Cette livraison complète le parcours décision → correction → preuve → évolution Google. Restent à développer : conversions GA4 et valeur commerciale, investigation avancée de la cannibalisation par intention, maillage avancé, connecteurs CMS avec aperçu et retour arrière, attribution aux collaborateurs, données concurrentielles fournies par un prestataire, et visibilité IA sur plusieurs moteurs. L’agent IA de démonstration existant n’est pas remplacé par cette livraison. Les données GSC concernent les propriétés autorisées ; elles ne remplacent pas une base de mots-clés ou de backlinks concurrentiels.

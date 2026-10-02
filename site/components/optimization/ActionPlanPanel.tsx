@@ -18,13 +18,14 @@ import { useGoogleStatus } from "@/hooks/useGoogle"
 import { useLaunchAudit } from "@/hooks/useAudits"
 import { useActionPlan, useSearchConsoleProperties, useSyncSearchConsole, useUpdateSeoAction, useVerifySeoActions } from "@/hooks/useActionPlan"
 import { apiClient } from "@/lib/api-client"
+import { ActionOutcome } from "./ActionOutcome"
 
 const STATUS_LABELS: Record<SeoActionStatus, string> = { OPEN: "À faire", IN_PROGRESS: "En cours", IMPLEMENTED: "Correction effectuée", VERIFIED: "Vérifiée par audit", DISMISSED: "Écartée" }
 const EFFORT_LABELS = { LOW: "Faible", MEDIUM: "Moyen", HIGH: "Élevé" }
 const PRIORITY_LABELS = { LOW: "Basse", MEDIUM: "Moyenne", HIGH: "Haute" }
 const CONFIDENCE_LABELS = { AUDIT_ONLY: "Audit seul", PARTIAL_GSC: "GSC partielle", GSC_MATCHED: "GSC correspondante" }
 const number = (value: number) => Math.round(value).toLocaleString("fr-FR")
-const date = (value: string) => new Date(value).toLocaleDateString("fr-FR")
+const date = (value: string) => new Date(value).toLocaleDateString("fr-FR", /^\d{4}-\d{2}-\d{2}$/.test(value) ? { timeZone: "UTC" } : undefined)
 
 function SearchConsolePanel({ projectId, snapshot, canEdit }: { projectId: string; snapshot: ActionPlan["searchConsole"]; canEdit: boolean }) {
   const { data: googleStatus, isLoading: accountsLoading, error: accountsError } = useGoogleStatus()
@@ -66,7 +67,7 @@ function SearchConsolePanel({ projectId, snapshot, canEdit }: { projectId: strin
   </Card>
 }
 
-function ActionCard({ action, projectId, canEdit, rank }: { action: SeoActionItem; projectId: string; canEdit: boolean; rank: number }) {
+function ActionCard({ action, projectId, canEdit, rank, hasSearchConsole }: { action: SeoActionItem; projectId: string; canEdit: boolean; rank: number; hasSearchConsole: boolean }) {
   const update = useUpdateSeoAction(projectId)
   const [draftNote, setDraftNote] = useState<string | null>(null)
   const isRegression = action.status === "VERIFIED" && action.affectedPages > 0
@@ -103,6 +104,7 @@ function ActionCard({ action, projectId, canEdit, rank }: { action: SeoActionIte
         {draftNote !== null && action.status !== "VERIFIED" && <Button variant="outline" size="sm" disabled={update.isPending} onClick={() => update.mutate({ checkName: action.checkName, status: action.status as Exclude<SeoActionStatus, "VERIFIED">, note: draftNote }, { onSuccess: () => setDraftNote(null) })}>Enregistrer la note</Button>}
       </div>
       {update.error && <p role="alert" className="text-sm text-destructive">{update.error.message}</p>}
+      <ActionOutcome key={action.implementedAt} action={action} projectId={projectId} canEdit={canEdit} hasSearchConsole={hasSearchConsole} />
     </CardContent>
   </Card>
 }
@@ -127,7 +129,7 @@ function ProjectActionPlan({ projectId, prioritiesOnly }: { projectId: string; p
     </div>
     {!prioritiesOnly && <Button size="sm" variant="ghost" onClick={() => setShowClosed(value => !value)}>{showClosed ? "Masquer" : "Afficher"} les actions vérifiées et écartées ({data.actions.length - open.length})</Button>}
     {prioritiesOnly && <p className="text-sm text-muted-foreground">Les trois premières actions actives. <Link href="/optimization" className="underline">Voir tout le plan ({open.length})</Link></p>}
-    {visible.length === 0 ? <Card><CardContent className="py-10 text-center text-muted-foreground">{data.audit ? "Aucune action active dans le périmètre du dernier audit." : "Aucun audit terminé pour ce projet."}</CardContent></Card> : visible.map((action, index) => <ActionCard key={`${projectId}-${action.checkName}`} action={action} projectId={projectId} canEdit={isMember} rank={index + 1} />)}
+    {visible.length === 0 ? <Card><CardContent className="py-10 text-center text-muted-foreground">{data.audit ? "Aucune action active dans le périmètre du dernier audit." : "Aucun audit terminé pour ce projet."}</CardContent></Card> : visible.map((action, index) => <ActionCard key={`${projectId}-${action.checkName}`} action={action} projectId={projectId} canEdit={isMember} hasSearchConsole={!!data.searchConsole} rank={index + 1} />)}
     {verify.data && verify.data.pending.length > 0 && <Card><CardContent className="pt-6 space-y-2"><p className="font-medium">Vérifications en attente</p>{verify.data.pending.map(item => <p key={item.checkName} className="text-sm text-muted-foreground">{data.actions.find(action => action.checkName === item.checkName)?.title ?? item.checkName} : {item.reason}</p>)}</CardContent></Card>}
     {verify.error && <p role="alert" className="text-sm text-destructive">{verify.error.message}</p>}
   </div>
