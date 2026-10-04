@@ -1,10 +1,10 @@
 // lib/auth.ts — Configuration BetterAuth (Server-side)
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
-import { organization } from "better-auth/plugins"
-import { PrismaClient } from "@prisma/client"
+import { prisma } from "./prisma"
+import { assertProductionEnvironment } from "@seo/shared/security"
 
-const prisma = new PrismaClient()
+assertProductionEnvironment()
 
 // ── Envoi d'emails via Resend HTTP API ──
 async function sendEmailViaResend(to: string, subject: string, html: string) {
@@ -30,6 +30,8 @@ async function sendEmailViaResend(to: string, subject: string, html: string) {
 }
 
 export const auth = betterAuth({
+  // Nginx overwrites this header; Next.js binds to loopback in production.
+  advanced: { ipAddress: { ipAddressHeaders: ["x-real-ip"] } },
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
@@ -73,20 +75,12 @@ export const auth = betterAuth({
     },
   },
 
-  socialProviders: {
+  socialProviders: process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     },
-  },
-
-  plugins: [
-    organization({
-      sendInvitationEmail: async (data) => {
-        console.log("Invitation:", data)
-      },
-    }),
-  ],
+  } : {},
 
   session: {
     expiresIn: 60 * 60 * 24 * 7,
@@ -102,14 +96,17 @@ export const auth = betterAuth({
       role: {
         type: "string",
         defaultValue: "MEMBER",
+        input: false,
       },
       isSuperAdmin: {
         type: "boolean",
         defaultValue: false,
+        input: false,
       },
       tenantId: {
         type: "string",
         defaultValue: null,
+        input: false,
       },
     },
   },
@@ -122,7 +119,8 @@ export const auth = betterAuth({
           const slug = user.email.split("@")[0].toLowerCase().replace(/[^a-z0-9-]/g, "-")
           const uniqueSlug = `${slug}-${Date.now().toString(36)}`
 
-          const tenant = await prisma.tenant.create({
+          await prisma.$transaction(async (tx) => {
+          const tenant = await tx.tenant.create({
             data: {
               name: user.name || user.email.split("@")[0],
               slug: uniqueSlug,
@@ -131,9 +129,10 @@ export const auth = betterAuth({
           })
 
           // Lier l'utilisateur au tenant + rôle MEMBER (promotion manuelle ensuite)
-          await prisma.user.update({
+          await tx.user.update({
             where: { id: user.id },
             data: { tenantId: tenant.id, role: "GUEST" },
+          })
           })
         },
       },
@@ -143,9 +142,15 @@ export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
   secret: process.env.BETTER_AUTH_SECRET!,
   trustedOrigins: [
-    process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
-    ...(process.env.NEXT_PUBLIC_APP_URL ? [] : ["http://localhost:3000"]),
+    process.env.BETTER_AUTH_URL || "http://localhost:3000",
+    process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000",
   ],
+  rateLimit: {
+    enabled: true,
+    storage: "database",
+    window: 60,
+    max: 100,
+  },
 })
 
 export type Auth = typeof auth

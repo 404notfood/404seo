@@ -5,12 +5,14 @@ import { resolve } from "path"
 config({ path: resolve(process.cwd(), "workers/.env") })
 config({ path: resolve(process.cwd(), ".env") })
 
+import { assertAuditCapacity } from "@seo/shared/security"
 import { Queue } from "bullmq"
 import type { RedisOptions } from "ioredis"
 import { PrismaClient } from "@prisma/client"
 import pino from "pino"
 import { isValidPublicUrlWithDns } from "@seo/crawler"
 import type { CrawlJobData } from "@seo/shared"
+import { startServiceHeartbeat } from "@seo/shared"
 
 const logger = pino({
   level: process.env.LOG_LEVEL || "info",
@@ -28,9 +30,19 @@ const redisConnection = {
 
 const prisma = new PrismaClient()
 const crawlQueue = new Queue<CrawlJobData>("crawl", { connection: redisConnection })
+const stopHeartbeat = startServiceHeartbeat(crawlQueue.client, "scheduler")
 
 async function checkScheduledAudits() {
   const now = new Date()
+  // Recover the DB/Redis handoff if Redis failed after a launch committed.
+  const pending = await prisma.audit.findMany({
+    where: { status: "PENDING", deletedAt: null, tenant: { isSuspended: false }, user: { isBanned: false, role: { not: "GUEST" } }, project: { deletedAt: null } },
+    take: 100, orderBy: { createdAt: "asc" },
+  })
+  for (const audit of pending) {
+    const options = (audit.options as CrawlJobData["options"]) ?? {}
+    await crawlQueue.add("crawl", { auditId: audit.id, url: audit.url, options }, { jobId: audit.id, attempts: 3, backoff: { type: "exponential", delay: 2000 }, removeOnComplete: 100, removeOnFail: 50 })
+  }
 
   // Trouver les audits planifiés dont nextRunAt est passé
   const due = await prisma.scheduledAudit.findMany({
@@ -51,8 +63,8 @@ async function checkScheduledAudits() {
     try {
       const options = (schedule.options as Record<string, unknown>) ?? {}
       const crawlOptions: CrawlJobData["options"] = {}
-      if (typeof options.maxPages === "number") crawlOptions.maxPages = options.maxPages
-      if (typeof options.maxDepth === "number") crawlOptions.maxDepth = options.maxDepth
+      if (typeof options.maxPages === "number") crawlOptions.maxPages = Math.min(500, Math.max(1, Math.trunc(options.maxPages)))
+      if (typeof options.maxDepth === "number") crawlOptions.maxDepth = Math.min(10, Math.max(1, Math.trunc(options.maxDepth)))
       if (options.device === "mobile" || options.device === "desktop") crawlOptions.device = options.device
       const maxPages = crawlOptions.maxPages ?? 100
       if (!(await isValidPublicUrlWithDns(schedule.project.domain))) {
@@ -60,51 +72,26 @@ async function checkScheduledAudits() {
         continue
       }
 
-      // Vérifier le quota pages
-      const subscription = await prisma.subscription.findUnique({
-        where: { tenantId: schedule.tenantId },
+      const audit = await prisma.$transaction(async (tx) => {
+        await assertAuditCapacity(tx, schedule.tenantId, maxPages)
+        const current = await tx.scheduledAudit.findFirst({ where: { id: schedule.id, isActive: true, nextRunAt: { lte: now } } })
+        if (!current) return null
+        const user = await tx.user.findFirst({ where: { id: schedule.userId, tenantId: schedule.tenantId, isBanned: false } })
+        const project = await tx.project.findFirst({ where: { deletedAt: null, id: schedule.projectId, tenantId: schedule.tenantId, userId: schedule.userId } })
+        if (!user || user.role === "GUEST" || !project) return null
+        const created = await tx.audit.create({ data: {
+          tenantId: schedule.tenantId, userId: schedule.userId, projectId: schedule.projectId,
+          url: schedule.project.domain, status: "PENDING", options: crawlOptions,
+        } })
+        await tx.auditJob.create({ data: { tenantId: schedule.tenantId, auditId: created.id, type: "CRAWL", status: "QUEUED" } })
+        const next = new Date(now)
+        if (schedule.frequency === "weekly") next.setDate(next.getDate() + 7)
+        else next.setMonth(next.getMonth() + 1)
+        await tx.scheduledAudit.update({ where: { id: schedule.id }, data: { lastRunAt: now, nextRunAt: next } })
+        return created
       })
-      const pagesUsed = subscription?.pagesUsed ?? 0
-      const pagesQuota = subscription?.pagesQuota ?? 100
-      if (pagesUsed + maxPages > pagesQuota) {
-        logger.warn({ scheduleId: schedule.id, tenantId: schedule.tenantId }, "Quota pages dépassé, skip")
-        continue
-      }
-
-      // Créer l'audit
-      const audit = await prisma.audit.create({
-        data: {
-          tenantId: schedule.tenantId,
-          userId: schedule.userId,
-          projectId: schedule.projectId,
-          url: schedule.project.domain,
-          status: "PENDING",
-          options: crawlOptions,
-        },
-      })
-
-      await prisma.auditJob.create({
-        data: { auditId: audit.id, type: "CRAWL", status: "QUEUED" },
-      })
-
-      await crawlQueue.add("crawl", {
-        auditId: audit.id,
-        url: schedule.project.domain,
-        options: crawlOptions,
-      })
-
-      // Calculer le prochain run
-      const nextRunAt = new Date(now)
-      if (schedule.frequency === "weekly") {
-        nextRunAt.setDate(nextRunAt.getDate() + 7)
-      } else {
-        nextRunAt.setMonth(nextRunAt.getMonth() + 1)
-      }
-
-      await prisma.scheduledAudit.update({
-        where: { id: schedule.id },
-        data: { lastRunAt: now, nextRunAt },
-      })
+      if (!audit) continue
+      await crawlQueue.add("crawl", { auditId: audit.id, url: schedule.project.domain, options: crawlOptions }, { jobId: audit.id, attempts: 3, backoff: { type: "exponential", delay: 2000 }, removeOnComplete: 100, removeOnFail: 50 })
 
       logger.info({ scheduleId: schedule.id, auditId: audit.id }, "Scheduled audit lancé")
     } catch (err) {
@@ -486,10 +473,14 @@ start().catch((err) => {
 })
 
 // Graceful shutdown
-process.on("SIGTERM", async () => {
+async function shutdown() {
   logger.info("SIGTERM reçu, arrêt du schedule worker...")
+  await stopHeartbeat()
   if (tickTimer) clearInterval(tickTimer)
+  while (ticking) await new Promise(resolve => setTimeout(resolve, 100))
   await crawlQueue.close()
   await prisma.$disconnect()
   process.exit(0)
-})
+}
+process.on("SIGTERM", shutdown)
+process.on("SIGINT", shutdown)

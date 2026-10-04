@@ -1,5 +1,13 @@
 import type { FastifyPluginAsync } from "fastify"
 import { prisma } from "../lib/prisma"
+import { z } from "zod"
+import { isValidPublicUrlWithDns } from "@seo/shared/security"
+
+const BrandingSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  logoUrl: z.string().max(2048).nullable().optional(),
+  brandColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+}).strict()
 
 const tenantRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/tenant — infos tenant + branding
@@ -30,44 +38,12 @@ const tenantRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(403).send({ error: "Réservé aux administrateurs" })
     }
 
-    const { name, logoUrl, brandColor } = request.body as {
-      name?: string
-      logoUrl?: string | null
-      brandColor?: string | null
+    const parsed = BrandingSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: "Branding invalide" })
+    const { name, logoUrl, brandColor } = parsed.data
+    if (logoUrl && !(await isValidPublicUrlWithDns(logoUrl))) {
+      return reply.status(400).send({ error: "URL du logo non autorisée" })
     }
-
-    // Validation couleur hexadécimale
-    if (brandColor && !/^#[0-9a-fA-F]{6}$/.test(brandColor)) {
-      return reply.status(400).send({ error: "Couleur invalide (format #RRGGBB)" })
-    }
-
-    // Validation URL logo : uniquement http(s) public (anti LFI/SSRF dans le PDF)
-    if (logoUrl && logoUrl.length > 0) {
-      let parsed: URL
-      try {
-        parsed = new URL(logoUrl)
-      } catch {
-        return reply.status(400).send({ error: "URL du logo invalide" })
-      }
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        return reply.status(400).send({ error: "URL du logo invalide (http/https requis)" })
-      }
-      const host = parsed.hostname.toLowerCase()
-      const isInternal =
-        host === "localhost" ||
-        host === "0.0.0.0" ||
-        host.endsWith(".local") ||
-        host.endsWith(".internal") ||
-        /^127\./.test(host) ||
-        /^10\./.test(host) ||
-        /^192\.168\./.test(host) ||
-        /^169\.254\./.test(host) ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-      if (isInternal) {
-        return reply.status(400).send({ error: "URL du logo non autorisée" })
-      }
-    }
-
     const updated = await prisma.tenant.update({
       where: { id: request.tenantId },
       data: {

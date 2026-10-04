@@ -3,7 +3,6 @@ import type { FastifyPluginAsync } from "fastify"
 import { z } from "zod"
 import { prisma } from "../lib/prisma"
 import { requireRole } from "../lib/guards"
-import { requireAuditQuota } from "../lib/quotas"
 
 const CreateScheduleSchema = z.object({
   projectId: z.string().cuid(),
@@ -55,7 +54,7 @@ const scheduledRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Vérifier que le projet appartient à l'utilisateur
       const project = await prisma.project.findFirst({
-        where: { id: projectId, tenantId: request.tenantId, userId: request.userId },
+        where: { deletedAt: null, id: projectId, tenantId: request.tenantId, userId: request.userId },
       })
       if (!project) return reply.status(404).send({ error: "Projet introuvable" })
 
@@ -90,7 +89,9 @@ const scheduledRoutes: FastifyPluginAsync = async (fastify) => {
     "/api/scheduled/:id",
     { preHandler: [requireRole("MEMBER")] },
     async (request, reply) => {
-      const { isActive, frequency } = request.body as { isActive?: boolean; frequency?: string }
+      const parsed = z.object({ isActive: z.boolean().optional(), frequency: z.enum(["weekly", "monthly"]).optional() }).strict().safeParse(request.body)
+      if (!parsed.success) return reply.status(400).send({ error: "Données invalides" })
+      const { isActive, frequency } = parsed.data
 
       const schedule = await prisma.scheduledAudit.findFirst({
         where: { id: request.params.id, tenantId: request.tenantId, userId: request.userId },

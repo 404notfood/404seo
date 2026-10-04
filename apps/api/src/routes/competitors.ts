@@ -11,12 +11,12 @@ const AddCompetitorSchema = z.object({
 })
 
 // ── Extraire les domaines concurrents depuis les audits (liens externes) ───────
-async function extractCompetitorDomainsFromAudits(tenantId: string, projectId?: string) {
+async function extractCompetitorDomainsFromAudits(tenantId: string, userId: string, projectId?: string) {
   // Récupérer les rapports d'audits pour avoir le score global du site du tenant
   const ownReports = await prisma.auditReport.findMany({
     where: {
       audit: {
-        tenantId,
+        tenantId, userId, deletedAt: null,
         status: "COMPLETED",
         ...(projectId ? { projectId } : {}),
       },
@@ -57,7 +57,7 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
         projectFilter = { projectId }
       } else {
         const userProjects = await prisma.project.findMany({
-          where: { tenantId: request.tenantId, userId: request.userId },
+          where: { deletedAt: null, tenantId: request.tenantId, userId: request.userId },
           select: { id: true },
         })
         projectFilter = { projectId: { in: userProjects.map((p) => p.id) } }
@@ -73,7 +73,7 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
       })
 
       // Scores du tenant (ses propres audits)
-      const ownReports = await extractCompetitorDomainsFromAudits(request.tenantId, projectId)
+      const ownReports = await extractCompetitorDomainsFromAudits(request.tenantId, request.userId, projectId)
       const ownLatest = ownReports[0]
       const ownScore = ownLatest
         ? {
@@ -95,7 +95,7 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
           // Chercher un audit de ce domaine dans la DB du tenant
           const latestAudit = await prisma.audit.findFirst({
             where: {
-              tenantId: request.tenantId,
+              tenantId: request.tenantId, userId: request.userId, deletedAt: null,
               url: { contains: comp.domain },
               status: "COMPLETED",
             },
@@ -137,7 +137,7 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
       )
 
       // Domaines suggérés via les liens externes des audits
-      const suggestedDomains = await getSuggestedCompetitors(request.tenantId, projectId, competitors.map((c) => c.domain))
+      const suggestedDomains = await getSuggestedCompetitors(request.tenantId, request.userId, projectId, competitors.map((c) => c.domain))
 
       return reply.send({
         own: ownScore,
@@ -162,7 +162,7 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Normaliser le domaine
-      let normalizedDomain = domain.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "")
+      const normalizedDomain = domain.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "")
 
       const competitor = await prisma.competitor.upsert({
         where: {
@@ -203,13 +203,14 @@ const competitorsRoutes: FastifyPluginAsync = async (fastify) => {
 // ── Suggestions de concurrents depuis les liens externes ──────────────────────
 async function getSuggestedCompetitors(
   tenantId: string,
+  userId: string,
   projectId: string | undefined,
   existingDomains: string[]
 ): Promise<Array<{ domain: string; mentionCount: number }>> {
   try {
     // Récupérer les URLs auditées pour extraire le domaine du tenant
     const audits = await prisma.audit.findMany({
-      where: { tenantId, status: "COMPLETED", ...(projectId ? { projectId } : {}) },
+      where: { tenantId, userId, deletedAt: null, status: "COMPLETED", ...(projectId ? { projectId } : {}) },
       select: { url: true },
       take: 5,
     })
@@ -222,11 +223,11 @@ async function getSuggestedCompetitors(
     // (On n'a pas les URLs exactes des liens, on utilise les audits de pages)
     // Ici on retourne juste les backlinks existants comme suggestion
     const backlinks = await prisma.backlink.findMany({
-      where: { tenantId, isActive: true },
+      where: { tenantId, project: { userId }, ...(projectId ? { projectId } : {}), isActive: true },
       select: { sourceDomain: true },
     })
 
-    const domainCount: Record<string, number> = {}
+    const domainCount: Record<string, number> = Object.create(null)
     for (const bl of backlinks) {
       if (!tenantDomains.includes(bl.sourceDomain) && !existingDomains.includes(bl.sourceDomain)) {
         domainCount[bl.sourceDomain] = (domainCount[bl.sourceDomain] ?? 0) + 1

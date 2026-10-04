@@ -1,6 +1,7 @@
 "use client"
 
 import { use } from "react"
+import Image from "next/image"
 import { useQuery } from "@tanstack/react-query"
 import { apiClient } from "@/lib/api-client"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -63,7 +64,7 @@ export default function PublicReportPage({ params }: { params: Promise<{ token: 
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {data.tenant.logoUrl ? (
-              <img src={data.tenant.logoUrl} alt="" className="h-8 w-8 rounded" />
+              <Image src={data.tenant.logoUrl} alt="" width={32} height={32} unoptimized className="h-8 w-8 rounded" />
             ) : (
               <div className="h-8 w-8 rounded flex items-center justify-center text-white text-xs font-bold" style={{ background: brandColor }}>
                 {data.tenant.name[0]}

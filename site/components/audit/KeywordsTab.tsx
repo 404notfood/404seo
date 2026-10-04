@@ -2,11 +2,11 @@
 
 import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+
 import { Skeleton } from "@/components/ui/skeleton"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts"
 import { useAuditKeywords } from "@/hooks/useKeywords"
-import type { KeywordEntry, SiteKeywordEntry } from "@/lib/api-client"
+import type { KeywordEntry } from "@/lib/api-client"
 
 interface KeywordsTabProps {
   auditId: string

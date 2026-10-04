@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useAdminPlans, useUpdateAdminPlan, useSeedAdminPlans, useCreateAdminPlan } from "@/hooks/useAdmin"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
@@ -17,7 +17,8 @@ const PLAN_COLORS: Record<string, string> = {
 const ALL_PLANS = ["STARTER", "PRO", "AGENCY", "ENTERPRISE"]
 
 const FEATURES_META = [
-  { key: "featureAI",           label: "Visibilité IA" },
+  { key: "featureCmsCorrections", label: "Corrections CMS" },
+  { key: "featureAI",           label: "Agent, visibilité et propositions IA" },
   { key: "featureRankTracking", label: "Suivi de positions" },
   { key: "featureLocalSeo",     label: "SEO Local" },
   { key: "featureWhiteLabel",   label: "Marque blanche" },
@@ -37,11 +38,6 @@ function PlanCard({ plan, onSaved }: { plan: PlanConfig; onSaved: () => void }) 
   const [form, setForm] = useState<PlanConfig>({ ...plan })
   const [dirty, setDirty] = useState(false)
   const updatePlan = useUpdateAdminPlan()
-
-  useEffect(() => {
-    setForm({ ...plan })
-    setDirty(false)
-  }, [plan])
 
   function set<K extends keyof PlanConfig>(key: K, value: PlanConfig[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -142,6 +138,9 @@ function PlanCard({ plan, onSaved }: { plan: PlanConfig; onSaved: () => void }) 
               { key: "pageQuota", label: "Pages/audit" },
               { key: "projectQuota", label: "Projets" },
               { key: "userQuota", label: "Utilisateurs" },
+              { key: "cmsMonthlyQuota", label: "Propositions CMS/mois (0 = désactivé)" },
+              { key: "aiMonthlyQuota", label: "Appels agent, CMS et visibilité/mois (0 = désactivé)" },
+              { key: "aiMonthlyBudgetCents", label: "Budget IA/mois (centimes USD)" },
             ] as { key: keyof PlanConfig; label: string }[]
           ).map(({ key, label }) => (
             <label key={key} className="space-y-1">
@@ -205,6 +204,10 @@ function CreatePlanModal({ existingPlans, onClose, onCreated }: {
     projectQuota: 5,
     userQuota: 3,
     featureAI: false,
+    featureCmsCorrections: false,
+    cmsMonthlyQuota: 0,
+    aiMonthlyQuota: 0,
+    aiMonthlyBudgetCents: 0,
     featureRankTracking: false,
     featureLocalSeo: false,
     featureWhiteLabel: true,
@@ -302,6 +305,9 @@ function CreatePlanModal({ existingPlans, onClose, onCreated }: {
                 { key: "pageQuota", label: "Pages/audit" },
                 { key: "projectQuota", label: "Projets" },
                 { key: "userQuota", label: "Utilisateurs" },
+                { key: "cmsMonthlyQuota", label: "Propositions CMS/mois (0 = désactivé)" },
+                { key: "aiMonthlyQuota", label: "Appels agent, CMS et visibilité/mois (0 = désactivé)" },
+                { key: "aiMonthlyBudgetCents", label: "Budget IA/mois (centimes USD)" },
               ].map(({ key, label }) => (
                 <label key={key} className="space-y-1">
                   <span className="text-xs text-slate-500">{label} (-1=∞)</span>
@@ -423,12 +429,12 @@ export default function AdminPlansPage() {
 
       {plans.length === 0 ? (
         <div className="bg-white rounded-2xl p-8 text-center border border-slate-200">
-          <p className="text-slate-500 mb-4">Aucun plan configuré. Cliquez sur "Initialiser les plans par défaut" pour créer les 3 plans (Starter, Pro, Agency).</p>
+          <p className="text-slate-500 mb-4">Aucun plan configuré. Cliquez sur &quot;Initialiser les plans par défaut&quot; pour créer les 3 plans (Starter, Pro, Agency).</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {plans.map((plan) => (
-            <PlanCard key={plan.plan} plan={plan} onSaved={() => refetch()} />
+            <PlanCard key={JSON.stringify(plan)} plan={plan} onSaved={() => refetch()} />
           ))}
         </div>
       )}

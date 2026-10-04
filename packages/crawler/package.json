@@ -8,8 +8,9 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
-    "playwright": "^1.50.1",
+    "@seo/shared": "*",
     "cheerio": "^1.0.0",
-    "@seo/shared": "*"
+    "playwright": "^1.50.1",
+    "saxes": "^6.0.0"
   }
 }

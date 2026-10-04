@@ -1,4 +1,11 @@
 // lib/api-client.ts — Client HTTP vers l'API Fastify
+import type { ActionPlan, ActionVerification, SearchConsoleProperty, SeoActionStatus } from "@seo/shared"
+import type { SearchInsights, SearchInsightMode, SeoActionMeasurement } from "@seo/shared"
+import type { AnalyticsProperty, AnalyticsMeasurement, ProjectAnalytics } from "@seo/shared"
+import type { ProjectInternalLinks, InternalLinkView } from "@seo/shared"
+import type { ProjectUrlInventory, UrlInventoryMode, SitemapSyncResult } from "@seo/shared"
+import type { ProjectCms, CmsResource, CmsCorrectionMode, CmsCorrectionSummary, CmsBatchSummary, ConnectWordPressInput, ConnectPrestaShopInput } from "@seo/shared"
+import type { AiAgentReply, AiChatMessage, AiUsageSummary } from "@seo/shared"
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
 
@@ -49,6 +56,47 @@ export interface UserMe {
 }
 
 export const apiClient = {
+  getAiAgent: (projectId: string) => fetcher<{ auditId: string | null; auditedAt: string | null; usage: AiUsageSummary }>("/api/projects/" + encodeURIComponent(projectId) + "/ai-agent"),
+  askAiAgent: (projectId: string, messages: AiChatMessage[]) => fetcher<AiAgentReply>("/api/projects/" + encodeURIComponent(projectId) + "/ai-agent", { method: "POST", body: JSON.stringify({ messages }) }),
+  getProjectCms: (projectId: string) => fetcher<ProjectCms>("/api/projects/" + encodeURIComponent(projectId) + "/cms"),
+  connectWordPress: (projectId: string, data: ConnectWordPressInput) => fetcher<{ connected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "POST", body: JSON.stringify(data) }),
+  connectPrestaShop: (projectId: string, data: ConnectPrestaShopInput) => fetcher<{ connected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "POST", body: JSON.stringify(data) }),
+  disconnectCms: (projectId: string) => fetcher<{ disconnected: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/connection", { method: "DELETE", body: "{}" }),
+  getCmsResources: (projectId: string, kind: CmsResource["kind"], page: number) => fetcher<{ resources: CmsResource[]; hasMore: boolean }>("/api/projects/" + encodeURIComponent(projectId) + "/cms/resources?" + new URLSearchParams({ kind, page: String(page) })),
+  generateCmsCorrection: (projectId: string, resourceId: number, mode: CmsCorrectionMode, kind?: CmsResource["kind"]) => fetcher<CmsCorrectionSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/corrections", { method: "POST", body: JSON.stringify({ resourceId, mode, kind }) }),
+  generateCmsBatch: (projectId: string, resources: { id: number; kind: CmsResource["kind"] }[], mode: CmsCorrectionMode) => fetcher<CmsBatchSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/batches", { method: "POST", body: JSON.stringify({ action: "GENERATE", resources, mode }) }),
+  applyCmsBatch: (projectId: string, correctionIds: string[]) => fetcher<CmsBatchSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/batches", { method: "POST", body: JSON.stringify({ action: "APPLY", correctionIds, confirmed: true }) }),
+  cancelCmsBatch: (projectId: string, id: string) => fetcher<CmsBatchSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/batches/" + encodeURIComponent(id) + "/cancel", { method: "POST", body: "{}" }),
+  publishCmsCorrection: (projectId: string, id: string, action: "apply" | "restore" | "reconcile") => fetcher<CmsCorrectionSummary>("/api/projects/" + encodeURIComponent(projectId) + "/cms/corrections/" + encodeURIComponent(id) + "/" + action, { method: "POST", body: "{}" }),
+  getUrlInventory: (projectId: string, params: { mode: UrlInventoryMode; q: string; page: number }) =>
+    fetcher<ProjectUrlInventory>(`/api/projects/${encodeURIComponent(projectId)}/url-inventory?${new URLSearchParams({ mode: params.mode, q: params.q, page: String(params.page) })}`),
+  syncSitemaps: (projectId: string, sitemapUrl?: string) => fetcher<SitemapSyncResult>(`/api/projects/${encodeURIComponent(projectId)}/url-inventory/sitemaps/sync`, { method: "POST", body: JSON.stringify(sitemapUrl ? { sitemapUrl } : {}) }),
+  getInternalLinks: (projectId: string, params: { view: InternalLinkView; q: string; page: number; unlinked: boolean }) =>
+    fetcher<ProjectInternalLinks>(`/api/projects/${encodeURIComponent(projectId)}/internal-links?${new URLSearchParams({ view: params.view, q: params.q, page: String(params.page), unlinked: String(params.unlinked) })}`),
+  getProjectAnalytics: (projectId: string, page = 1) => fetcher<ProjectAnalytics>(`/api/projects/${encodeURIComponent(projectId)}/analytics?page=${page}`),
+  getAnalyticsProperty: (projectId: string, googleAccountId: string, propertyId: string) =>
+    fetcher<AnalyticsProperty>(`/api/projects/${encodeURIComponent(projectId)}/analytics/property?${new URLSearchParams({ googleAccountId, propertyId })}`),
+  syncAnalytics: (projectId: string, data: { googleAccountId: string; propertyId: string; streamId: string }) =>
+    fetcher<{ importedAt: string; pageCount: number }>(`/api/projects/${encodeURIComponent(projectId)}/analytics/sync`, { method: "POST", body: JSON.stringify(data) }),
+  measureAnalyticsAction: (projectId: string, checkName: string, windowDays: 7 | 28) =>
+    fetcher<AnalyticsMeasurement>(`/api/projects/${encodeURIComponent(projectId)}/analytics/actions/${encodeURIComponent(checkName)}/measure`, { method: "POST", body: JSON.stringify({ windowDays }) }),
+  getSearchInsights: (projectId: string, params?: { q?: string; mode?: SearchInsightMode; page?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.q) query.set("q", params.q)
+    if (params?.mode) query.set("mode", params.mode)
+    if (params?.page) query.set("page", String(params.page))
+    return fetcher<SearchInsights>(`/api/projects/${encodeURIComponent(projectId)}/search-insights?${query}`)
+  },
+  measureSeoAction: (projectId: string, checkName: string, windowDays: 7 | 28) =>
+    fetcher<SeoActionMeasurement>(`/api/projects/${encodeURIComponent(projectId)}/action-plan/${encodeURIComponent(checkName)}/measure`, { method: "POST", body: JSON.stringify({ windowDays }) }),
+  getActionPlan: (projectId: string) => fetcher<ActionPlan>(`/api/projects/${encodeURIComponent(projectId)}/action-plan`),
+  getSearchConsoleProperties: (projectId: string, googleAccountId: string) =>
+    fetcher<{ properties: SearchConsoleProperty[] }>(`/api/projects/${encodeURIComponent(projectId)}/search-console/properties?googleAccountId=${encodeURIComponent(googleAccountId)}`),
+  syncSearchConsole: (projectId: string, data: { googleAccountId: string; propertyUrl: string }) =>
+    fetcher<{ importedAt: string; pageCount: number; rowLimitReached: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/search-console/sync`, { method: "POST", body: JSON.stringify(data) }),
+  updateSeoAction: (projectId: string, checkName: string, data: { status: Exclude<SeoActionStatus, "VERIFIED">; note?: string }) =>
+    fetcher<{ status: SeoActionStatus; note: string }>(`/api/projects/${encodeURIComponent(projectId)}/action-plan/${encodeURIComponent(checkName)}`, { method: "PATCH", body: JSON.stringify(data) }),
+  verifySeoActions: (projectId: string) => fetcher<ActionVerification>(`/api/projects/${encodeURIComponent(projectId)}/action-plan/verify`, { method: "POST", body: "{}" }),
   // User
   getMe: () => fetcher<UserMe>("/api/me"),
 
@@ -293,7 +341,8 @@ export const apiClient = {
       if (opts?.listingId) sp.set("listingId", opts.listingId)
       if (opts?.label) sp.set("label", opts.label)
       const qs = sp.toString()
-      window.location.href = `${API_URL}/api/google/auth${qs ? `?${qs}` : ""}`
+      // Full navigation starts an OAuth redirect chain on the API server.
+      window.location.assign(new URL(`/api/google/auth${qs ? `?${qs}` : ""}`, API_URL || window.location.origin).href)
     }
   },
   disconnectGoogle: () => fetcher<{ success: boolean }>("/api/google/disconnect", { method: "POST" }),
@@ -305,7 +354,7 @@ export const apiClient = {
   getGSCData: (siteUrl: string) => fetcher<GSCData>(`/api/google/search-console?siteUrl=${encodeURIComponent(siteUrl)}`),
   connectGoogleAnalytics: () => {
     if (typeof window !== "undefined") {
-      window.location.href = `${API_URL}/api/google/auth/analytics`
+      window.location.assign(new URL("/api/google/auth/analytics", API_URL || window.location.origin).href)
     }
   },
 
@@ -749,6 +798,10 @@ export interface RankedKeyword {
   title: string | null
   change: number | null // positif = monté, négatif = descendu
   checkedAt: string | null
+  lastCheckStatus: "NEVER" | "RUNNING" | "COMPLETED" | "FAILED"
+  lastCheckMessage: string | null
+  lastAttemptAt: string | null
+  resultCount: number
   history: Array<{ position: number | null; checkedAt: string }>
 }
 
@@ -860,6 +913,7 @@ export interface AIVisibilityCheck {
 
 export interface AIVisibilityData {
   checks: AIVisibilityCheck[]
+  usage: AiUsageSummary
   stats: {
     total: number
     mentioned: number
@@ -870,9 +924,10 @@ export interface AIVisibilityData {
 }
 
 export interface CheckVisibilityInput {
+  projectId: string
   domain: string
   queries: string[]
-  engine?: "claude"
+  engine?: "openai"
 }
 
 // ─── Types Google OAuth ───────────────────────
@@ -1060,6 +1115,10 @@ export interface PlanConfig {
   projectQuota: number
   userQuota: number
   featureAI: boolean
+  featureCmsCorrections: boolean
+  cmsMonthlyQuota: number
+  aiMonthlyQuota: number
+  aiMonthlyBudgetCents: number
   featureRankTracking: boolean
   featureLocalSeo: boolean
   featureWhiteLabel: boolean

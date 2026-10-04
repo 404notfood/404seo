@@ -9,7 +9,7 @@
 #   2. Configure le domaine pour utiliser le template container-proxy
 # =============================================================
 
-set -e
+set -euo pipefail
 
 DOMAIN="seo.404notfood.fr"
 HESTIA_USER="seo"
@@ -54,20 +54,29 @@ export PATH="$HESTIA_BIN:$PATH"
 echo ">> Copie des templates Nginx (web)..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WEB_BACKEND="$(. /usr/local/hestia/conf/hestia.conf; echo "${WEB_BACKEND:-php-fpm}")"
-TPL_TARGET="$TPL_DIR/$WEB_BACKEND"
+PROXY_SYSTEM="$(. /usr/local/hestia/conf/hestia.conf; echo "${PROXY_SYSTEM:-}")"
+if [ "$PROXY_SYSTEM" = "nginx" ]; then
+  TPL_TARGET="$TPL_DIR"
+  TEMPLATE="container-proxy"
+  CHANGE_COMMAND="v-change-web-domain-proxy-tpl"
+else
+  TPL_TARGET="$TPL_DIR/$WEB_BACKEND"
+  TEMPLATE="container"
+  CHANGE_COMMAND="v-change-web-domain-tpl"
+fi
 mkdir -p "$TPL_TARGET"
-cp -f "$SCRIPT_DIR/container.tpl"  "$TPL_TARGET/container.tpl"
-cp -f "$SCRIPT_DIR/container.stpl" "$TPL_TARGET/container.stpl"
-chmod 644 "$TPL_TARGET/container.tpl" "$TPL_TARGET/container.stpl"
+cp -f "$SCRIPT_DIR/$TEMPLATE.tpl"  "$TPL_TARGET/$TEMPLATE.tpl"
+cp -f "$SCRIPT_DIR/$TEMPLATE.stpl" "$TPL_TARGET/$TEMPLATE.stpl"
+chmod 644 "$TPL_TARGET/$TEMPLATE.tpl" "$TPL_TARGET/$TEMPLATE.stpl"
 echo "   Templates copiés dans $TPL_TARGET"
 
 # --- Application du WEB template ---
 echo ">> Application du web template au domaine $DOMAIN..."
-"$HESTIA_BIN/v-change-web-domain-tpl" "$HESTIA_USER" "$DOMAIN" container
+"$HESTIA_BIN/$CHANGE_COMMAND" "$HESTIA_USER" "$DOMAIN" "$TEMPLATE"
 
 # Rebuild + reload pour generer la conf a partir du template
 echo ">> Rebuild du domaine + reload Nginx..."
-"$HESTIA_BIN/v-rebuild-web-domain" "$HESTIA_USER" "$DOMAIN" 2>/dev/null || true
+"$HESTIA_BIN/v-rebuild-web-domain" "$HESTIA_USER" "$DOMAIN"
 nginx -t && systemctl reload nginx
 
 echo ""

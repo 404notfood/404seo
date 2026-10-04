@@ -4,11 +4,6 @@
 # Fastify API → 127.0.0.1:4000                                           #
 #=========================================================================#
 
-map $http_upgrade $connection_upgrade {
-    default upgrade;
-    ''      close;
-}
-
 server {
     listen      %ip%:%web_port%;
     server_name %domain% %alias%;
@@ -30,7 +25,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-For   $remote_addr;
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_read_timeout 60s;
     }
@@ -41,10 +36,9 @@ server {
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-For   $remote_addr;
         proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_set_header   Upgrade           $http_upgrade;
-        proxy_set_header   Connection        $connection_upgrade;
+        proxy_set_header   Connection        "";
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
     }
@@ -55,7 +49,7 @@ server {
         proxy_http_version      1.1;
         proxy_set_header        Host              $host;
         proxy_set_header        X-Real-IP         $remote_addr;
-        proxy_set_header        X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header        X-Forwarded-For   $remote_addr;
         proxy_set_header        X-Forwarded-Proto $scheme;
         proxy_request_buffering off;
     }
@@ -66,7 +60,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-For   $remote_addr;
         proxy_set_header   X-Forwarded-Proto $scheme;
         proxy_set_header   Connection        "";
         proxy_buffering    off;
@@ -81,10 +75,9 @@ server {
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-For   $remote_addr;
         proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_set_header   Upgrade           $http_upgrade;
-        proxy_set_header   Connection        $connection_upgrade;
+        proxy_set_header   Connection        "";
         proxy_read_timeout 60s;
     }
 
@@ -104,7 +97,7 @@ server {
     gzip_comp_level   6;
     gzip_types        text/plain text/css text/xml application/json application/javascript application/xml+rss image/svg+xml;
 
-    client_max_body_size 50M;
+    client_max_body_size 1M;
 
     location /error/ {
         alias %home%/%user%/web/%domain%/document_errors/;

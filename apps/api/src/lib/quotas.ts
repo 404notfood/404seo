@@ -16,7 +16,7 @@ const DEFAULT_QUOTAS: Record<string, PlanQuotas> = {
   AGENCY:  { auditQuota: -1, pageQuota: 100000, projectQuota: -1, userQuota: 20 },
 }
 
-async function getQuotas(tenantId: string): Promise<PlanQuotas & { plan: string }> {
+export async function getQuotas(tenantId: string): Promise<PlanQuotas & { plan: string }> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
     select: { plan: true },
@@ -47,14 +47,13 @@ export function requireAuditQuota() {
     if (quotas.auditQuota === -1) return // illimité
 
     const startOfMonth = new Date()
-    startOfMonth.setDate(1)
-    startOfMonth.setHours(0, 0, 0, 0)
+    startOfMonth.setUTCDate(1)
+    startOfMonth.setUTCHours(0, 0, 0, 0)
 
     const auditsThisMonth = await prisma.audit.count({
       where: {
         tenantId: request.tenantId,
         createdAt: { gte: startOfMonth },
-        deletedAt: null,
       },
     })
 
@@ -77,7 +76,7 @@ export function requireProjectQuota() {
     if (quotas.projectQuota === -1) return // illimité
 
     const projectCount = await prisma.project.count({
-      where: { tenantId: request.tenantId },
+      where: { deletedAt: null, tenantId: request.tenantId },
     })
 
     if (projectCount >= quotas.projectQuota) {

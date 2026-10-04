@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify"
 import { prisma } from "../lib/prisma"
 import { assertProjectOwner } from "../lib/guards"
+import { EFFORT_WEIGHT } from "@seo/shared"
 
 // ─── Types query params ────────────────────────────────
 
@@ -398,10 +399,15 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       if (!project) return reply.status(403).send({ error: "Accès refusé" })
     }
 
+    const latestAudits = await prisma.audit.findMany({
+      where: { tenantId, userId, deletedAt: null, status: "COMPLETED", project: { deletedAt: null }, ...(projectId ? { projectId } : {}) },
+      orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }], distinct: ["projectId"], select: { id: true },
+    })
     const grouped = await prisma.pageResult.groupBy({
       by: ["checkName", "category", "status", "priority", "effort", "message"],
       where: {
-        page: completedAuditFilter(tenantId, userId, projectId),
+        tenantId,
+        page: { tenantId, auditId: { in: latestAudits.map(audit => audit.id) } },
         status: { in: ["FAIL", "WARN"] },
       },
       _count: { _all: true },
@@ -413,7 +419,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
       failCount: number
       warnCount: number
       priority: string
-      effort: string
+      effort: "LOW" | "MEDIUM" | "HIGH"
       message: string
     }
 
@@ -429,6 +435,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
         if ((severityWeight[g.priority] ?? 0) > (severityWeight[existing.priority] ?? 0)) {
           existing.priority = g.priority
         }
+        if (EFFORT_WEIGHT[g.effort] > EFFORT_WEIGHT[existing.effort]) existing.effort = g.effort
       } else {
         checkMap.set(g.checkName, {
           checkName: g.checkName,
@@ -445,7 +452,7 @@ const aggregationRoutes: FastifyPluginAsync = async (fastify) => {
     const recommendations = [...checkMap.values()]
       .map((r) => ({
         ...r,
-        impactScore: (r.failCount * 3 + r.warnCount) * (severityWeight[r.priority] ?? 1),
+        impactScore: (r.failCount * 3 + r.warnCount) * (severityWeight[r.priority] ?? 1) / EFFORT_WEIGHT[r.effort],
       }))
       .sort((a, b) => b.impactScore - a.impactScore)
 

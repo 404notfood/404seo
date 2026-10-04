@@ -3,6 +3,7 @@ import { prisma } from "./prisma"
 // Mapping clé feature → champ PlanConfig
 const FEATURE_TO_CONFIG_KEY: Record<string, string> = {
   ai: "featureAI",
+  cms_corrections: "featureCmsCorrections",
   rank_tracking: "featureRankTracking",
   local_seo: "featureLocalSeo",
   white_label: "featureWhiteLabel",
@@ -13,6 +14,7 @@ const FEATURE_TO_CONFIG_KEY: Record<string, string> = {
 
 export const FEATURES = [
   { key: "ai",            label: "Visibilité IA + suggestions" },
+  { key: "cms_corrections", label: "Corrections SEO dans le CMS" },
   { key: "rank_tracking", label: "Suivi de positions" },
   { key: "local_seo",     label: "SEO Local (GBP, avis, posts)" },
   { key: "white_label",   label: "Marque blanche (logo, couleurs, PDF)" },

@@ -95,6 +95,16 @@ model Verification {
 // MULTI-TENANT
 // ─────────────────────────────────────────────
 
+// Global authentication abuse control; infrastructure data has no tenant owner.
+model RateLimit {
+  id          String @id @default(cuid())
+  key         String @unique
+  count       Int
+  lastRequest BigInt
+
+  @@map("rate_limits")
+}
+
 model Tenant {
   id          String   @id @default(cuid())
   name        String
@@ -134,6 +144,10 @@ model Tenant {
 // ─────────────────────────────────────────────
 
 model Project {
+  deletedAt DateTime?
+  gscSyncStartedAt DateTime?
+  analyticsSyncStartedAt DateTime?
+  sitemapSyncStartedAt DateTime?
   id          String   @id @default(cuid())
   tenantId    String
   userId      String
@@ -150,8 +164,16 @@ model Project {
   backlinks       Backlink[]
   competitors     Competitor[]
   scheduledAudits ScheduledAudit[]
+  searchConsoleSnapshots SearchConsoleSnapshot[]
+  seoActions SeoAction[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  sitemapSnapshots SitemapSnapshot[]
+  cmsConnections CmsConnection[]
+  cmsBatches CmsBatch[]
+  aiRequests AiRequest[]
 
   @@index([tenantId])
+  @@unique([id, tenantId])
   @@map("projects")
 }
 
@@ -179,10 +201,120 @@ model Audit {
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([projectId])
+  @@unique([id, tenantId])
   @@map("audits")
 }
 
+model SitemapSnapshot {
+  id         String   @id @default(cuid())
+  tenantId   String
+  projectId  String
+  importedAt DateTime @default(now())
+  pageCount  Int
+  data       Json
+
+  project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId, importedAt])
+  @@map("sitemap_snapshots")
+}
+
+model CmsConnection {
+  id               String   @id @default(cuid())
+  tenantId         String
+  projectId        String
+  provider         String   @default("WORDPRESS")
+  scope            String   @default("")
+  siteUrl          String
+  label            String
+  credentials      String   @db.Text
+  verifiedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  disconnectedAt   DateTime?
+  project          Project  @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  corrections      CmsCorrection[]
+  batches          CmsBatch[]
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId])
+  @@map("cms_connections")
+}
+
+model CmsCorrection {
+  id                String   @id @default(cuid())
+  tenantId          String
+  connectionId      String
+  resourceId        Int
+  resourceKind      String   @default("page")
+  resourceUrl       String
+  title             String
+  mode              String
+  beforeTitle       String?
+  beforeDescription String?
+  afterTitle        String?
+  afterDescription  String?
+  beforePatchesJson String   @default("[]")
+  afterPatchesJson  String   @default("[]")
+  reason            String?
+  beforeRevision    String
+  appliedRevision   String?
+  status            String   @default("GENERATING")
+  direction         String?
+  operationId       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  connection        CmsConnection @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@index([tenantId, createdAt])
+  @@index([connectionId, status])
+  @@map("cms_corrections")
+}
+
+model CmsBatch {
+  id               String @id @default(cuid())
+  tenantId         String
+  projectId        String
+  connectionId     String
+  userId           String
+  action           String
+  mode             String @default("SEO")
+  correctionIds    Json
+  status           String @default("QUEUED")
+  completed        Int @default(0)
+  failed           Int @default(0)
+  cancelRequested  Boolean @default(false)
+  runToken         String?
+  leaseUntil       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  finishedAt       DateTime?
+  project          Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  connection       CmsConnection @relation(fields: [connectionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@index([status, leaseUntil])
+  @@index([tenantId, projectId, createdAt])
+  @@map("cms_batches")
+}
+
+model AiRequest {
+  id              String @id @default(cuid())
+  tenantId        String
+  projectId       String
+  userId          String
+  purpose         String
+  status          String @default("RESERVED")
+  inputTokens     Int @default(0)
+  outputTokens    Int @default(0)
+  reservedMicros  Int
+  actualMicros    Int?
+  model           String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  project         Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  @@index([tenantId, createdAt])
+  @@map("ai_requests")
+}
+
 model AuditPage {
+  tenantId String
   id              String   @id @default(cuid())
   auditId         String
   url             String
@@ -210,6 +342,7 @@ model AuditPage {
   brokenLinks     Int?
   // URLs des liens (pour affichage cliquable) — String[] dédupliqué côté crawler
   internalLinkUrls String[]
+  linkingData     Json?
   externalLinkUrls String[]
   // Schema.org
   hasSchemaOrg    Boolean?
@@ -234,14 +367,17 @@ model AuditPage {
   rawHtml         String?  @db.Text
   crawledAt       DateTime @default(now())
 
-  audit   Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  audit   Audit  @relation(fields: [auditId, tenantId], references: [id, tenantId], onDelete: Cascade)
   results PageResult[]
 
   @@index([auditId])
+  @@index([tenantId])
+  @@unique([id, tenantId])
   @@map("audit_pages")
 }
 
 model PageResult {
+  tenantId String
   id           String   @id @default(cuid())
   pageId       String
   category     Category
@@ -254,14 +390,16 @@ model PageResult {
   priority     Priority @default(MEDIUM)
   effort       Effort   @default(MEDIUM)
 
-  page AuditPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  page AuditPage @relation(fields: [pageId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([pageId])
   @@index([pageId, status])
+  @@index([tenantId])
   @@map("page_results")
 }
 
 model AuditReport {
+  tenantId String
   id              String   @id @default(cuid())
   auditId         String   @unique
   // Scores
@@ -288,12 +426,15 @@ model AuditReport {
   pdfUrl          String?
   generatedAt     DateTime @default(now())
 
-  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  audit Audit @relation(fields: [auditId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
+  @@index([tenantId])
+  @@unique([auditId, tenantId])
   @@map("audit_reports")
 }
 
 model AuditJob {
+  tenantId String
   id        String    @id @default(cuid())
   auditId   String
   bullJobId String?   // BullMQ job ID
@@ -305,9 +446,10 @@ model AuditJob {
   finishedAt DateTime?
   createdAt DateTime  @default(now())
 
-  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  audit Audit @relation(fields: [auditId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([auditId])
+  @@index([tenantId])
   @@map("audit_jobs")
 }
 
@@ -370,13 +512,16 @@ model GBPListing {
   photos        GBPPhoto[]
 
   @@index([tenantId])
+  @@index([googleAccountId])
+  @@unique([id, tenantId])
   @@map("gbp_listings")
 }
 
 model GBPReview {
+  tenantId String
   id               String          @id @default(cuid())
   listingId        String
-  googleReviewId   String?         @unique // "accounts/x/locations/y/reviews/z"
+  googleReviewId   String?         // "accounts/x/locations/y/reviews/z"
   authorName       String
   rating           Int             // 1-5
   text             String?         @db.Text
@@ -387,16 +532,19 @@ model GBPReview {
   publishedAt      DateTime        @default(now())
   createdAt        DateTime        @default(now())
 
-  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listing GBPListing @relation(fields: [listingId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([listingId])
+  @@index([tenantId])
+  @@unique([tenantId, googleReviewId])
   @@map("gbp_reviews")
 }
 
 model GBPPost {
+  tenantId String
   id              String        @id @default(cuid())
   listingId       String
-  googlePostName  String?       @unique // "accounts/x/locations/y/localPosts/z"
+  googlePostName  String?       // "accounts/x/locations/y/localPosts/z"
   type            GBPPostType   @default(UPDATE)
   content         String        @db.Text
   imageUrl        String?
@@ -410,13 +558,16 @@ model GBPPost {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listing GBPListing @relation(fields: [listingId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([listingId])
+  @@index([tenantId])
+  @@unique([tenantId, googlePostName])
   @@map("gbp_posts")
 }
 
 model GBPRanking {
+  tenantId String
   id        String   @id @default(cuid())
   listingId String
   keyword   String
@@ -425,13 +576,15 @@ model GBPRanking {
   bestRank  Int
   checkedAt DateTime @default(now())
 
-  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listing GBPListing @relation(fields: [listingId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([listingId])
+  @@index([tenantId])
   @@map("gbp_rankings")
 }
 
 model GBPPhoto {
+  tenantId String
   id        String       @id @default(cuid())
   listingId String
   type      GBPPhotoType @default(INTERIOR)
@@ -439,9 +592,10 @@ model GBPPhoto {
   caption   String?
   createdAt DateTime     @default(now())
 
-  listing GBPListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listing GBPListing @relation(fields: [listingId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([listingId])
+  @@index([tenantId])
   @@map("gbp_photos")
 }
 
@@ -450,6 +604,9 @@ model GBPPhoto {
 // ─────────────────────────────────────────────
 
 model RankedKeyword {
+  lastCheckStatus  String @default("NEVER")
+  lastCheckMessage String?
+  lastAttemptAt    DateTime?
   id        String   @id @default(cuid())
   tenantId  String
   projectId String?
@@ -465,10 +622,13 @@ model RankedKeyword {
 
   @@unique([tenantId, keyword, device, country])
   @@index([tenantId])
+  @@unique([id, tenantId])
   @@map("ranked_keywords")
 }
 
 model RankHistory {
+  resultCount Int @default(0)
+  tenantId String
   id        String   @id @default(cuid())
   keywordId String
   position  Int?     // null = non trouvé dans top 100
@@ -476,10 +636,11 @@ model RankHistory {
   title     String?  // titre de la page
   checkedAt DateTime @default(now())
 
-  keyword RankedKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  keyword RankedKeyword @relation(fields: [keywordId, tenantId], references: [id, tenantId], onDelete: Cascade)
 
   @@index([keywordId])
   @@index([keywordId, checkedAt])
+  @@index([tenantId])
   @@map("rank_history")
 }
 
@@ -571,9 +732,190 @@ model GoogleAccount {
 
   tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   listings GBPListing[] // fiches associées à ce compte Google
+  searchConsoleSnapshots SearchConsoleSnapshot[]
+  seoActionMeasurements SeoActionMeasurement[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  analyticsMeasurements AnalyticsActionMeasurement[]
 
   @@index([tenantId])
+  @@unique([id, tenantId])
   @@map("google_accounts")
+}
+
+// Successful imports only. Keep the last twelve snapshots per project.
+model SearchConsoleSnapshot {
+  id String @id @default(cuid())
+  tenantId String
+  projectId String
+  googleAccountId String
+  propertyUrl String
+  startDate String
+  endDate String
+  rowLimitReached Boolean @default(false)
+  queriesIncluded Boolean @default(false)
+  queryRowLimitReached Boolean @default(false)
+  importedAt DateTime @default(now())
+  project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  pages SearchConsolePageMetric[]
+  queryPages SearchConsoleQueryMetric[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId, importedAt])
+  @@map("search_console_snapshots")
+}
+
+model SearchConsolePageMetric {
+  id String @id @default(cuid())
+  tenantId String
+  snapshotId String
+  pageUrl String
+  clicks Float
+  impressions Float
+  ctr Float
+  position Float
+  snapshot SearchConsoleSnapshot @relation(fields: [snapshotId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([snapshotId, pageUrl])
+  @@index([tenantId])
+  @@map("search_console_page_metrics")
+}
+
+model SeoAction {
+  id String @id @default(cuid())
+  tenantId String
+  projectId String
+  checkName String
+  status SeoActionStatus @default(OPEN)
+  note String @default("") @db.Text
+  baselineAuditId String?
+  expectedPageUrls String[]
+  implementedAt DateTime?
+  verifiedAt DateTime?
+  verifiedAuditId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  measurements SeoActionMeasurement[]
+  analyticsMeasurements AnalyticsActionMeasurement[]
+
+  @@unique([projectId, checkName])
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId])
+  @@map("seo_actions")
+}
+
+model SearchConsoleQueryMetric {
+  id String @id @default(cuid())
+  tenantId String
+  snapshotId String
+  rowKey String
+  query String @db.Text
+  pageUrl String @db.Text
+  clicks Float
+  impressions Float
+  ctr Float
+  position Float
+  snapshot SearchConsoleSnapshot @relation(fields: [snapshotId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([snapshotId, rowKey])
+  @@index([tenantId, snapshotId])
+  @@map("search_console_query_metrics")
+}
+
+model SeoActionMeasurement {
+  id String @id @default(cuid())
+  tenantId String
+  actionId String
+  googleAccountId String
+  propertyUrl String
+  implementedAt DateTime
+  windowDays Int
+  beforeStartDate String
+  beforeEndDate String
+  afterStartDate String
+  afterEndDate String
+  result Json
+  rowLimitReached Boolean @default(false)
+  measuredAt DateTime @default(now())
+  action SeoAction @relation(fields: [actionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([actionId, implementedAt, windowDays])
+  @@index([tenantId, actionId])
+  @@map("seo_action_measurements")
+}
+
+model AnalyticsSnapshot {
+  id String @id @default(cuid())
+  tenantId String
+  projectId String
+  googleAccountId String
+  propertyId String
+  displayName String
+  streamId String
+  timeZone String
+  currencyCode String
+  startDate String
+  endDate String
+  quality Json
+  importedAt DateTime @default(now())
+  project Project @relation(fields: [projectId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  pages AnalyticsPageMetric[]
+
+  @@unique([id, tenantId])
+  @@index([tenantId, projectId, importedAt])
+  @@map("analytics_snapshots")
+}
+
+model AnalyticsPageMetric {
+  id String @id @default(cuid())
+  tenantId String
+  snapshotId String
+  pageUrl String @db.Text
+  sessions Float
+  keyEvents Float
+  purchaseRevenue Float?
+  snapshot AnalyticsSnapshot @relation(fields: [snapshotId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([snapshotId, pageUrl])
+  @@index([tenantId, snapshotId])
+  @@map("analytics_page_metrics")
+}
+
+model AnalyticsActionMeasurement {
+  id String @id @default(cuid())
+  tenantId String
+  actionId String
+  googleAccountId String
+  propertyId String
+  streamId String
+  timeZone String
+  currencyCode String
+  implementedAt DateTime
+  windowDays Int
+  beforeStartDate String
+  beforeEndDate String
+  afterStartDate String
+  afterEndDate String
+  quality Json
+  result Json
+  measuredAt DateTime @default(now())
+  action SeoAction @relation(fields: [actionId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  googleAccount GoogleAccount @relation(fields: [googleAccountId, tenantId], references: [id, tenantId], onDelete: Cascade)
+
+  @@unique([actionId, implementedAt, windowDays])
+  @@index([tenantId, actionId])
+  @@map("analytics_action_measurements")
+}
+
+enum SeoActionStatus {
+  OPEN
+  IN_PROGRESS
+  IMPLEMENTED
+  VERIFIED
+  DISMISSED
 }
 
 // ─────────────────────────────────────────────
@@ -595,6 +937,10 @@ model PlanConfig {
   userQuota     Int
   // Feature defaults
   featureAI           Boolean @default(false)
+  featureCmsCorrections Boolean @default(false)
+  cmsMonthlyQuota       Int     @default(0)
+  aiMonthlyQuota        Int     @default(0)
+  aiMonthlyBudgetCents  Int     @default(0)
   featureRankTracking Boolean @default(false)
   featureLocalSeo     Boolean @default(false)
   featureWhiteLabel   Boolean @default(true)
@@ -741,7 +1087,7 @@ model SharedReport {
   viewCount Int      @default(0)
   createdAt DateTime @default(now())
 
-  audit  Audit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  audit  Audit  @relation(fields: [auditId, tenantId], references: [id, tenantId], onDelete: Cascade)
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([token])
@@ -772,11 +1118,6 @@ model ScheduledAudit {
   @@index([tenantId])
   @@index([nextRunAt, isActive])
   @@map("scheduled_audits")
-}
-
-enum ScheduleFrequency {
-  WEEKLY
-  MONTHLY
 }
 
 enum GBPPostStatus {

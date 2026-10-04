@@ -3,6 +3,7 @@
 
 import type { CheckResult, LighthouseData } from "@seo/shared"
 import type { AnalysisResult } from "@seo/analyzer"
+import { impactEffortScore } from "@seo/shared"
 
 // ─────────────────────────────────────────────
 // PONDÉRATION DES CATÉGORIES
@@ -200,9 +201,7 @@ export function generateRecommendations(score: SEOScore): Recommendation[] {
   const recs: Recommendation[] = []
 
   for (const issue of [...score.criticalIssues, ...score.warnings]) {
-    const impactScore = issue.priority === "HIGH" ? 3 : issue.priority === "MEDIUM" ? 2 : 1
-    const effortScore = issue.effort === "LOW" ? 3 : issue.effort === "MEDIUM" ? 2 : 1
-    const roi = Math.round((impactScore / effortScore) * 3.33) // 0-10
+    const roi = impactEffortScore(issue.priority, issue.effort)
 
     recs.push({
       title: formatCheckTitle(issue.checkName),

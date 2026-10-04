@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Palette, Image, Building2, Link2, Link2Off, CheckCircle2, Plus, BarChart3 } from "lucide-react"
+import { Loader2, Palette, Image as ImageIcon, Building2, Link2, Link2Off, CheckCircle2, Plus, BarChart3 } from "lucide-react"
 import { useSession } from "@/lib/auth-client"
 import { useTenant, useUpdateBranding } from "@/hooks/useTenant"
 import { useRole } from "@/hooks/useMe"
@@ -228,17 +228,12 @@ function BrandingCard() {
   const { data: tenant, isLoading } = useTenant()
   const { mutate: updateBranding, isPending } = useUpdateBranding()
 
-  const [name, setName] = useState("")
-  const [logoUrl, setLogoUrl] = useState("")
-  const [brandColor, setBrandColor] = useState("#2563eb")
-
-  useEffect(() => {
-    if (tenant) {
-      setName(tenant.name)
-      setLogoUrl(tenant.logoUrl || "")
-      setBrandColor(tenant.brandColor || "#2563eb")
-    }
-  }, [tenant])
+  const [nameDraft, setName] = useState<string | null>(null)
+  const [logoDraft, setLogoUrl] = useState<string | null>(null)
+  const [colorDraft, setBrandColor] = useState<string | null>(null)
+  const name = nameDraft ?? tenant?.name ?? ""
+  const logoUrl = logoDraft ?? tenant?.logoUrl ?? ""
+  const brandColor = colorDraft ?? tenant?.brandColor ?? "#2563eb"
 
   function handleSave() {
     updateBranding({ name, logoUrl: logoUrl || null, brandColor })
@@ -311,7 +306,7 @@ function BrandingCard() {
         {/* URL logo */}
         <div className="space-y-2">
           <Label htmlFor="brand-logo" className="flex items-center gap-1.5 text-sm">
-            <Image className="h-3.5 w-3.5 text-slate-400" />
+            <ImageIcon className="h-3.5 w-3.5 text-slate-400" />
             URL du logo
           </Label>
           <Input

@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSessionCookie } from "better-auth/cookies"
 
-const PROTECTED_PREFIXES = ["/dashboard", "/audits", "/projects", "/settings"]
+const PROTECTED_PREFIXES = ["/dashboard", "/audits", "/projects", "/settings", "/admin", "/local", "/rank-tracking", "/backlinks", "/competitors", "/ai-visibility"]
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -13,8 +13,7 @@ export function proxy(request: NextRequest) {
 
   if (
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.includes(".")
+    pathname.startsWith("/favicon")
   ) {
     return NextResponse.next()
   }

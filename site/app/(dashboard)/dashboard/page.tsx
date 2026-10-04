@@ -8,7 +8,7 @@ import Link from "next/link"
 import { Search, TrendingUp, AlertTriangle, CheckCircle, Clock, ArrowRight, Activity } from "lucide-react"
 import OnboardingWizard from "@/components/dashboard/OnboardingWizard"
 import { formatDistanceToNow } from "@/lib/date"
-import type { AuditStatus } from "@/lib/api-client"
+
 
 const STATUS_CONFIG: Record<string, { label: string; dot: string }> = {
   PENDING:           { label: "En attente",   dot: "#64748b" },

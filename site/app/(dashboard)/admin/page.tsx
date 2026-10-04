@@ -1,4 +1,5 @@
 "use client"
+import Link from "next/link"
 
 import { useAdminStats, useAdminTenants } from "@/hooks/useAdmin"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -128,9 +129,9 @@ export default function AdminPage() {
       <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-slate-900">Tenants récents</h2>
-          <a href="/admin/tenants" className="text-xs text-blue-600 hover:underline">
+          <Link href="/admin/tenants" className="text-xs text-blue-600 hover:underline">
             Voir tout →
-          </a>
+          </Link>
         </div>
         <div className="space-y-2">
           {(tenantsData?.tenants ?? []).slice(0, 5).map((t) => (

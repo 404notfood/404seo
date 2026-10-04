@@ -99,7 +99,7 @@ const sections: NavSection[] = [
     defaultOpen: false,
     items: [
       { href: "/rank-tracking", label: "Suivi de position", icon: TrendingUp, badge: "Bientôt", badgeColor: "#7c3aed" },
-      { href: "/keywords", label: "Recherche de mots-clés", icon: Search },
+      { href: "/keywords", label: "Requêtes Google", icon: Search },
       { href: "/competitors", label: "Analyse concurrents", icon: Target, badge: "Bientôt", badgeColor: "#7c3aed" },
       { href: "/ai-visibility", label: "Visibilité IA", icon: Eye, badge: "Bientôt", badgeColor: "#7c3aed" },
     ],
@@ -110,6 +110,7 @@ const sections: NavSection[] = [
     defaultOpen: false,
     items: [
       { href: "/content-audit", label: "Audit de contenu", icon: PenTool },
+      { href: "/internal-linking", label: "Maillage interne", icon: Link2 },
       { href: "/backlinks", label: "Backlinks", icon: Link2, badge: "Bientôt", badgeColor: "#7c3aed" },
       { href: "/reports", label: "Rapports PDF", icon: FileText },
       { href: "/stats", label: "Statistiques", icon: BarChart3 },
@@ -123,7 +124,8 @@ const sections: NavSection[] = [
       { href: "/ai-recommendations", label: "Recommandations IA", icon: Sparkles, badge: "IA", badgeColor: "#06b6d4" },
       { href: "/ai-agent", label: "Agent IA SEO", icon: Bot, badge: "IA", badgeColor: "#06b6d4" },
       { href: "/suggestions", label: "Suggestions d'action", icon: Lightbulb },
-      { href: "/optimization", label: "Optimisation globale", icon: Globe },
+      { href: "/optimization", label: "Plan d’action SEO", icon: Globe },
+      { href: "/cms-connections", label: "Connexions CMS", icon: Store },
     ],
   },
   {
@@ -469,7 +471,7 @@ export function Sidebar() {
               <span className="text-[11px] font-bold text-white">Passez à Pro</span>
             </div>
             <p className="text-[10px] leading-relaxed" style={{ color: "#94a3b8" }}>
-              Débloquez le suivi de position, l'analyse concurrents et les recommandations IA.
+              Débloquez le suivi de position, l&apos;analyse concurrents et les recommandations IA.
             </p>
           </Link>
         </div>

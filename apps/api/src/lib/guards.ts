@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify"
+import type {} from "../types/auth.types"
 
 type Role = "ADMIN" | "MEMBER" | "GUEST"
 
@@ -6,6 +7,16 @@ const ROLE_HIERARCHY: Record<Role, number> = {
   GUEST: 0,
   MEMBER: 1,
   ADMIN: 2,
+}
+
+/** The original tenant owner can purchase a plan while still GUEST. */
+export async function requireBillingOwner(request: FastifyRequest, reply: FastifyReply) {
+  if (request.role === "ADMIN") return
+  const { prisma } = await import("./prisma.js")
+  const owner = await prisma.user.findFirst({
+    where: { tenantId: request.tenantId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true },
+  })
+  if (owner?.id !== request.userId) return reply.status(403).send({ error: "Gestion de l'abonnement réservée au propriétaire" })
 }
 
 /**
@@ -110,7 +121,7 @@ export async function assertProjectOwner(
 ): Promise<{ id: string; domain: string; name: string } | null> {
   const { prisma } = await import("./prisma.js")
   return prisma.project.findFirst({
-    where: { id: projectId, userId, tenantId },
+    where: { deletedAt: null, id: projectId, userId, tenantId },
     select: { id: true, domain: true, name: true },
   })
 }

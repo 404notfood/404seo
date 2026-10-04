@@ -207,10 +207,14 @@ export default function RankTrackingPage() {
                         <Badge variant="secondary" className="text-[10px]">{kw.device}</Badge>
                       </td>
                       <td className="py-2.5 px-2 text-center text-xs text-slate-400">
+                        {kw.lastCheckStatus === "FAILED" && <p className="text-red-600" title={kw.lastCheckMessage ?? undefined}>Mesure indisponible</p>}
+                        {kw.lastCheckStatus === "RUNNING" && <p className="text-blue-600">En cours…</p>}
                         {kw.checkedAt
                           ? new Date(kw.checkedAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })
                           : <span className="text-amber-500">Jamais</span>
                         }
+                        {kw.resultCount > 0 && <p title="Nombre de résultats organiques observés lors de la dernière mesure">{kw.resultCount} résultats observés{kw.position === null ? " · domaine non observé dans cet échantillon" : ""}</p>}
+                        {kw.checkedAt && kw.resultCount === 0 && <p>Historique à confirmer, exclu des statistiques</p>}
                       </td>
                       <td className="py-2.5 px-2">
                         <div className="flex items-center gap-1">

@@ -2,6 +2,10 @@
 import type { FastifyPluginAsync } from "fastify"
 import Stripe from "stripe"
 import { prisma } from "../lib/prisma"
+import { requireBillingOwner } from "../lib/guards"
+import { redis } from "../lib/redis"
+import { randomUUID } from "node:crypto"
+import { z } from "zod"
 
 type Plan = "STARTER" | "PRO" | "AGENCY" | "ENTERPRISE"
 
@@ -21,26 +25,13 @@ function getStripe() {
   return new Stripe(key, { apiVersion: "2026-02-25.clover" })
 }
 
-// Idempotency : stocker les event IDs déjà traités (TTL 24h)
-const processedEvents = new Map<string, number>()
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
-
-function isEventProcessed(eventId: string): boolean {
-  const ts = processedEvents.get(eventId)
-  if (ts && Date.now() - ts < IDEMPOTENCY_TTL_MS) return true
-  // Cleanup old entries periodically
-  if (processedEvents.size > 1000) {
-    const now = Date.now()
-    for (const [id, time] of processedEvents) {
-      if (now - time > IDEMPOTENCY_TTL_MS) processedEvents.delete(id)
-    }
-  }
-  return false
-}
-
 const billingRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /api/billing — Récupérer l'abonnement actuel + configs des plans
   fastify.get("/api/billing", async (request, reply) => {
+    const month = new Date()
+    month.setUTCDate(1)
+    month.setUTCHours(0, 0, 0, 0)
+    const usage = await prisma.auditReport.aggregate({ where: { tenantId: request.tenantId, audit: { createdAt: { gte: month } } }, _sum: { totalPages: true } })
     const [subscription, tenant, planConfigs] = await Promise.all([
       prisma.subscription.findUnique({ where: { tenantId: request.tenantId } }),
       prisma.tenant.findUnique({ where: { id: request.tenantId }, select: { plan: true } }),
@@ -53,7 +44,7 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
         ? {
             status: subscription.status,
             pagesQuota: subscription.pagesQuota,
-            pagesUsed: subscription.pagesUsed,
+            pagesUsed: usage._sum.totalPages ?? 0,
             currentPeriodEnd: subscription.currentPeriodEnd,
           }
         : null,
@@ -62,13 +53,14 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   // POST /api/billing/checkout — Créer une session Stripe Checkout
-  fastify.post<{ Body: { plan: string } }>("/api/billing/checkout", async (request, reply) => {
-    const { plan } = request.body ?? {}
-    if (!plan) return reply.status(400).send({ error: "Plan requis" })
+  fastify.post("/api/billing/checkout", { preHandler: [requireBillingOwner] }, async (request, reply) => {
+    const parsed = z.object({ plan: z.enum(["STARTER", "PRO", "AGENCY", "ENTERPRISE"]) }).safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: "Plan invalide" })
+    const { plan } = parsed.data
 
     // Lire le PlanConfig depuis la DB
     const planConfig = await getPlanConfig(plan)
-    if (!planConfig) return reply.status(400).send({ error: "Plan introuvable en base" })
+    if (!planConfig?.isActive) return reply.status(400).send({ error: "Plan indisponible" })
     if (!planConfig.stripePriceId) {
       return reply.status(400).send({ error: "Ce plan n'a pas de prix Stripe configuré. Configurez le stripePriceId dans /admin/plans." })
     }
@@ -104,13 +96,14 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
       success_url: `${appUrl}/settings/billing?success=1`,
       cancel_url: `${appUrl}/settings/billing?cancelled=1`,
       metadata: { tenantId: request.tenantId, plan },
+      subscription_data: { metadata: { tenantId: request.tenantId, plan } },
     })
 
     return reply.send({ url: session.url })
   })
 
   // POST /api/billing/portal — Portail de gestion Stripe
-  fastify.post("/api/billing/portal", async (request, reply) => {
+  fastify.post("/api/billing/portal", { preHandler: [requireBillingOwner] }, async (request, reply) => {
     const subscription = await prisma.subscription.findUnique({
       where: { tenantId: request.tenantId },
     })
@@ -150,12 +143,15 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(400).send({ error: "Signature webhook invalide" })
       }
 
-      // Idempotency check
-      if (isEventProcessed(event.id)) {
-        return reply.send({ received: true, skipped: true })
+      const doneKey = `stripe:done:${event.id}`
+      const lockKey = `stripe:lock:${event.id}`
+      if (await redis.exists(doneKey)) return reply.send({ received: true, skipped: true })
+      const lockToken = randomUUID()
+      if (!(await redis.set(lockKey, lockToken, "EX", 300, "NX"))) {
+        return reply.status(503).send({ error: "Événement en cours, réessayer" })
       }
-      processedEvents.set(event.id, Date.now())
-
+      try {
+      if (await redis.exists(doneKey)) return reply.send({ received: true, skipped: true })
       switch (event.type) {
         case "checkout.session.completed": {
           const session = event.data.object as Stripe.Checkout.Session
@@ -184,7 +180,7 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
 
           // Lire le quota depuis PlanConfig en DB (fallback 100)
           const planCfg = await getPlanConfig(plan)
-          const pagesQuota = planCfg?.pageQuota && planCfg.pageQuota !== -1 ? planCfg.pageQuota : 100
+          const pagesQuota = planCfg?.pageQuota ?? 100
           const stripePriceId = planCfg?.stripePriceId ?? ""
 
           await prisma.$transaction([
@@ -226,10 +222,10 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         case "customer.subscription.updated": {
-          const sub = event.data.object as Stripe.Subscription
-          const tenantId = sub.metadata?.tenantId
-
-          if (!tenantId) break
+          // Stripe does not guarantee event order; read the current subscription.
+          const sub = await stripe.subscriptions.retrieve((event.data.object as Stripe.Subscription).id)
+          const storedSubscription = await prisma.subscription.findUnique({ where: { stripeSubscriptionId: sub.id } })
+          if (!storedSubscription) throw new Error("Abonnement non encore enregistré, réessayer")
 
           const isActive = ["active", "trialing"].includes(sub.status)
           const priceId = sub.items.data[0]?.price.id ?? null
@@ -237,15 +233,14 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
           // Détecter le plan et son quota depuis PlanConfig en DB via le priceId
           const updatedPlanCfg = priceId ? await getPlanByPriceId(priceId) : null
           const plan = (updatedPlanCfg?.plan ?? "STARTER") as Plan
-          const pagesQuotaUpdated = updatedPlanCfg?.pageQuota && updatedPlanCfg.pageQuota !== -1
-            ? updatedPlanCfg.pageQuota
-            : 100
+          const pagesQuotaUpdated = updatedPlanCfg?.pageQuota ?? 100
 
           const subItem = sub.items.data[0]
           const itemPeriodStart = subItem ? (subItem as unknown as { current_period_start?: number }).current_period_start : undefined
           const itemPeriodEnd = subItem ? (subItem as unknown as { current_period_end?: number }).current_period_end : undefined
 
-          await prisma.subscription.updateMany({
+          await prisma.$transaction(async tx => {
+          await tx.subscription.updateMany({
             where: { stripeSubscriptionId: sub.id },
             data: {
               status: isActive ? "ACTIVE" : "PAST_DUE",
@@ -258,13 +253,13 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
           })
 
           // Mettre à jour le plan sur le tenant aussi
-          const record = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: sub.id } })
+          const record = await tx.subscription.findFirst({ where: { stripeSubscriptionId: sub.id } })
           if (record) {
-            await prisma.$transaction([
-              prisma.tenant.update({ where: { id: record.tenantId }, data: { plan } }),
+            await Promise.all([
+              tx.tenant.update({ where: { id: record.tenantId }, data: { plan: isActive ? plan : "STARTER" } }),
               ...(isActive
                 ? [
-                    prisma.user.updateMany({
+                    tx.user.updateMany({
                       where: { tenantId: record.tenantId, role: "GUEST" },
                       data: { role: "MEMBER" },
                     }),
@@ -272,25 +267,29 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
                 : []),
             ])
           }
+          })
           break
         }
 
         case "customer.subscription.deleted": {
           const sub = event.data.object as Stripe.Subscription
-          await prisma.subscription.updateMany({
+          await prisma.$transaction(async tx => {
+          await tx.subscription.updateMany({
             where: { stripeSubscriptionId: sub.id },
             data: { status: "CANCELLED" },
           })
-          const record = await prisma.subscription.findFirst({ where: { stripeSubscriptionId: sub.id } })
+          const record = await tx.subscription.findFirst({ where: { stripeSubscriptionId: sub.id } })
           if (record) {
-            await prisma.tenant.update({ where: { id: record.tenantId }, data: { plan: "STARTER" } })
+            await tx.tenant.update({ where: { id: record.tenantId }, data: { plan: "STARTER" } })
           }
+          })
           break
         }
 
         case "invoice.payment_failed": {
           const invoice = event.data.object as Stripe.Invoice
-          const subId = (invoice as unknown as { subscription?: string | null }).subscription ?? null
+          const invoiceSubscription = invoice.parent?.subscription_details?.subscription
+          const subId = typeof invoiceSubscription === "string" ? invoiceSubscription : invoiceSubscription?.id ?? null
           if (subId) {
             await prisma.subscription.updateMany({
               where: { stripeSubscriptionId: subId },
@@ -301,7 +300,11 @@ const billingRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
+      await redis.set(doneKey, "1", "EX", 7 * 24 * 60 * 60)
       return reply.send({ received: true })
+      } finally {
+        await redis.eval('if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end', 1, lockKey, lockToken)
+      }
     }
   )
 }

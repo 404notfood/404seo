@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { Sparkles, RefreshCw, Zap, FileText, Link2, Globe } from "lucide-react"
+import { Sparkles, RefreshCw, Zap, FileText, Globe } from "lucide-react"
 import { useOptimization } from "@/hooks/useAggregation"
 import { useActiveProject } from "@/contexts/ProjectContext"
 
@@ -73,7 +73,7 @@ export default function AIRecommendationsPage() {
         <Card className="border-slate-100 rounded-2xl shadow-sm">
           <CardContent className="py-12 text-center text-slate-500">
             <Sparkles className="h-10 w-10 mx-auto mb-3 text-slate-300" />
-            <p className="font-medium">Aucune donnée d'audit disponible</p>
+            <p className="font-medium">Aucune donnée d&apos;audit disponible</p>
             <p className="text-sm mt-1">Lancez des audits pour obtenir des recommandations IA personnalisées.</p>
           </CardContent>
         </Card>
@@ -90,9 +90,9 @@ export default function AIRecommendationsPage() {
             <CardContent className="py-5 px-6">
               <h3 className="text-sm font-semibold text-slate-800 mb-2">Résumé des priorités</h3>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Nous avons identifié <span className="font-bold text-blue-600">{recs.length} points d'amélioration</span> répartis
+                Nous avons identifié <span className="font-bold text-blue-600">{recs.length} points d&apos;amélioration</span> répartis
                 sur {Object.keys(grouped).length} catégories. Les éléments sont triés par impact potentiel sur votre SEO.
-                Concentrez-vous d'abord sur les recommandations de priorité haute avec un effort faible pour des gains rapides.
+                Concentrez-vous d&apos;abord sur les recommandations de priorité haute avec un effort faible pour des gains rapides.
               </p>
             </CardContent>
           </Card>

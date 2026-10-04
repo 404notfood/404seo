@@ -9,16 +9,29 @@
     "workers"
   ],
   "scripts": {
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "node scripts/typecheck.mjs",
     "postinstall": "cd site && npx prisma generate",
     "dev": "turbo run dev",
-    "build": "turbo run build",
+    "build": "npm run build:wordpress-connector && npm run build:prestashop-connector && turbo run build",
+    "build:wordpress-connector": "node scripts/package-wordpress-connector.mjs",
+    "build:prestashop-connector": "node scripts/package-prestashop-connector.mjs",
     "lint": "turbo run lint",
+    "deployment:check": "node deployment/preflight.mjs",
+    "deployment:monitor": "node deployment/monitor.mjs",
+    "deployment:backup": "node deployment/backup.mjs create",
     "db:migrate": "cd site && npx prisma migrate dev",
     "db:generate": "cd site && npx prisma generate",
     "db:studio": "cd site && npx prisma studio"
   },
   "devDependencies": {
+    "tsx": "^4.21.0",
     "turbo": "^2.8.12",
     "typescript": "^5.7.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0",
+    "tmp": "^0.2.6",
+    "shell-quote": "^1.8.5"
   }
 }

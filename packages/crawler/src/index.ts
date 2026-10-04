@@ -1,121 +1,25 @@
-import { chromium, Browser, BrowserContext } from "playwright"
+import { chromium, Browser, BrowserContext, type Page } from "playwright"
 import * as cheerio from "cheerio"
 import { URL } from "url"
-import { lookup } from "node:dns/promises"
-import { isIP } from "node:net"
+
+
 import type { PageData } from "@seo/shared"
 import { extractPageKeywords } from "@seo/shared"
+import { extractLinkingData, resolveDocumentBaseUrl } from "./linkingData"
+import { googleRobotsMeta, readGoogleRobotsRules } from "./robotsDirectives"
 
 export type { PageData }
+export { plainCmsText } from "./cmsText"
+export { parseGoogleRankHtml } from "./rankResults"
+export { collectSitemapInventory, parseSitemapXml, sitemapRootsFromRobots, SITEMAP_IMPORT_LIMITS } from "./sitemaps"
+export type { SitemapFetch } from "./sitemaps"
 
 // ─────────────────────────────────────────────
 // Anti-SSRF
 // ─────────────────────────────────────────────
 
-const BLOCKED_HOSTS = new Set([
-  "localhost",
-  "metadata.google.internal",
-])
-
-const BLOCKED_SUFFIXES = [".local", ".internal", ".localhost", ".lan"]
-
-function normalizeHostname(hostname: string): string {
-  return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "")
-}
-
-function isPrivateIPv4(address: string): boolean {
-  const parts = address.split(".").map((part) => Number(part))
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return true
-  }
-
-  const [a, b] = parts
-  if (a === 0 || a === 10 || a === 127) return true
-  if (a === 100 && b >= 64 && b <= 127) return true
-  if (a === 169 && b === 254) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  if (a === 192 && b === 168) return true
-  if (a >= 224) return true
-  return false
-}
-
-function isPrivateIPv6(address: string): boolean {
-  const host = normalizeHostname(address)
-  return (
-    host === "::1" ||
-    host === "::" ||
-    host.startsWith("fc") ||
-    host.startsWith("fd") ||
-    host.startsWith("fe80:") ||
-    host.startsWith("::ffff:127.") ||
-    host.startsWith("::ffff:10.") ||
-    host.startsWith("::ffff:192.168.") ||
-    /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(host)
-  )
-}
-
-function isBlockedHostname(hostname: string): boolean {
-  const host = normalizeHostname(hostname)
-  if (!host) return true
-  if (BLOCKED_HOSTS.has(host)) return true
-  if (BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true
-
-  const ipVersion = isIP(host)
-  if (ipVersion === 4) return isPrivateIPv4(host)
-  if (ipVersion === 6) return isPrivateIPv6(host)
-
-  if (/^0x[0-9a-f]+$/i.test(host)) return true
-  if (/^\d+$/.test(host)) return true
-  if (/^0\d/.test(host.split(".")[0])) return true
-
-  return false
-}
-
-export function isValidPublicUrl(urlString: string): boolean {
-  try {
-    const url = new URL(urlString)
-    if (!["http:", "https:"].includes(url.protocol)) return false
-    if (url.username || url.password) return false
-    if (isBlockedHostname(url.hostname)) return false
-
-    return true
-  } catch {
-    return false
-  }
-}
-
-// ─────────────────────────────────────────────
-// Robots.txt
-// ─────────────────────────────────────────────
-
-const dnsValidationCache = new Map<string, Promise<boolean>>()
-
-async function resolvesToPublicAddress(hostname: string): Promise<boolean> {
-  const host = normalizeHostname(hostname)
-  if (isBlockedHostname(host)) return false
-  if (isIP(host)) return true
-
-  const cached = dnsValidationCache.get(host)
-  if (cached) return cached
-
-  const check = lookup(host, { all: true, verbatim: true })
-    .then((records) => records.length > 0 && records.every((record) => !isBlockedHostname(record.address)))
-    .catch(() => false)
-
-  dnsValidationCache.set(host, check)
-  return check
-}
-
-export async function isValidPublicUrlWithDns(urlString: string): Promise<boolean> {
-  if (!isValidPublicUrl(urlString)) return false
-  try {
-    const url = new URL(urlString)
-    return resolvesToPublicAddress(url.hostname)
-  } catch {
-    return false
-  }
-}
-
+export { isValidPublicUrl, isValidPublicUrlWithDns } from "@seo/shared/security"
+import { isValidPublicUrlWithDns, fetchPublicUrl, fulfillPublicRequest } from "@seo/shared/security"
 // Parse un robots.txt en règles Allow/Disallow applicables au user-agent donné.
 // Gère : groupes multi-agents, directive Allow, et la précision longest-match
 // (la règle la plus spécifique l'emporte, conformément au standard de Google).
@@ -194,7 +98,7 @@ async function fetchRobotsRules(origin: string, userAgent: string): Promise<Robo
 
   const promise = (async () => {
     try {
-      const response = await fetch(`${origin}/robots.txt`, { signal: AbortSignal.timeout(5000) })
+      const response = await fetchPublicUrl(`${origin}/robots.txt`, { timeoutMs: 5000, maxBytes: 1024 * 1024 })
       if (!response.ok) return null // pas de robots.txt → tout autorisé
       return parseRobots(await response.text(), userAgent)
     } catch {
@@ -247,6 +151,8 @@ function parsePageContent(
 ): Omit<PageData, "url" | "statusCode" | "responseTime" | "pageSize"> {
   const $ = cheerio.load(html)
   const parsedBase = new URL(baseUrl)
+  const linkingData = extractLinkingData($, baseUrl)
+  const documentBase = resolveDocumentBaseUrl($, baseUrl)
 
   const title = $("title").first().text().trim() || undefined
   const metaDescription = $('meta[name="description"]').attr("content")?.trim()
@@ -260,9 +166,14 @@ function parsePageContent(
   $("h3").each((_, el) => { h3.push($(el).text().trim()) })
   $("h4").each((_, el) => { h4.push($(el).text().trim()) })
 
-  const canonicalUrl = $('link[rel="canonical"]').attr("href")?.trim()
-  const metaRobots = $('meta[name="robots"]').attr("content")?.toLowerCase()
-  const isIndexable = !metaRobots?.includes("noindex")
+  const canonicalHref = $('link[rel="canonical"]').attr("href")?.trim()
+  let canonicalUrl = canonicalHref
+  if (canonicalHref) {
+    try { canonicalUrl = new URL(canonicalHref, documentBase).href } catch { /* Retain invalid canonicals for diagnostics. */ }
+  }
+  const robotsRules = readGoogleRobotsRules(googleRobotsMeta($))
+  const metaRobots = robotsRules.raw || undefined
+  const isIndexable = !robotsRules.noindex
 
   const images: PageData["images"] = []
   $("img").each((_, el) => {
@@ -283,7 +194,8 @@ function parsePageContent(
     const href = $(el).attr("href")
     if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) return
     try {
-      const linkUrl = new URL(href, baseUrl)
+      const linkUrl = new URL(href, documentBase)
+      if (!["http:", "https:"].includes(linkUrl.protocol)) return
       if (linkUrl.hostname === parsedBase.hostname) {
         internalLinks.push(linkUrl.href)
       } else {
@@ -338,11 +250,13 @@ function parsePageContent(
   })
 
   // Word count
+  $("script, style, noscript, iframe, object, embed").remove()
   const bodyText = $("body").text().replace(/\s+/g, " ").trim()
   const wordCount = bodyText ? bodyText.split(/\s+/).length : 0
 
   return {
     title,
+    linkingData,
     metaDescription,
     h1,
     headings: { h2, h3, h4 },
@@ -374,6 +288,7 @@ import type { CrawlOptions } from "@seo/shared"
 export class SEOCrawler {
   private browser: Browser | null = null
   private visitedUrls = new Set<string>()
+  private navigationUrls = new WeakMap<Page, string>()
   private options: Required<CrawlOptions>
 
   constructor(options: CrawlOptions = {}) {
@@ -393,7 +308,9 @@ export class SEOCrawler {
   async launch(): Promise<void> {
     this.browser = await chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
+      chromiumSandbox: process.env.NODE_ENV === "production",
+      args: ["--disable-dev-shm-usage"],
     })
   }
 
@@ -403,20 +320,35 @@ export class SEOCrawler {
     // Purger les caches partagés entre audits (évite la fuite mémoire dans un
     // worker durable et les règles robots/DNS obsolètes au prochain crawl).
     robotsCache.clear()
-    dnsValidationCache.clear()
+
   }
 
   // Crée un BrowserContext configuré (userAgent + viewport selon le device).
   // Réutilisé pour toutes les pages d'un crawl afin d'éviter le coût de recréation.
   private async newConfiguredContext(): Promise<BrowserContext> {
     if (!this.browser) throw new Error("Browser non initialisé. Appeler launch() d'abord.")
-    return this.browser.newContext({
+    const context = await this.browser.newContext({
+      serviceWorkers: "block",
       userAgent: this.options.userAgent,
       viewport:
         this.options.device === "mobile"
           ? { width: 375, height: 812 }
           : { width: 1280, height: 800 },
     })
+    const requestCounts = new WeakMap<Page, number>()
+    await context.route("**/*", async (route) => {
+      const request = route.request()
+      const page = request.frame().page()
+      const count = (requestCounts.get(page) ?? 0) + 1
+      requestCounts.set(page, count)
+      if (count > 300) { await route.abort("blockedbyclient"); return }
+      const resolved = await fulfillPublicRequest(route, this.options.userAgent)
+      if (resolved && request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+        this.navigationUrls.set(page, resolved)
+      }
+    })
+    await context.routeWebSocket("**/*", (socket) => socket.close())
+    return context
   }
 
   // Si sharedContext est fourni, la page est créée dedans (et le contexte n'est PAS
@@ -433,15 +365,6 @@ export class SEOCrawler {
     const start = Date.now()
 
     try {
-      await page.route("**/*", async (route) => {
-        const requestUrl = route.request().url()
-        if (await isValidPublicUrlWithDns(requestUrl)) {
-          await route.continue()
-        } else {
-          await route.abort("blockedbyclient")
-        }
-      })
-
       const response = await page.goto(url, {
         // domcontentloaded : on n'attend pas le réseau "idle" (tracking/pub/websockets
         // peuvent empêcher l'idle jusqu'au timeout). Le HTML SEO est dispo dès le DOM parsé.
@@ -455,15 +378,24 @@ export class SEOCrawler {
 
       const responseTime = Date.now() - start
       const statusCode = response?.status() ?? 0
-      const finalUrl = page.url()
+      const finalUrl = this.navigationUrls.get(page) ?? page.url()
       if (!(await isValidPublicUrlWithDns(finalUrl))) throw new Error(`URL finale bloquée (SSRF): ${finalUrl}`)
       const redirectUrl = finalUrl !== url ? finalUrl : undefined
       const html = await page.content()
+      if (Buffer.byteLength(html, "utf8") > 5 * 1024 * 1024) throw new Error("HTML trop volumineux")
       const pageSize = Buffer.byteLength(html, "utf-8")
       const parsed = parsePageContent(html, finalUrl)
 
       // Capture response headers (sécurité)
       const rawHeaders = response?.headers() ?? {}
+      const robotsHeaders = (await response?.headersArray() ?? []).filter(header => header.name.toLowerCase() === "x-robots-tag").map(header => header.value)
+      const rules = readGoogleRobotsRules(parsed.metaRobots ? [parsed.metaRobots] : [], robotsHeaders)
+      parsed.isIndexable = !rules.noindex
+      parsed.metaRobots = rules.raw || undefined
+      if (rules.nofollow && parsed.linkingData) {
+        parsed.linkingData.pageNofollow = true
+        for (const link of parsed.linkingData.links) link.nofollow = true
+      }
       const responseHeaders: Record<string, string> = {}
       for (const key of ["strict-transport-security", "x-content-type-options", "x-frame-options", "content-security-policy", "referrer-policy", "permissions-policy"]) {
         if (rawHeaders[key]) responseHeaders[key] = rawHeaders[key]
@@ -547,12 +479,12 @@ export class SEOCrawler {
     let hasSitemap = false
 
     try {
-      const robotsRes = await fetch(`${base}/robots.txt`, { signal: AbortSignal.timeout(5000) })
+      const robotsRes = await fetchPublicUrl(`${base}/robots.txt`, { timeoutMs: 5000, maxBytes: 1024 * 1024 })
       hasRobotsTxt = robotsRes.ok && (await robotsRes.text()).length > 0
     } catch { /* unreachable */ }
 
     try {
-      const sitemapRes = await fetch(`${base}/sitemap.xml`, { signal: AbortSignal.timeout(5000) })
+      const sitemapRes = await fetchPublicUrl(`${base}/sitemap.xml`, { timeoutMs: 5000, maxBytes: 1024 * 1024 })
       hasSitemap = sitemapRes.ok && (await sitemapRes.text()).includes("<")
     } catch { /* unreachable */ }
 
@@ -637,7 +569,7 @@ export class SEOCrawler {
                 }
                 if (linkDomain === baseDomain && !this.visitedUrls.has(normalized)) {
                   this.visitedUrls.add(normalized)
-                  nextFrontier.push({ url: normalized, depth: item.depth + 1 })
+                  if (nextFrontier.length < this.options.maxPages * 10) nextFrontier.push({ url: normalized, depth: item.depth + 1 })
                 }
               }
             }

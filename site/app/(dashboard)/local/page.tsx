@@ -4,10 +4,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  MapPin, Star, MessageSquare, FileText, Store, BarChart3,
-  TrendingUp, CheckCircle2, ArrowRight, Zap, Shield, Globe
-} from "lucide-react"
+import { MapPin, Star, MessageSquare, FileText, Store, BarChart3, TrendingUp, CheckCircle2, ArrowRight, Shield } from "lucide-react"
 import { useLocalDashboard } from "@/hooks/useLocal"
 import { useGoogleStatus } from "@/hooks/useGoogle"
 import { apiClient } from "@/lib/api-client"

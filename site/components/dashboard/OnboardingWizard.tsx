@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useSyncExternalStore } from "react"
+import Link from "next/link"
 import { useProjects, useCreateProject } from "@/hooks/useProjects"
 import { useLaunchAudit } from "@/hooks/useAudits"
 import { Button } from "@/components/ui/button"
@@ -22,33 +23,29 @@ const STEPS = [
   { id: 3, title: "Consultez les résultats", desc: "Suivez vos recommandations", icon: BarChart3 },
 ]
 
+function subscribeToStorage(listener: () => void) {
+  window.addEventListener("storage", listener)
+  return () => window.removeEventListener("storage", listener)
+}
+function getDismissedSnapshot() {
+  return localStorage.getItem("onboarding_dismissed") === "true"
+}
+
 export default function OnboardingWizard() {
   const { data: projects } = useProjects()
   const createProject = useCreateProject()
   const launchAudit = useLaunchAudit()
 
-  const [step, setStep] = useState(1)
+  const [requestedStep, setStep] = useState(1)
+  const step = requestedStep === 1 && projects?.length ? 2 : requestedStep
   const [name, setName] = useState("")
   const [domain, setDomain] = useState("")
-  const [createdProjectId, setCreatedProjectId] = useState<string | null>(null)
+  const [requestedProjectId, setCreatedProjectId] = useState<string | null>(null)
+  const createdProjectId = requestedProjectId ?? projects?.[0]?.id ?? null
   const [dismissed, setDismissed] = useState(false)
 
-  // Si l'utilisateur a déjà un projet, passer à l'étape 2
-  useEffect(() => {
-    if (projects && projects.length > 0 && step === 1) {
-      setCreatedProjectId(projects[0].id)
-      setStep(2)
-    }
-  }, [projects, step])
-
-  // Si dismissé via localStorage
-  useEffect(() => {
-    if (typeof window !== "undefined" && localStorage.getItem("onboarding_dismissed") === "true") {
-      setDismissed(true)
-    }
-  }, [])
-
-  if (dismissed) return null
+  const storedDismissed = useSyncExternalStore(subscribeToStorage, getDismissedSnapshot, () => false)
+  if (dismissed || storedDismissed) return null
 
   async function handleCreateProject(e: React.FormEvent) {
     e.preventDefault()
@@ -227,7 +224,7 @@ export default function OnboardingWizard() {
               className="w-full btn-glow"
               style={{ background: "#2563eb" }}
             >
-              <a href="/audits">Voir mes audits <ArrowRight className="h-4 w-4 ml-2" /></a>
+              <Link href="/audits">Voir mes audits <ArrowRight className="h-4 w-4 ml-2" /></Link>
             </Button>
           </div>
         )}
