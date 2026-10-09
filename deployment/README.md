@@ -24,7 +24,7 @@ set -a
 source .env.production
 set +a
 export NODE_ENV=production
-npm ci --include=dev
+npm ci --include=dev --include=optional
 ```
 
 Ensuite, `sudo bash deployment/setup.sh` installe Redis et les dépendances système Chromium. Revenir à l'utilisateur Hestia :
@@ -49,7 +49,7 @@ pm2 save
 pm2 startup
 ```
 
-Exécuter la commande de démarrage automatique affichée par PM2. --include=dev est requis car API/workers utilisent tsx. Le sandbox Chromium est activé en production ; ne pas ajouter --no-sandbox. Configurer le sandbox Linux si le système interdit les namespaces utilisateur.
+Exécuter la commande de démarrage automatique affichée par PM2. --include=dev est requis car API/workers utilisent tsx. --include=optional installe les binaires natifs adaptés au serveur, notamment Lightning CSS et Tailwind ; leurs entrées doivent être présentes dans package-lock.json. Le sandbox Chromium est activé en production ; ne pas ajouter --no-sandbox. Configurer le sandbox Linux si le système interdit les namespaces utilisateur.
 
 Installer les templates persistants :
 

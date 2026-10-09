@@ -50,7 +50,7 @@ echo ""
 
 # ── Install des dependances ─────────────────────────────────────────────
 echo ">> Installation des dependances..."
-npm ci --include=dev
+npm ci --include=dev --include=optional
 node deployment/preflight.mjs --config-only
 echo ""
 
