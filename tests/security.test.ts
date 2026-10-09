@@ -35,10 +35,37 @@ test("public routes are exact and method-specific", () => {
   assert.equal(isPublicApiRoute("DELETE", "/api/reports/token"), false)
 })
 
-test("cookie mutations reject hostile origins while native bearer clients work", () => {
-  assert.equal(isCrossSiteMutation("POST", "https://evil.example", undefined, false), true)
-  assert.equal(isCrossSiteMutation("POST", undefined, "cross-site", false), true)
-  assert.equal(isCrossSiteMutation("POST", "http://localhost:3000", undefined, false), false)
-  assert.equal(isCrossSiteMutation("POST", "https://evil.example", undefined, true), false)
-  assert.equal(isCrossSiteMutation("GET", "https://evil.example", undefined, false), false)
-})
+function withOriginEnvironment(mode: "development" | "production", assertions: () => void): void {
+  const keys = ["NODE_ENV", "NEXT_PUBLIC_APP_URL", "BETTER_AUTH_URL", "CHROME_EXTENSION_ORIGINS"] as const
+  const previous = keys.map(key => [key, process.env[key]] as const)
+  process.env.NODE_ENV = mode
+  process.env.NEXT_PUBLIC_APP_URL = "https://app.example"
+  process.env.BETTER_AUTH_URL = "https://auth.example"
+  process.env.CHROME_EXTENSION_ORIGINS = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  try {
+    assertions()
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
+for (const mode of ["development", "production"] as const) {
+  test(`cookie mutations respect ${mode} origins while native bearer clients work`, () => {
+    withOriginEnvironment(mode, () => {
+      assert.equal(isCrossSiteMutation("POST", "https://evil.example", undefined, false), true)
+      assert.equal(isCrossSiteMutation("POST", undefined, "cross-site", false), true)
+      assert.equal(isCrossSiteMutation("POST", "https://app.example", undefined, false), false)
+      assert.equal(isCrossSiteMutation("POST", "https://auth.example", undefined, false), false)
+      assert.equal(isCrossSiteMutation("POST", "https://app.example.evil.example", undefined, false), true)
+      assert.equal(isCrossSiteMutation("POST", "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", undefined, false), false)
+      assert.equal(isCrossSiteMutation("POST", "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", undefined, false), true)
+      assert.equal(isCrossSiteMutation("POST", "http://localhost:3000", undefined, false), mode === "production")
+      assert.equal(isCrossSiteMutation("POST", "https://seo.404notfood.fr", undefined, false), mode !== "production")
+      assert.equal(isCrossSiteMutation("POST", "https://evil.example", undefined, true), false)
+      assert.equal(isCrossSiteMutation("GET", "https://evil.example", undefined, false), false)
+    })
+  })
+}
