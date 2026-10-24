@@ -3,7 +3,7 @@
 
 import type { CheckResult, LighthouseData } from "@seo/shared"
 import type { AnalysisResult } from "@seo/analyzer"
-import { impactEffortScore } from "@seo/shared"
+import { groupAuditFindings, impactEffortScore } from "@seo/shared"
 
 // ─────────────────────────────────────────────
 // PONDÉRATION DES CATÉGORIES
@@ -200,7 +200,9 @@ export interface Recommendation {
 export function generateRecommendations(score: SEOScore): Recommendation[] {
   const recs: Recommendation[] = []
 
-  for (const issue of [...score.criticalIssues, ...score.warnings]) {
+  const findings = groupAuditFindings([...score.criticalIssues, ...score.warnings])
+  for (const finding of findings) {
+    const issue = finding.occurrences[0]
     const roi = impactEffortScore(issue.priority, issue.effort)
 
     recs.push({

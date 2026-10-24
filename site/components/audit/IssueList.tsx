@@ -1,194 +1,134 @@
 "use client"
 
-import { useState } from "react"
+import { useId, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, XCircle, CheckCircle, ChevronDown, ChevronUp, Lightbulb } from "lucide-react"
+import { AlertTriangle, XCircle, CheckCircle, ChevronDown, ExternalLink, Lightbulb } from "lucide-react"
 import { CATEGORY_LABELS, CHECK_ADVICE, getCheckLabel } from "@/lib/check-labels"
-import type { PageResult } from "@/lib/api-client"
+import { findingCoverageLabel, groupAuditFindings } from "@seo/shared/audit-findings"
+import type { AuditCheckOccurrence, AuditFinding } from "@seo/shared"
 
 interface IssueListProps {
-  results: PageResult[]
+  results?: AuditCheckOccurrence[]
+  findings?: AuditFinding[]
   compact?: boolean
 }
 
-const PRIORITY_CONFIG = {
-  HIGH: { label: "Critique", className: "bg-red-50 text-red-700 border-red-200" },
-  MEDIUM: { label: "Moyen", className: "bg-orange-50 text-orange-700 border-orange-200" },
-  LOW: { label: "Faible", className: "bg-slate-50 text-slate-600 border-slate-200" },
-}
-
+const EMPTY_RESULTS: AuditCheckOccurrence[] = []
 const STATUS_CONFIG = {
-  FAIL: { icon: XCircle, color: "text-red-500", bg: "bg-red-50" },
-  WARN: { icon: AlertTriangle, color: "text-orange-500", bg: "bg-orange-50" },
-  PASS: { icon: CheckCircle, color: "text-emerald-500", bg: "bg-emerald-50" },
+  FAIL: { icon: XCircle, label: "À corriger", color: "text-red-600", bg: "bg-red-50", badge: "border-red-200 bg-red-50 text-red-700" },
+  WARN: { icon: AlertTriangle, label: "À vérifier", color: "text-amber-600", bg: "bg-amber-50", badge: "border-amber-200 bg-amber-50 text-amber-800" },
+  PASS: { icon: CheckCircle, label: "Conforme", color: "text-emerald-600", bg: "bg-emerald-50", badge: "border-emerald-200 bg-emerald-50 text-emerald-700" },
 }
+const PRIORITY_LABELS = { HIGH: "Haute", MEDIUM: "Moyenne", LOW: "Faible" }
+const EVIDENCE_PAGE_SIZE = 10
 
-function MiniScoreBar({ score }: { score: number }) {
-  const color = score >= 75 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444"
+function FindingEvidence({ finding }: { finding: AuditFinding }) {
+  const [showPassed, setShowPassed] = useState(false)
+  const [page, setPage] = useState(0)
+  const observations = showPassed || finding.status === "PASS"
+    ? finding.occurrences : finding.occurrences.filter(check => check.status !== "PASS")
+  const pageCount = Math.max(1, Math.ceil(observations.length / EVIDENCE_PAGE_SIZE))
+  const currentPage = Math.min(page, pageCount - 1)
+  const visible = observations.slice(currentPage * EVIDENCE_PAGE_SIZE, (currentPage + 1) * EVIDENCE_PAGE_SIZE)
+  const advice = CHECK_ADVICE[finding.checkName]
+
   return (
-    <div className="flex items-center gap-2 mt-1">
-      <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden max-w-[200px]">
-        <div
-          className="h-1.5 rounded-full transition-all duration-500"
-          style={{ width: `${score}%`, background: color }}
-        />
+    <div className="space-y-4 border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5">
+      {advice && finding.status !== "PASS" && (
+        <div className="flex gap-2.5 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3">
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+          <p className="text-sm leading-relaxed text-blue-900">{advice}</p>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {finding.hasPageContext ? "Pages et constats" : "Constats détaillés"}
+        </h4>
+        {finding.status !== "PASS" && finding.passCount > 0 && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => { setShowPassed(!showPassed); setPage(0) }}>
+            {showPassed ? "Masquer les pages conformes" : `Voir aussi les ${finding.passCount} pages conformes`}
+          </Button>
+        )}
       </div>
-      <span className="text-xs font-bold tabular-nums" style={{ color }}>
-        {score}/100
-      </span>
-    </div>
-  )
-}
-
-export function IssueList({ results, compact = false }: IssueListProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-
-  // Trier : FAIL HIGH → FAIL MEDIUM → WARN → PASS
-  const sorted = [...results].sort((a, b) => {
-    const statusOrder = { FAIL: 0, WARN: 1, PASS: 2 }
-    const priorityOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 }
-    if (statusOrder[a.status] !== statusOrder[b.status])
-      return statusOrder[a.status] - statusOrder[b.status]
-    return priorityOrder[a.priority] - priorityOrder[b.priority]
-  })
-
-  function toggleExpand(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  if (compact) {
-    return (
-      <div className="space-y-1">
-        {sorted.map((result) => {
-          const { icon: Icon, color, bg } = STATUS_CONFIG[result.status]
+      <div className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 bg-white">
+        {visible.map((check, index) => {
+          const config = STATUS_CONFIG[check.status]
+          const Icon = config.icon
           return (
-            <div key={result.id} className="flex items-center gap-2.5 py-1.5 px-2 rounded-md hover:bg-slate-50">
-              <div className={cn("h-5 w-5 rounded-full flex-shrink-0 flex items-center justify-center", bg)}>
-                <Icon className={cn("h-3 w-3", color)} />
+            <div key={`${check.pageUrl ?? check.pageId ?? check.id ?? "check"}:${index}`} className="space-y-1.5 p-3 text-sm">
+              <div className="flex items-start gap-2">
+                <Icon className={cn("mt-0.5 h-4 w-4 shrink-0", config.color)} aria-label={config.label} />
+                {check.pageUrl && /^https?:\/\//i.test(check.pageUrl) ? (
+                  <a href={check.pageUrl} target="_blank" rel="noopener noreferrer" className="min-w-0 break-all font-medium text-blue-700 hover:underline">
+                    {check.pageUrl}<ExternalLink className="ml-1 inline h-3 w-3" />
+                  </a>
+                ) : <span className="font-medium text-slate-700">Constat {currentPage * EVIDENCE_PAGE_SIZE + index + 1}</span>}
               </div>
-              <span className="text-sm text-slate-700 truncate">{getCheckLabel(result.checkName)}</span>
-              <span className="ml-auto text-xs font-bold tabular-nums" style={{
-                color: result.score >= 75 ? "#10b981" : result.score >= 50 ? "#f59e0b" : "#ef4444"
-              }}>
-                {result.score}
-              </span>
+              <p className="break-words leading-relaxed text-slate-600">{check.message}</p>
+              {(check.value || check.expected) && (
+                <dl className="grid gap-1 break-words text-xs sm:grid-cols-2">
+                  {check.value && <div><dt className="text-slate-400">Valeur observée</dt><dd className="mt-0.5 text-slate-700">{check.value}</dd></div>}
+                  {check.expected && <div><dt className="text-slate-400">Référence du contrôle</dt><dd className="mt-0.5 text-slate-700">{check.expected}</dd></div>}
+                </dl>
+              )}
             </div>
           )
         })}
       </div>
-    )
-  }
-
-  return (
-    <div className="space-y-2">
-      {sorted.length === 0 && (
-        <div className="text-center py-8 text-slate-400 text-sm">
-          Aucun résultat dans cette section
+      {pageCount > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span>{currentPage * EVIDENCE_PAGE_SIZE + 1}-{Math.min((currentPage + 1) * EVIDENCE_PAGE_SIZE, observations.length)} sur {observations.length}</span>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Précédent</Button>
+            <Button type="button" variant="outline" size="sm" disabled={currentPage === pageCount - 1} onClick={() => setPage(currentPage + 1)}>Suivant</Button>
+          </div>
         </div>
       )}
-
-      {sorted.map((result) => {
-        const { icon: Icon, color, bg } = STATUS_CONFIG[result.status]
-        const isExpanded = expanded.has(result.id)
-        const priority = PRIORITY_CONFIG[result.priority]
-        const advice = CHECK_ADVICE[result.checkName]
-
-        return (
-          <div
-            key={result.id}
-            className="rounded-xl border border-slate-100 bg-white overflow-hidden"
-          >
-            {/* Header cliquable */}
-            <button
-              className="w-full text-left p-4 hover:bg-slate-50/50 transition-colors"
-              onClick={() => toggleExpand(result.id)}
-            >
-              <div className="flex items-start gap-3">
-                <div className={cn("h-8 w-8 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5", bg)}>
-                  <Icon className={cn("h-4 w-4", color)} />
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  {/* Nom du check + badge priorité */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-slate-900">
-                      {getCheckLabel(result.checkName)}
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className={cn("text-[10px] px-1.5 py-0", priority.className)}
-                    >
-                      {priority.label}
-                    </Badge>
-                    <span className="text-xs text-slate-400">
-                      {CATEGORY_LABELS[result.category]}
-                    </span>
-                  </div>
-
-                  {/* Message */}
-                  <p className="text-sm text-slate-600 mt-0.5">{result.message}</p>
-
-                  {/* Value / Expected - toujours visible */}
-                  {(result.value || result.expected) && (
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5">
-                      {result.value && (
-                        <span className="text-xs font-medium text-slate-700">
-                          Votre valeur : <span className="text-slate-900">{result.value}</span>
-                        </span>
-                      )}
-                      {result.expected && (
-                        <span className="text-xs font-medium text-slate-500">
-                          Recommandé : <span className="text-blue-600">{result.expected}</span>
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Mini barre de score */}
-                  <MiniScoreBar score={result.score} />
-                </div>
-
-                {/* Chevron */}
-                {isExpanded ? (
-                  <ChevronUp className="h-4 w-4 text-slate-400 flex-shrink-0 mt-1" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-slate-400 flex-shrink-0 mt-1" />
-                )}
-              </div>
-            </button>
-
-            {/* Section expand : conseil actionable */}
-            {isExpanded && (
-              <div className="border-t border-slate-100 bg-slate-50/50 px-4 pb-4 pt-3">
-                <div className="pl-11 space-y-2">
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
-                    <span>
-                      <span className="font-medium text-slate-700">Score :</span> {result.score}/100
-                    </span>
-                    <span>
-                      <span className="font-medium text-slate-700">Effort :</span>{" "}
-                      {result.effort === "LOW" ? "Faible" : result.effort === "MEDIUM" ? "Moyen" : "Élevé"}
-                    </span>
-                  </div>
-
-                  {advice && (
-                    <div className="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                      <Lightbulb className="h-4 w-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-blue-800 leading-relaxed">{advice}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )
-      })}
     </div>
   )
+}
+
+function FindingCard({ finding, compact }: { finding: AuditFinding; compact: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
+  const { icon: Icon, color, bg, badge, label } = STATUS_CONFIG[finding.status]
+  const affected = finding.occurrences.filter(check => check.status !== "PASS")
+  const messages = new Set(affected.map(check => check.message))
+  const summary = finding.status === "PASS" ? "Contrôle conforme sur toutes les pages vérifiées."
+    : messages.size === 1 ? affected[0].message
+    : `${finding.affectedCount} ${finding.hasPageContext ? "pages présentent" : "constats présentent"} des écarts. Les valeurs et les cas relevés sont détaillés ci-dessous.`
+  const coverageSuffix = finding.status === "PASS" ? (finding.checkedCount > 1 ? "conformes" : "conforme")
+    : finding.hasPageContext ? (finding.checkedCount > 1 ? "concernées" : "concernée")
+    : finding.affectedCount > 1 ? "concernés" : "concerné"
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(!expanded)} className={cn("w-full text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-500", compact ? "p-3" : "p-4 sm:p-5")}>
+        <div className="flex items-start gap-3">
+          <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", bg)}><Icon className={cn("h-4 w-4", color)} /></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-slate-900">{getCheckLabel(finding.checkName)}</span>
+              {!compact && <Badge variant="outline" className={cn("text-[10px]", badge)}>{label}</Badge>}
+            </div>
+            {!compact && <p className="mt-1.5 break-words text-sm leading-relaxed text-slate-600">{summary}</p>}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              <span className="font-semibold text-slate-700">{findingCoverageLabel(finding)} {coverageSuffix}</span>
+              {!compact && <><span>{CATEGORY_LABELS[finding.category]}</span><span>Priorité {PRIORITY_LABELS[finding.priority].toLowerCase()}</span></>}
+            </div>
+          </div>
+          <ChevronDown className={cn("mt-1 h-4 w-4 shrink-0 text-slate-400 transition-transform", expanded && "rotate-180")} />
+        </div>
+      </button>
+      <div id={panelId} hidden={!expanded}>{expanded && <FindingEvidence finding={finding} />}</div>
+    </div>
+  )
+}
+
+export function IssueList({ results = EMPTY_RESULTS, findings: providedFindings, compact = false }: IssueListProps) {
+  const findings = useMemo(() => providedFindings ?? groupAuditFindings(results), [providedFindings, results])
+  if (!findings.length) return <p className="py-8 text-center text-sm text-slate-400">Aucun résultat dans cette section</p>
+  return <div className={compact ? "grid gap-2 sm:grid-cols-2" : "space-y-3"}>{findings.map(finding => <FindingCard key={finding.key} finding={finding} compact={compact} />)}</div>
 }

@@ -11,6 +11,7 @@ import type { RedisOptions } from "ioredis"
 import { PrismaClient } from "@prisma/client"
 import pino from "pino"
 import { SEOCrawler } from "@seo/crawler"
+import { crawlMetadata, toAnalysisPage } from "./auditPageData"
 import { analyzePage, type AnalysisResult, type CheckResult } from "@seo/analyzer"
 import { calculateGlobalScore, generateRecommendations } from "@seo/scorer"
 import type { CrawlJobData, AnalyzeJobData, ReportJobData } from "@seo/shared"
@@ -112,10 +113,10 @@ const crawlWorker = new Worker<CrawlJobData>(
     let crawlTimer: NodeJS.Timeout | undefined
     try {
       // Garde-fou : un crawl ne doit jamais bloquer le worker indéfiniment.
-      // Crawl parallèle (concurrency pages simultanées) → budget ~6s/page divisé
+      // Crawl parallèle avec rendu JS + mesure mobile → budget ~15s/page divisé
       // par la concurrence, borné entre 5 et 20 min.
       const maxPagesPlanned = options.maxPages ?? 100
-      const perPageBudget = Math.ceil((maxPagesPlanned * 6_000) / crawlConcurrency)
+      const perPageBudget = Math.ceil((maxPagesPlanned * 15_000) / crawlConcurrency)
       const crawlTimeoutMs = Math.min(20 * 60_000, Math.max(5 * 60_000, perPageBudget))
       const pages = await Promise.race([
         crawler.crawlSite(url, async (crawled, total) => {
@@ -172,6 +173,7 @@ const crawlWorker = new Worker<CrawlJobData>(
             smallTapTargets: page.smallTapTargets,
             smallFontSizes: page.smallFontSizes,
             topKeywords: JSON.parse(JSON.stringify(page.topKeywords ?? [])),
+            crawlMetadata: JSON.parse(JSON.stringify(crawlMetadata(page))),
             ...(page.linkingData ? { linkingData: JSON.parse(JSON.stringify(page.linkingData)) } : {}),
           },
         })
@@ -222,43 +224,7 @@ const analyzeWorker = new Worker<AnalyzeJobData>(
     let processedCount = 0
 
     for (const page of pages) {
-      const ogTags = (page.ogTitle || page.ogDescription || page.ogImage || page.ogType)
-        ? { title: page.ogTitle ?? undefined, description: page.ogDescription ?? undefined, image: page.ogImage ?? undefined, type: page.ogType ?? undefined }
-        : undefined
-
-      const pageData = {
-        url: page.url,
-        statusCode: page.statusCode ?? 0,
-        redirectUrl: page.redirectUrl ?? undefined,
-        responseTime: page.responseTime ?? 0,
-        pageSize: page.pageSize ?? 0,
-        title: page.title ?? undefined,
-        metaDescription: page.metaDescription ?? undefined,
-        h1: page.h1,
-        headings: (page.headings as { h2: string[]; h3: string[]; h4: string[] }) ??
-          { h2: [], h3: [], h4: [] },
-        canonicalUrl: page.canonicalUrl ?? undefined,
-        metaRobots: page.metaRobots ?? undefined,
-        isIndexable: page.isIndexable ?? true,
-        images: Array.from({ length: page.totalImages ?? 0 }, (_, i) => ({
-          src: "",
-          hasAlt: i < (page.imagesWithAlt ?? 0),
-        })),
-        internalLinks: Array.from({ length: page.internalLinks ?? 0 }, () => "https://internal.placeholder"),
-        externalLinks: Array.from({ length: page.externalLinks ?? 0 }, () => "https://external.placeholder"),
-        schemaOrgTypes: page.schemaTypes,
-        hasViewport: page.hasViewport ?? false,
-        lang: page.lang ?? undefined,
-        ogTags,
-        wordCount: page.wordCount ?? undefined,
-        hasRobotsTxt: page.hasRobotsTxt ?? undefined,
-        hasSitemap: page.hasSitemap ?? undefined,
-        hasResponsiveMeta: page.hasResponsiveMeta ?? undefined,
-        smallTapTargets: page.smallTapTargets ?? undefined,
-        smallFontSizes: page.smallFontSizes ?? undefined,
-      }
-
-      const analysis = analyzePage(pageData)
+      const analysis = analyzePage(toAnalysisPage(page))
       const allChecks = [...analysis.technical, ...analysis.onPage, ...analysis.performance, ...analysis.uxMobile]
 
       await prisma.$transaction([

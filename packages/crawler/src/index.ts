@@ -7,6 +7,8 @@ import type { PageData } from "@seo/shared"
 import { extractPageKeywords } from "@seo/shared"
 import { extractLinkingData, resolveDocumentBaseUrl } from "./linkingData"
 import { googleRobotsMeta, readGoogleRobotsRules } from "./robotsDirectives"
+import { observeRendering } from "./renderedContent"
+import { measureMobileMetrics } from "./mobileMetrics"
 
 export type { PageData }
 export { plainCmsText } from "./cmsText"
@@ -145,7 +147,7 @@ function normalizeUrlForCrawl(rawUrl: string, base?: string): string | null {
 // Parser HTML
 // ─────────────────────────────────────────────
 
-function parsePageContent(
+export function parsePageContent(
   html: string,
   baseUrl: string
 ): Omit<PageData, "url" | "statusCode" | "responseTime" | "pageSize"> {
@@ -182,7 +184,8 @@ function parsePageContent(
     images.push({
       src,
       alt,
-      hasAlt: alt !== undefined && alt !== "",
+      // An empty ALT explicitly marks a decorative image; it is not missing.
+      hasAlt: alt !== undefined,
       width: $(el).attr("width") ? parseInt($(el).attr("width")!) : undefined,
       height: $(el).attr("height") ? parseInt($(el).attr("height")!) : undefined,
     })
@@ -205,11 +208,17 @@ function parsePageContent(
   })
 
   const schemaOrgTypes: string[] = []
+  const collectSchemaTypes = (value: unknown, depth = 0): void => {
+    if (depth > 32 || !value || typeof value !== "object") return
+    if (Array.isArray(value)) { for (const item of value) collectSchemaTypes(item, depth + 1); return }
+    const object = value as Record<string, unknown>
+    const types = Array.isArray(object["@type"]) ? object["@type"] : [object["@type"]]
+    for (const type of types) if (typeof type === "string" && !schemaOrgTypes.includes(type)) schemaOrgTypes.push(type)
+    for (const nested of Object.values(object)) collectSchemaTypes(nested, depth + 1)
+  }
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
-      const json = JSON.parse($(el).text())
-      const type = json["@type"]
-      if (type) schemaOrgTypes.push(Array.isArray(type) ? type.join(",") : type)
+      collectSchemaTypes(JSON.parse($(el).text()) as unknown)
     } catch { /* JSON invalide */ }
   })
 
@@ -362,21 +371,19 @@ export class SEOCrawler {
     const ownsContext = !sharedContext
 
     const page = await context.newPage()
+    const rendering = observeRendering(page)
     const start = Date.now()
 
     try {
       const response = await page.goto(url, {
-        // domcontentloaded : on n'attend pas le réseau "idle" (tracking/pub/websockets
-        // peuvent empêcher l'idle jusqu'au timeout). Le HTML SEO est dispo dès le DOM parsé.
+        // Rendering readiness is checked separately, with a bounded budget.
         waitUntil: "domcontentloaded",
         timeout: this.options.timeout,
       })
 
-      // Laisse un court instant au JS critique de rendre le contenu (SPA légères,
-      // hydration). Bien moins coûteux que d'attendre networkidle.
-      await page.waitForLoadState("load", { timeout: 3000 }).catch(() => {})
-
-      const responseTime = Date.now() - start
+      const timing = response?.request().timing()
+      const responseTime = timing && timing.responseStart >= 0 ? Math.round(timing.responseStart) : Date.now() - start
+      await rendering.wait(Math.min(8000, this.options.timeout))
       const statusCode = response?.status() ?? 0
       const finalUrl = this.navigationUrls.get(page) ?? page.url()
       if (!(await isValidPublicUrlWithDns(finalUrl))) throw new Error(`URL finale bloquée (SSRF): ${finalUrl}`)
@@ -410,29 +417,13 @@ export class SEOCrawler {
         parsed.bodyText ?? ""
       )
 
-      // Mobile UX checks via Playwright (run in page context)
-      const mobileMetrics = await page.evaluate(() => {
-        let smallTapTargets = 0
-        let smallFontSizes = 0
-        const clickables = document.querySelectorAll("a, button, input, select, textarea, [role='button']")
-        clickables.forEach((el) => {
-          const rect = el.getBoundingClientRect()
-          if (rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44)) {
-            smallTapTargets++
-          }
-        })
-        const textEls = document.querySelectorAll("p, span, li, td, th, label, div")
-        textEls.forEach((el) => {
-          const style = window.getComputedStyle(el)
-          const fontSize = parseFloat(style.fontSize)
-          if (fontSize > 0 && fontSize < 12 && el.textContent && el.textContent.trim().length > 0) {
-            smallFontSizes++
-          }
-        })
-        const viewport = document.querySelector('meta[name="viewport"]')
-        const hasResponsiveMeta = !!(viewport && viewport.getAttribute("content")?.includes("width=device-width"))
-        return { smallTapTargets, smallFontSizes, hasResponsiveMeta }
-      }).catch(() => ({ smallTapTargets: 0, smallFontSizes: 0, hasResponsiveMeta: false }))
+      // Only below-fold images need lazy loading. Measure in the audited viewport.
+      const imageMetrics = await measureMobileMetrics(page)
+      if (this.options.device !== "mobile") {
+        await page.setViewportSize({ width: 375, height: 812 })
+        await rendering.wait(3000)
+      }
+      const mobileMetrics = await measureMobileMetrics(page)
 
       return {
         url: finalUrl,
@@ -447,6 +438,8 @@ export class SEOCrawler {
         hasResponsiveMeta: mobileMetrics.hasResponsiveMeta,
         smallTapTargets: mobileMetrics.smallTapTargets,
         smallFontSizes: mobileMetrics.smallFontSizes,
+        imagesBelowFold: imageMetrics.imagesBelowFold,
+        imagesBelowFoldLazy: imageMetrics.imagesBelowFoldLazy,
       }
     } catch (error) {
       return {
@@ -465,6 +458,7 @@ export class SEOCrawler {
         error: error instanceof Error ? error.message : String(error),
       }
     } finally {
+      rendering.dispose()
       await page.close().catch(() => {})
       if (ownsContext) await context.close().catch(() => {})
     }

@@ -20,7 +20,7 @@ import { PagesTable } from "@/components/audit/PagesTable"
 import { KeywordsTab } from "@/components/audit/KeywordsTab"
 import { LinksDialog, type LinkKind } from "@/components/audit/LinksDialog"
 import { apiClient } from "@/lib/api-client"
-import type { PageResult } from "@/lib/api-client"
+import { groupAuditFindings, isCriticalFinding } from "@seo/shared/audit-findings"
 
 interface Props {
   params: Promise<{ id: string }>
@@ -132,10 +132,15 @@ export default function AuditDetailPage({ params }: Props) {
   const { data: audit, isLoading } = useAudit(id)
   const isCompleted = audit?.status === "COMPLETED"
   const { data: breakdownData } = useAuditBreakdown(id, isCompleted)
+  const [activeTab, setActiveTab] = useState("status")
 
   const scrollTo = useCallback((anchorId: string) => {
-    const el = document.getElementById(anchorId)
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" })
+    setActiveTab("status")
+    requestAnimationFrame(() => {
+      const element = document.getElementById(anchorId)
+      if (element instanceof HTMLDetailsElement) element.open = true
+      element?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
   }, [])
 
   // Dialog des liens (externes / internes). null = fermé.
@@ -155,6 +160,11 @@ export default function AuditDetailPage({ params }: Props) {
       internalLinkUrls: Array.from(internal),
     }
   }, [audit?.pages])
+
+  const allResults = useMemo(() => (audit?.pages ?? []).flatMap(page =>
+    page.results.map(result => ({ ...result, pageId: page.id, pageUrl: page.url }))
+  ), [audit?.pages])
+  const findings = useMemo(() => groupAuditFindings(allResults), [allResults])
 
   if (isLoading) {
     return (
@@ -181,25 +191,34 @@ export default function AuditDetailPage({ params }: Props) {
 
   const isRunning = !["COMPLETED", "FAILED", "CANCELLED"].includes(audit.status)
 
-  // Dédoublonner les résultats de toutes les pages
-  const allResults = audit.pages.flatMap((p) => p.results)
-
-  // Classement par statut
-  const critiques = allResults.filter((r) => r.status === "FAIL" && r.priority === "HIGH")
-  const avertissements = allResults.filter((r) => r.status === "WARN" || (r.status === "FAIL" && r.priority !== "HIGH"))
-  const reussis = allResults.filter((r) => r.status === "PASS")
+  const critiques = findings.filter(isCriticalFinding)
+  const avertissements = findings.filter(finding => finding.status !== "PASS" && !isCriticalFinding(finding))
+  const reussis = findings.filter(finding => finding.status === "PASS")
+  const affectedOccurrences = findings.reduce((sum, finding) => sum + finding.affectedCount, 0)
+  const affectedPages = new Set(findings.flatMap(finding => finding.occurrences
+    .filter(check => check.status !== "PASS").map(check => check.pageUrl ?? check.pageId))).size
+  const severityWeight = { HIGH: 3, MEDIUM: 2, LOW: 1 }
+  const topIssues = findings.filter(finding => finding.status !== "PASS").map(finding => ({
+    checkName: finding.checkName, category: finding.category,
+    failCount: finding.failCount, warnCount: finding.warnCount, maxPriority: finding.priority,
+    score: (finding.failCount * 3 + finding.warnCount) * severityWeight[finding.priority],
+  })).sort((a, b) => b.score - a.score).slice(0, 10)
 
   // Métriques performance
-  const perfResults = allResults.filter((r) => r.category === "PERFORMANCE")
-  const perfMetrics = PERF_METRICS_CONFIG.map((cfg) => {
-    const check = perfResults.find((r) => r.checkName === cfg.checkName)
-    return check ? { ...cfg, check } : null
-  }).filter((m): m is { checkName: string; label: string; icon: React.ReactNode; check: PageResult } => m !== null)
+  const perfByName = new Map(findings.filter(finding => finding.category === "PERFORMANCE")
+    .map(finding => [finding.checkName, finding]))
+  const perfMetrics = PERF_METRICS_CONFIG.flatMap(cfg => {
+    const finding = perfByName.get(cfg.checkName)
+    if (!finding) return []
+    const values = new Set(finding.occurrences.map(check => check.value).filter(Boolean))
+    return [{ ...cfg, check: { ...finding.occurrences[0], score: finding.score,
+      value: values.size > 1 ? "Varie selon les pages" : finding.occurrences[0].value } }]
+  })
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Button asChild variant="ghost" size="sm" className="-ml-2 text-slate-500">
@@ -209,7 +228,7 @@ export default function AuditDetailPage({ params }: Props) {
               </Link>
             </Button>
           </div>
-          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+          <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2 break-all">
             <a
               href={audit.url}
               target="_blank"
@@ -267,16 +286,16 @@ export default function AuditDetailPage({ params }: Props) {
                 <ScoreGauge score={Math.round(audit.report.scoreGlobal)} size={160} label="Score global" />
                 <div className="mt-4 grid grid-cols-3 w-full text-center divide-x divide-slate-100">
                   <div>
-                    <p className="text-lg font-bold text-red-500">{audit.report.criticalIssues ?? 0}</p>
-                    <p className="text-xs text-slate-400">Critiques</p>
+                    <p className="text-lg font-bold text-red-500">{critiques.length}</p>
+                    <p className="text-xs text-slate-400">Prioritaires</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-orange-500">{audit.report.warnings ?? 0}</p>
-                    <p className="text-xs text-slate-400">Warnings</p>
+                    <p className="text-lg font-bold text-orange-500">{avertissements.length}</p>
+                    <p className="text-xs text-slate-400">À améliorer</p>
                   </div>
                   <div>
-                    <p className="text-lg font-bold text-emerald-500">{audit.report.passed ?? 0}</p>
-                    <p className="text-xs text-slate-400">OK</p>
+                    <p className="text-lg font-bold text-emerald-500">{reussis.length}</p>
+                    <p className="text-xs text-slate-400">Conformes</p>
                   </div>
                 </div>
               </CardContent>
@@ -314,10 +333,10 @@ export default function AuditDetailPage({ params }: Props) {
           {/* Stats pages */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             {[
-              { label: "Pages crawlées", value: audit.report.totalPages ?? 0 },
-              { label: "Problèmes total", value: audit.report.totalIssues ?? 0 },
-              { label: "Checks passés", value: audit.report.passed ?? 0 },
-              { label: "Pages auditées", value: audit.pages.length },
+              { label: "Pages analysées", value: audit.pages.length },
+              { label: "Types de problèmes", value: critiques.length + avertissements.length },
+              { label: "Pages concernées", value: affectedPages },
+              { label: "Constats sur ces pages", value: affectedOccurrences },
             ].map((s) => (
               <Card key={s.label}>
                 <CardContent className="p-4 text-center">
@@ -326,6 +345,11 @@ export default function AuditDetailPage({ params }: Props) {
                 </CardContent>
               </Card>
             ))}
+          </div>
+
+          <div className="mb-6 rounded-xl border border-blue-100 bg-blue-50/60 px-5 py-4">
+            <p className="text-sm font-semibold text-slate-900">Une vue par problème, un détail par page</p>
+            <p className="mt-1 text-sm leading-relaxed text-slate-600">Les constats répétés sont regroupés par contrôle. Ouvrez une ligne pour consulter les URL, les valeurs observées et les conseils. Les scores de l’audit conservent leur calcul d’origine.</p>
           </div>
 
           {/* NOUVEAU — Donut Pages Breakdown + Top Issues */}
@@ -350,7 +374,7 @@ export default function AuditDetailPage({ params }: Props) {
                   <CardTitle className="text-sm font-semibold text-slate-700">Top problèmes</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <TopIssuesWidget issues={breakdownData.topIssues} totalPages={breakdownData.totalPages} />
+                  <TopIssuesWidget issues={topIssues} totalPages={audit.pages.length} />
                 </CardContent>
               </Card>
             </div>
@@ -413,8 +437,8 @@ export default function AuditDetailPage({ params }: Props) {
                         key={checkName}
                         icon={icon}
                         label={label}
-                        value={check.value}
-                        expected={check.expected}
+                        value={check.value ?? null}
+                        expected={check.expected ?? null}
                         score={check.score}
                         status={check.status}
                         onClick={isLinkCard ? () => setLinksDialog(linkKind) : undefined}
@@ -428,9 +452,9 @@ export default function AuditDetailPage({ params }: Props) {
           )}
 
           {/* === TABS : Par statut | Technique | Contenu | Performance | UX Mobile | Toutes les pages === */}
-          <Tabs defaultValue="status" className="mb-8">
-            <TabsList className="mb-4">
-              <TabsTrigger value="status">Par statut</TabsTrigger>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
+            <TabsList className="mb-4 h-auto max-w-full justify-start overflow-x-auto">
+              <TabsTrigger value="status">Problèmes regroupés</TabsTrigger>
               <TabsTrigger value="technical">Technique</TabsTrigger>
               <TabsTrigger value="content">Contenu</TabsTrigger>
               <TabsTrigger value="performance">Performance</TabsTrigger>
@@ -453,7 +477,7 @@ export default function AuditDetailPage({ params }: Props) {
                     </h2>
                     <span className="text-sm font-medium text-red-400 ml-1">({critiques.length})</span>
                   </div>
-                  <IssueList results={critiques} />
+                  <IssueList findings={critiques} />
                 </section>
               )}
 
@@ -469,24 +493,24 @@ export default function AuditDetailPage({ params }: Props) {
                     </h2>
                     <span className="text-sm font-medium text-orange-400 ml-1">({avertissements.length})</span>
                   </div>
-                  <IssueList results={avertissements} />
+                  <IssueList findings={avertissements} />
                 </section>
               )}
 
               {/* Section Réussis */}
               {reussis.length > 0 && (
-                <section id="reussis" className="scroll-mt-4">
-                  <div className="flex items-center gap-2 mb-4">
+                <details id="reussis" className="scroll-mt-4 rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
+                  <summary className="flex cursor-pointer items-center gap-2">
                     <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
                       <CheckCircle className="h-4 w-4 text-emerald-500" />
                     </div>
                     <h2 className="text-lg font-bold text-emerald-700">
-                      Checks réussis
+                      Contrôles conformes sur toutes les pages vérifiées
                     </h2>
                     <span className="text-sm font-medium text-emerald-400 ml-1">({reussis.length})</span>
-                  </div>
-                  <IssueList results={reussis} compact />
-                </section>
+                  </summary>
+                  <div className="mt-4"><IssueList findings={reussis} compact /></div>
+                </details>
               )}
             </TabsContent>
 

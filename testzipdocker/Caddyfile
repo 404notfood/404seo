@@ -1,0 +1,16 @@
+{
+    auto_https disable_redirects
+}
+
+seo.test {
+    root * /var/www/html
+    handle {
+        reverse_proxy node:3000
+    }
+    encode gzip
+    header X-Content-Type-Options nosniff
+}
+
+:80 {
+    redir https://seo.test{uri} permanent
+}

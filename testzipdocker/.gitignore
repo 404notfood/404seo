@@ -1,0 +1,9 @@
+.env
+src/.env
+src/.env.container
+src/.env.local
+certs/*.pem
+certbot/
+node_modules/
+src/node_modules/
+src/vendor/

@@ -51,6 +51,20 @@ export interface PageData {
   hreflangTags?: { lang: string; href: string }[]
   responseHeaders?: Record<string, string>
   imagesLazyCount?: number
+  imagesBelowFold?: number
+  imagesBelowFoldLazy?: number
+  error?: string
+}
+
+/** Evidence preserved between crawling and analysis (no HTML or executable data). */
+export interface CrawlMetadata {
+  version: 1
+  twitterCard?: PageData["twitterCard"]
+  hreflangTags?: PageData["hreflangTags"]
+  responseHeaders?: PageData["responseHeaders"]
+  imagesLazyCount?: number
+  imagesBelowFold?: number
+  imagesBelowFoldLazy?: number
   error?: string
 }
 
