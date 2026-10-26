@@ -59,6 +59,14 @@ sudo bash deployment/hestia/install.sh --user seo --domain seo.404notfood.fr
 
 L'installateur choisit les templates web (Nginx seul) ou proxy (Nginx + Apache) suivant Hestia et valide nginx -t. Ne pas remplacer directement la configuration générée du domaine : Hestia la réécrit lors d'un rebuild ([documentation](https://hestiacp.com/docs/server-administration/web-templates)). deployment/nginx.ssl.conf est désormais une notice historique.
 
+### Échec « Lockfile natif incomplet/incompatible »
+
+Si le contrôle signale `lightningcss-android-arm64`, vérifier le `package-lock.json` des sources réellement utilisées par l'installateur. Le lockfile doit contenir toutes les variantes déclarées par `lightningcss`, y compris celles de Linux ; npm installe uniquement les variantes compatibles avec le serveur. Le nom Android affiché ne signifie donc pas que le VPS doit installer Android.
+
+Transférer le `package-lock.json` corrigé avec les sources du projet, puis relancer la commande initiale de l'installateur. Si celui-ci copie les sources dans un autre répertoire, vérifier aussi le lockfile de cette copie. `npm ci --include=dev --include=optional` ne répare pas un lockfile incomplet et ne le réécrit pas.
+
+Pour réparer un futur lockfile, travailler dans une copie séparée contenant les manifests de tous les workspaces et le lockfile, sans aucun dossier `node_modules`, puis exécuter `npm install --package-lock-only --ignore-scripts --include=dev --include=optional`. Examiner le diff avant de réintégrer le fichier. Le test `tests/dependency-lock.test.ts` vérifie la présence et les métadonnées des variantes Lightning CSS pendant `npm test`.
+
 ## Services externes
 
 - Stripe : clés serveur, signature webhook https://seo.404notfood.fr/api/billing/webhook, prix dans PlanConfig via l'administration. Tester souscription, renouvellement et résiliation avant passage en mode réel.

@@ -437,6 +437,10 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       date: new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }),
       score,
       recommendations,
+      checks: audit.pages.flatMap(page => page.results.map(result => ({
+        ...toCheck(result), pageId: page.id, pageUrl: page.url,
+      }))),
+      totalPages: audit.pages.length,
       keywords: keywordsData as ReportData["keywords"],
       tenantBranding: {
         name: audit.tenant.name,

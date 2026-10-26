@@ -364,6 +364,7 @@ model AuditPage {
   // Keywords
   topKeywords     Json?
   // Raw data
+  crawlMetadata   Json?    // Additional evidence preserved for analysis, versioned
   rawHtml         String?  @db.Text
   crawledAt       DateTime @default(now())
 

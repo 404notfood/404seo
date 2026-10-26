@@ -78,7 +78,9 @@ export function analyzeTechnical(page: PageData): CheckResult[] {
       ? "La page retourne un code 200 OK."
       : statusWarn
         ? `Redirection ${page.statusCode} détectée. Vérifier les chaînes de redirection.`
-        : `Code ${page.statusCode} — page inaccessible ou en erreur.`,
+        : page.statusCode === 0
+          ? "La page n'a pas pu être chargée par le crawler. Les contrôles de contenu ne sont pas évalués."
+          : `Code ${page.statusCode} — page inaccessible ou en erreur.`,
     priority: statusOk ? "LOW" : "HIGH",
     effort: "LOW",
   })
@@ -529,11 +531,11 @@ export function analyzeUXMobile(page: PageData): CheckResult[] {
     checkName: "tap_targets",
     status: tapStatus,
     score: smallTaps === 0 ? 100 : smallTaps <= 3 ? 70 : smallTaps <= 10 ? 40 : 0,
-    value: `${smallTaps} élément(s) < 44px`,
-    expected: "0 élément cliquable < 44×44px",
+    value: `${smallTaps} cible(s) < 24px sans espacement suffisant`,
+    expected: "Cibles ≥ 24×24px ou suffisamment espacées (44×44px conseillé)",
     message: tapStatus === "PASS"
       ? "Toutes les cibles tactiles ont une taille suffisante."
-      : `${smallTaps} élément(s) cliquable(s) trop petit(s) (< 44px). Difficile à toucher sur mobile.`,
+      : `${smallTaps} cible(s) visible(s) trop petite(s) et trop rapprochée(s) dans la vue mobile. Agrandissez-les ou espacez-les.`,
     priority: tapStatus === "FAIL" ? "HIGH" : "MEDIUM",
     effort: "LOW",
   })
@@ -601,38 +603,7 @@ export function analyzePerformance(page: PageData): CheckResult[] {
     effort: "MEDIUM",
   })
 
-  // Optimisation des images (ratio avec ALT)
-  const totalImages = page.images.length
-  if (totalImages > 0) {
-    const imagesWithAlt = page.images.filter((img) => img.hasAlt).length
-    const altRatio = (imagesWithAlt / totalImages) * 100
-    const imgStatus: CheckStatus = altRatio > 90 ? "PASS" : altRatio > 50 ? "WARN" : "FAIL"
-    results.push({
-      category: "PERFORMANCE",
-      checkName: "image_optimization",
-      status: imgStatus,
-      score: Math.round(altRatio),
-      value: `${imagesWithAlt}/${totalImages} images optimisées`,
-      expected: "> 90% avec attribut ALT",
-      message: imgStatus === "PASS"
-        ? `${Math.round(altRatio)}% des images ont un attribut ALT.`
-        : `Seulement ${Math.round(altRatio)}% des images ont un ALT. Impact accessibilité et SEO images.`,
-      priority: imgStatus === "FAIL" ? "HIGH" : "MEDIUM",
-      effort: "LOW",
-    })
-  } else {
-    results.push({
-      category: "PERFORMANCE",
-      checkName: "image_optimization",
-      status: "PASS",
-      score: 100,
-      value: "Aucune image",
-      expected: "> 90% avec attribut ALT",
-      message: "Aucune image détectée sur la page.",
-      priority: "LOW",
-      effort: "LOW",
-    })
-  }
+  // ALT is evaluated once in ON_PAGE; it does not measure image performance.
 
   // Liens internes
   const internalCount = page.internalLinks.length
@@ -671,23 +642,21 @@ export function analyzePerformance(page: PageData): CheckResult[] {
   })
 
   // Image lazy loading
-  const totalImgs = page.images.length
-  if (totalImgs > 1) {
-    const lazyCount = page.imagesLazyCount ?? 0
-    // La première image ne devrait PAS être lazy (LCP), les autres oui
-    const expectedLazy = totalImgs - 1
+  const expectedLazy = page.imagesBelowFold
+  if (expectedLazy !== undefined && expectedLazy > 0 && page.imagesBelowFoldLazy !== undefined) {
+    const lazyCount = page.imagesBelowFoldLazy
     const lazyRatio = expectedLazy > 0 ? (lazyCount / expectedLazy) * 100 : 100
     const lazyStatus: CheckStatus = lazyRatio >= 80 ? "PASS" : lazyRatio >= 50 ? "WARN" : "FAIL"
     results.push({
       category: "PERFORMANCE",
       checkName: "image_lazy_loading",
       status: lazyStatus,
-      score: Math.round(lazyRatio),
-      value: `${lazyCount}/${totalImgs} images en lazy loading`,
+      score: Math.min(100, Math.round(lazyRatio)),
+      value: `${lazyCount}/${expectedLazy} images hors écran en lazy loading`,
       expected: "Images below the fold en loading='lazy'",
       message: lazyStatus === "PASS"
-        ? `${lazyCount} image(s) sur ${totalImgs} utilisent le lazy loading.`
-        : `Seulement ${lazyCount}/${totalImgs} images utilisent loading="lazy". Ajoutez-le aux images hors viewport initial.`,
+        ? `${lazyCount} image(s) sur ${expectedLazy} hors écran utilisent le lazy loading.`
+        : `Seulement ${lazyCount}/${expectedLazy} images hors écran utilisent loading="lazy". Ajoutez-le aux images hors viewport initial.`,
       priority: lazyStatus === "FAIL" ? "MEDIUM" : "LOW",
       effort: "LOW",
     })
@@ -722,6 +691,10 @@ export function analyzePerformance(page: PageData): CheckResult[] {
 // ─────────────────────────────────────────────
 
 export function analyzePage(page: PageData, lighthouse?: LighthouseData): AnalysisResult {
+  if (page.statusCode === 0 || page.statusCode >= 400) {
+    // A failed navigation provides no evidence of missing titles, H1s or links.
+    return { technical: analyzeTechnical(page).filter(check => ["https", "http_status"].includes(check.checkName)), onPage: [], performance: [], uxMobile: [], lighthouse }
+  }
   return {
     technical: analyzeTechnical(page),
     onPage: analyzeOnPage(page),
