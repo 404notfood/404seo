@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 1,
+  "generatorVersion": "1.1.0",
+  "configuration": {
+    "name": "seo",
+    "type": "nextjs",
+    "phpApp": "generic",
+    "cmsVersion": "",
+    "cmsSha256": "",
+    "domains": [
+      {
+        "name": "seo.404notfood.fr",
+        "role": "application"
+      }
+    ],
+    "nextDir": "site",
+    "nextOutput": "standalone",
+    "standaloneDir": "site/.next/standalone/site",
+    "envFile": ".env.production",
+    "envExample": "deployment/.env.example",
+    "databaseUrl": true,
+    "supervisor": "pm2",
+    "webProcessName": "404seo-site",
+    "ecosystemFile": "deployment/ecosystem.config.cjs",
+    "processes": [
+      {
+        "name": "404seo-api",
+        "script": "apps/api/src/index.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 4000,
+        "hostKey": "API_HOST",
+        "portKey": "API_PORT",
+        "memory": "512M"
+      },
+      {
+        "name": "404seo-worker",
+        "script": "workers/crawl-worker.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 0,
+        "memory": "1G"
+      },
+      {
+        "name": "404seo-scheduler",
+        "script": "workers/schedule-worker.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 0,
+        "memory": "256M"
+      },
+      {
+        "name": "404seo-cms-worker",
+        "script": "workers/cms-worker.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 0,
+        "memory": "256M"
+      }
+    ],
+    "routes": [
+      {
+        "path": "/health/ready",
+        "match": "exact",
+        "port": 4000,
+        "sse": false
+      },
+      {
+        "path": "/api/auth/",
+        "match": "prefix-priority",
+        "port": 3030,
+        "sse": false
+      },
+      {
+        "path": "/api/",
+        "match": "prefix",
+        "port": 4000,
+        "sse": false
+      },
+      {
+        "path": "^/api/audits/[^/]+/progress$",
+        "match": "regex",
+        "port": 4000,
+        "sse": true
+      }
+    ],
+    "requiredEnv": [
+      "DATABASE_URL",
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_URL",
+      "NEXT_PUBLIC_APP_URL",
+      "NEXT_PUBLIC_API_URL",
+      "REDIS_HOST",
+      "REDIS_PORT",
+      "REDIS_PASSWORD",
+      "CMS_CREDENTIAL_KEY",
+      "BACKUP_ENCRYPTION_KEY",
+      "BACKUP_DIR"
+    ],
+    "originKeys": [
+      "BETTER_AUTH_URL",
+      "NEXT_PUBLIC_APP_URL",
+      "NEXT_PUBLIC_API_URL"
+    ],
+    "secretKeys": [
+      "BETTER_AUTH_SECRET"
+    ],
+    "hexSecretKeys": [
+      "BACKUP_ENCRYPTION_KEY",
+      "CMS_CREDENTIAL_KEY"
+    ],
+    "envDefaults": {
+      "API_HOST": "127.0.0.1",
+      "API_PORT": "4000",
+      "BACKUP_DIR": "/home/seo/backups/postgresql",
+      "GOOGLE_REDIRECT_URI": "https://seo.404notfood.fr/api/google/callback"
+    },
+    "prismaDir": "site",
+    "prismaMigrate": true,
+    "checkScripts": [
+      "typecheck",
+      "test",
+      "lint"
+    ],
+    "hooks": [
+      {
+        "stage": "beforeBuild",
+        "cwd": ".",
+        "argv": [
+          "node",
+          "deployment/preflight.mjs",
+          "--config-only"
+        ]
+      },
+      {
+        "stage": "afterStart",
+        "cwd": ".",
+        "argv": [
+          "node",
+          "deployment/preflight.mjs"
+        ]
+      }
+    ],
+    "seedEnabled": false,
+    "seedMode": "auto",
+    "seedDir": ".",
+    "seedScript": "seed",
+    "seedClass": "",
+    "seedCommand": [],
+    "playwright": true,
+    "puppeteer": true,
+    "redisMode": "dedicated",
+    "redisPort": 6379,
+    "backupEnabled": true,
+    "backupCommand": [
+      "node",
+      "deployment/backup.mjs",
+      "create"
+    ],
+    "backupRemote": "",
+    "backupRetention": 14,
+    "monitorCommand": [
+      "node",
+      "deployment/monitor.mjs",
+      "--quiet"
+    ],
+    "readyPort": 4000,
+    "readyPath": "/health/ready",
+    "logRetention": 14,
+    "mailEnabled": false,
+    "mailDomain": "",
+    "dbAdminEnabled": false,
+    "php": "8.4",
+    "node": "24",
+    "packageManager": "npm",
+    "nextMode": "ssr",
+    "reactMode": "build",
+    "portMode": "manual",
+    "port": 3030,
+    "database": "postgresql",
+    "redis": true,
+    "queue": false,
+    "queueDriver": "database",
+    "workers": 1,
+    "queueTimeout": 90,
+    "tries": 3,
+    "scheduler": false,
+    "horizon": false,
+    "https": true,
+    "email": "contact@404notfood.fr",
+    "ssh": true,
+    "sshAuth": "key",
+    "sshMode": "shell",
+    "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOKy8QV2g5I7jCKecUCuPJyS3x154kuHgQK1D0zKrKwG eddsa-key-20261025",
+    "source": "git",
+    "repository": "https://github.com/404notfood/404seo.git",
+    "branch": "main",
+    "archivePath": "",
+    "layout": "simple",
+    "migrations": false,
+    "uploadSize": 32,
+    "timeout": 60,
+    "phpChildren": 8,
+    "redisMemory": 512,
+    "ipv6": true,
+    "availablePhp": [
+      "8.2",
+      "8.3",
+      "8.4",
+      "8.5"
+    ],
+    "availableNode": [
+      "22",
+      "24"
+    ]
+  }
+}

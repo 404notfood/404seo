@@ -1,0 +1,419 @@
+{
+  "schemaVersion": 1,
+  "generatorVersion": "1.3.0",
+  "templateVersion": "1.3.0",
+  "generator": {
+    "name": "VPS Project Generator",
+    "version": "1.3.0"
+  },
+  "project": {
+    "name": "seo",
+    "type": "nextjs",
+    "user": "seo"
+  },
+  "domains": [
+    {
+      "name": "seo.404notfood.fr",
+      "role": "application"
+    }
+  ],
+  "mail": {
+    "enabled": false,
+    "domain": null,
+    "provider": "shared native Postfix/Dovecot/Roundcube installed separately",
+    "mailboxPasswords": "interactive-on-vps-only",
+    "rollback": "mail domains, DKIM keys and mailboxes preserved"
+  },
+  "databaseAdmin": {
+    "enabled": false,
+    "paths": [
+      "/phpmyadmin/",
+      "/pgadmin/"
+    ],
+    "authentication": "per-project HTTP Basic over HTTPS plus each tool login",
+    "password": "/var/lib/vps-projects/seo/admin-password",
+    "isolation": "URL and Basic credentials per project; DB permissions still enforced by SQL accounts and pgAdmin users"
+  },
+  "serverContract": {
+    "os": "Debian 13",
+    "webServer": {
+      "nginx": true
+    },
+    "php": {
+      "versions": [
+        "8.2",
+        "8.3",
+        "8.4",
+        "8.5",
+        "8.6"
+      ],
+      "defaults": [
+        "8.2",
+        "8.3",
+        "8.4",
+        "8.5"
+      ]
+    },
+    "node": {
+      "manager": "nvm",
+      "root": "/opt/nvm",
+      "versions": [
+        "20",
+        "22",
+        "24"
+      ],
+      "defaults": [
+        "22",
+        "24"
+      ]
+    },
+    "databases": [
+      "none",
+      "mariadb",
+      "postgresql"
+    ],
+    "redis": true,
+    "composer": true,
+    "certbot": true,
+    "systemd": true,
+    "firewall": "nftables",
+    "confirmedPhp": [
+      "8.2",
+      "8.3",
+      "8.4",
+      "8.5"
+    ],
+    "confirmedNode": [
+      "22",
+      "24"
+    ]
+  },
+  "runtime": {
+    "php": null,
+    "node": "24",
+    "nodeManager": "nvm",
+    "packageManager": "npm",
+    "nextMode": "ssr",
+    "reactMode": null,
+    "bind": "127.0.0.1",
+    "port": 3030
+  },
+  "database": {
+    "engine": "postgresql",
+    "name": "seo",
+    "host": "127.0.0.1",
+    "credentials": "generated-on-vps; existing secrets preserved",
+    "provisionedBeforeSources": true,
+    "envConfiguredAfterSources": true
+  },
+  "seed": {
+    "enabled": false,
+    "mode": "package",
+    "directory": ".",
+    "script": "seed",
+    "class": null,
+    "command": [],
+    "stage": "finish_deployment",
+    "afterSelectedMigrations": true,
+    "beforeServiceActivation": true,
+    "runsOn": "each deployment; not preflight or provision",
+    "user": "seo"
+  },
+  "redis": {
+    "enabled": true,
+    "mode": "dedicated",
+    "isolation": "dedicated local instance using preinstalled binary",
+    "bind": "127.0.0.1",
+    "port": "auto (16379–17379)",
+    "memoryMB": 512,
+    "persistence": "AOF everysec",
+    "maxmemoryPolicy": "noeviction",
+    "configuredAfterEnv": true
+  },
+  "capabilities": {
+    "nextDir": "site",
+    "nextOutput": "standalone",
+    "standaloneDir": "site/.next/standalone/site",
+    "envFile": ".env.production",
+    "envExample": "deployment/.env.example",
+    "supervisor": "pm2",
+    "webProcessName": "404seo-site",
+    "ecosystemFile": "deployment/ecosystem.config.cjs",
+    "processes": [
+      {
+        "name": "404seo-api",
+        "script": "apps/api/src/index.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 4000,
+        "hostKey": "API_HOST",
+        "portKey": "API_PORT",
+        "memory": "512M"
+      },
+      {
+        "name": "404seo-worker",
+        "script": "workers/crawl-worker.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 0,
+        "memory": "1G"
+      },
+      {
+        "name": "404seo-scheduler",
+        "script": "workers/schedule-worker.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 0,
+        "memory": "256M"
+      },
+      {
+        "name": "404seo-cms-worker",
+        "script": "workers/cms-worker.ts",
+        "cwd": ".",
+        "args": [],
+        "port": 0,
+        "memory": "256M"
+      }
+    ],
+    "routes": [
+      {
+        "path": "/health/ready",
+        "match": "exact",
+        "port": 4000,
+        "sse": false
+      },
+      {
+        "path": "/api/auth/",
+        "match": "prefix-priority",
+        "port": 3030,
+        "sse": false
+      },
+      {
+        "path": "/api/",
+        "match": "prefix",
+        "port": 4000,
+        "sse": false
+      },
+      {
+        "path": "^/api/audits/[^/]+/progress$",
+        "match": "regex",
+        "port": 4000,
+        "sse": true
+      }
+    ],
+    "prismaDir": "site",
+    "prismaMigrate": true,
+    "databaseUrl": true,
+    "requiredEnv": [
+      "DATABASE_URL",
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_URL",
+      "NEXT_PUBLIC_APP_URL",
+      "NEXT_PUBLIC_API_URL",
+      "REDIS_HOST",
+      "REDIS_PORT",
+      "REDIS_PASSWORD",
+      "CMS_CREDENTIAL_KEY",
+      "BACKUP_ENCRYPTION_KEY",
+      "BACKUP_DIR"
+    ],
+    "originKeys": [
+      "BETTER_AUTH_URL",
+      "NEXT_PUBLIC_APP_URL",
+      "NEXT_PUBLIC_API_URL"
+    ],
+    "secretKeys": [
+      "BETTER_AUTH_SECRET"
+    ],
+    "hexSecretKeys": [
+      "BACKUP_ENCRYPTION_KEY",
+      "CMS_CREDENTIAL_KEY"
+    ],
+    "envDefaults": {
+      "API_HOST": "127.0.0.1",
+      "API_PORT": "4000",
+      "BACKUP_DIR": "/home/seo/backups/postgresql",
+      "GOOGLE_REDIRECT_URI": "https://seo.404notfood.fr/api/google/callback"
+    },
+    "checkScripts": [
+      "typecheck",
+      "test",
+      "lint"
+    ],
+    "hooks": [
+      {
+        "stage": "beforeBuild",
+        "cwd": ".",
+        "argv": [
+          "node",
+          "deployment/preflight.mjs",
+          "--config-only"
+        ]
+      },
+      {
+        "stage": "afterStart",
+        "cwd": ".",
+        "argv": [
+          "node",
+          "deployment/preflight.mjs"
+        ]
+      }
+    ],
+    "browsers": {
+      "playwright": true,
+      "puppeteer": true,
+      "sandbox": "enabled; application-user smoke check required"
+    },
+    "backup": {
+      "enabled": true,
+      "encryption": "AES-256-GCM",
+      "command": [
+        "node",
+        "deployment/backup.mjs",
+        "create"
+      ],
+      "remote": null,
+      "retentionDays": 14,
+      "schedule": "daily 02:15",
+      "key": "generated-on-VPS; keep independent external recovery copy"
+    },
+    "monitoring": {
+      "command": [
+        "node",
+        "deployment/monitor.mjs",
+        "--quiet"
+      ],
+      "port": 4000,
+      "path": "/health/ready",
+      "schedule": "every 5 minutes; errors in journald"
+    },
+    "logRetention": 14
+  },
+  "evidence": {
+    "interface": "configured",
+    "generated": true,
+    "installed": "not observed by browser",
+    "verified": "local static validation only; verify on VPS"
+  },
+  "services": {
+    "units": [
+      "nginx",
+      "seo-security-audit.timer",
+      "seo-pm2",
+      "seo-redis",
+      "seo-backup.timer",
+      "seo-monitor.timer"
+    ],
+    "queue": false,
+    "scheduler": false,
+    "horizon": false
+  },
+  "ssl": {
+    "enabled": true,
+    "provider": "letsencrypt",
+    "email": "contact@404notfood.fr",
+    "challenge": "webroot",
+    "dnsVerification": "compare all resolved addresses to local interfaces"
+  },
+  "ssh": {
+    "enabled": true,
+    "sftp": true,
+    "shell": "/usr/local/libexec/vps-shell-seo",
+    "mode": "shell",
+    "confinement": "bubblewrap user/mount/pid/ipc namespaces; host network shared; no fallback",
+    "authentication": "key",
+    "publicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOKy8QV2g5I7jCKecUCuPJyS3x154kuHgQK1D0zKrKwG eddsa-key-20261025",
+    "password": "disabled",
+    "authorizedKeys": "/etc/vps-projects/seo/authorized_keys",
+    "policy": "validated per-user sshd settings; administrator policy preserved",
+    "provisionedBeforeSources": true
+  },
+  "deployment": {
+    "source": "git",
+    "application": null,
+    "official": null,
+    "repository": "https://github.com/404notfood/404seo.git",
+    "branch": "main",
+    "archive": null,
+    "layout": "simple",
+    "migrations": false,
+    "paths": {
+      "home": "/home/seo",
+      "app": "/home/seo/app",
+      "shared": "/home/seo/shared",
+      "nginx": "/etc/nginx/sites-available/seo.conf",
+      "state": "/var/lib/vps-projects/seo",
+      "log": "/var/log/vps-projects/seo.log"
+    },
+    "services": [
+      "nginx",
+      "seo-security-audit.timer",
+      "seo-pm2",
+      "seo-redis",
+      "seo-backup.timer",
+      "seo-monitor.timer"
+    ],
+    "uploadMB": 32,
+    "timeout": 60,
+    "ipv6": true,
+    "phpChildren": 8,
+    "flags": {
+      "--preflight": "read-only server prerequisite checks",
+      "--provision": "prepare hosting and database, then exit successfully before sources/dependencies/build/processes"
+    },
+    "phases": {
+      "provisioning": [
+        "setup_user",
+        "setup_ssh",
+        "setup_php",
+        "reserve_application_ports",
+        "setup_initial_nginx",
+        "setup_initial_https",
+        "setup_database"
+      ],
+      "application": [
+        "prepare_source",
+        "setup_env",
+        "check_application",
+        "configure_database_env",
+        "setup_redis",
+        "configure_env",
+        "configure_deployment_env",
+        "validate_project_env",
+        "setup_operations",
+        "setup_browser_dependencies",
+        "deploy_application",
+        "setup_dependency_audit",
+        "audit_dependencies",
+        "finish_deployment",
+        "setup_services",
+        "setup_nginx",
+        "setup_https",
+        "activate_services",
+        "activate_deployment",
+        "activate_security_audit"
+      ]
+    },
+    "configurationCheckpoints": [
+      "setup_ssh",
+      "setup_initial_nginx",
+      "setup_initial_https",
+      "setup_database"
+    ],
+    "provision": {
+      "stopsAfter": "setup_database",
+      "requiresSources": false,
+      "automaticSuccessWhenPresentSourceEmpty": false,
+      "resume": "sudo ./install.sh without flags after SFTP upload or when Git/archive is ready",
+      "existingApplication": "previous deployed application remains active",
+      "pendingNginx": {
+        "beforeSources": true,
+        "applicationStatus": 503,
+        "routesAndProtectionsPreserved": true,
+        "proxyStatusWhenBackendAbsent": 502
+      }
+    },
+    "sourceUpdates": "explicit manual updates; never automatic git pull",
+    "rollback": "managed configuration files restored to latest successful checkpoint; application/database changes not rolled back"
+  }
+}
