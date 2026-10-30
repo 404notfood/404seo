@@ -487,6 +487,7 @@ export interface AuditReport {
 }
 
 export interface PageResult {
+  evidence?: import("@seo/shared").CheckEvidence[]
   id: string
   category: "TECHNICAL" | "ON_PAGE" | "PERFORMANCE" | "UX_MOBILE"
   checkName: string

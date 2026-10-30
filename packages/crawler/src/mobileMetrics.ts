@@ -7,11 +7,13 @@ export async function measureMobileMetrics(page: Page) {
         const rect = el.getBoundingClientRect()
         const style = window.getComputedStyle(el)
         return rect.width > 0 && rect.height > 0 && style.visibility === "visible" && style.display !== "none"
+          && el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
           && !el.closest('[hidden], [inert], [aria-hidden="true"]') && !el.matches(":disabled")
       })
     const targets = clickables.filter(el => !el.parentElement?.closest("a[href], button, [role='button']"))
       .map(el => ({ el, rect: el.getBoundingClientRect() }))
     let smallTapTargets = 0
+    const tapTargetIssues: { label: string; selector: string; url?: string; width: number; height: number }[] = []
     for (const { el, rect } of targets) {
       if (rect.width >= 24 && rect.height >= 24) continue
       // Inline links within a sentence are exempt from the minimum target size.
@@ -30,7 +32,27 @@ export async function measureMobileMetrics(page: Page) {
         const dy = Math.max(r.top - y, 0, y - r.bottom)
         return Math.hypot(dx, dy) < 12
       })
-      if (crowded) smallTapTargets++
+      if (crowded) {
+        smallTapTargets++
+        if (tapTargetIssues.length < 100) {
+          const parts: string[] = []
+          let current: Element | null = el
+          while (current && current !== document.documentElement) {
+            if (current.id) { parts.unshift(`#${CSS.escape(current.id)}`); break }
+            const tag = current.tagName.toLowerCase()
+            const siblings = current.parentElement ? Array.from(current.parentElement.children).filter(node => node.tagName === current?.tagName) : []
+            parts.unshift(`${tag}:nth-of-type(${siblings.indexOf(current) + 1})`)
+            current = current.parentElement
+          }
+          tapTargetIssues.push({
+            label: (el.getAttribute("aria-label") || el.textContent?.trim() || el.getAttribute("title") || el.tagName.toLowerCase()).replace(/\s+/g, " ").slice(0, 160),
+            selector: parts.join(" > ").slice(0, 500),
+            url: el instanceof HTMLAnchorElement && /^https?:\/\//i.test(el.href) ? el.href : undefined,
+            width: Math.round(rect.width * 10) / 10,
+            height: Math.round(rect.height * 10) / 10,
+          })
+        }
+      }
     }
     let smallFontSizes = 0
     for (const el of document.querySelectorAll<HTMLElement>("p, span, li, td, th, label, div")) {
@@ -48,7 +70,7 @@ export async function measureMobileMetrics(page: Page) {
       return rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).visibility === "visible" && rect.top >= window.innerHeight
     })
     return {
-      smallTapTargets, smallFontSizes,
+      smallTapTargets, tapTargetIssues, smallFontSizes,
       hasResponsiveMeta: /width\s*=\s*device-width/i.test(viewport),
       imagesBelowFold: images.length,
       imagesBelowFoldLazy: images.filter(el => el.loading === "lazy").length,

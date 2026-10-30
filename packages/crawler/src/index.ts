@@ -178,9 +178,19 @@ export function parsePageContent(
   const isIndexable = !robotsRules.noindex
 
   const images: PageData["images"] = []
+  const imageAltIssues: NonNullable<PageData["imageAltIssues"]> = []
   $("img").each((_, el) => {
-    const src = $(el).attr("src") || ""
+    const source = $(el).attr("data-src") || $(el).attr("data-lazy-src") || $(el).attr("src") || ""
+    let src = source
+    try { if (source) src = new URL(source, documentBase).href } catch { /* Keep the observed source for diagnostics. */ }
     const alt = $(el).attr("alt")
+    if (alt === undefined && imageAltIssues.length < 100) {
+      imageAltIssues.push({
+        label: `Image ${images.length + 1} : attribut alt absent`,
+        url: /^https?:\/\//i.test(src) && source ? src : undefined,
+        selector: $(el).attr("id") ? `img[id=${JSON.stringify($(el).attr("id"))}]` : `img (n° ${images.length + 1} dans le document)`,
+      })
+    }
     images.push({
       src,
       alt,
@@ -208,6 +218,7 @@ export function parsePageContent(
   })
 
   const schemaOrgTypes: string[] = []
+  const schemaOrgErrors: string[] = []
   const collectSchemaTypes = (value: unknown, depth = 0): void => {
     if (depth > 32 || !value || typeof value !== "object") return
     if (Array.isArray(value)) { for (const item of value) collectSchemaTypes(item, depth + 1); return }
@@ -216,10 +227,30 @@ export function parsePageContent(
     for (const type of types) if (typeof type === "string" && !schemaOrgTypes.includes(type)) schemaOrgTypes.push(type)
     for (const nested of Object.values(object)) collectSchemaTypes(nested, depth + 1)
   }
-  $('script[type="application/ld+json"]').each((_, el) => {
+  $('script[type="application/ld+json"]').each((index, el) => {
     try {
       collectSchemaTypes(JSON.parse($(el).text()) as unknown)
-    } catch { /* JSON invalide */ }
+    } catch { schemaOrgErrors.push(`Bloc JSON-LD n° ${index + 1} : JSON invalide`) }
+  })
+  const addSchemaType = (value: string) => {
+    const type = value.match(/^https?:\/\/schema\.org\/([A-Za-z][A-Za-z0-9]*)\/?$/i)?.[1]
+    if (type && !schemaOrgTypes.includes(type)) schemaOrgTypes.push(type)
+  }
+  $('[itemscope][itemtype]').each((_, el) => {
+    for (const type of ($(el).attr("itemtype") ?? "").split(/\s+/)) addSchemaType(type)
+  })
+  $('[typeof]').each((_, el) => {
+    const vocab = $(el).closest('[vocab]').attr("vocab") ?? ""
+    // Resolve RDFa prefixes in scope, including declarations on ancestors.
+    const prefixes = new Map<string, string>()
+    for (const scope of [...$(el).parents().get().reverse(), el]) {
+      const declaration = $(scope).attr("prefix") ?? ""
+      for (const match of declaration.matchAll(/([\w-]+):\s+(\S+)/g)) prefixes.set(match[1], match[2])
+    }
+    for (const type of ($(el).attr("typeof") ?? "").split(/\s+/)) {
+      const [prefix, local] = type.split(":")
+      addSchemaType(/^https?:\/\//i.test(type) ? type : local && prefixes.has(prefix) ? `${prefixes.get(prefix)}${local}` : `${vocab}${type}`)
+    }
   })
 
   const hasViewport = $('meta[name="viewport"]').length > 0
@@ -237,11 +268,13 @@ export function parsePageContent(
     : undefined
 
   // Twitter Card tags
-  const tcCard = $('meta[name="twitter:card"]').attr("content")?.trim()
-  const tcTitle = $('meta[name="twitter:title"]').attr("content")?.trim()
-  const tcDesc = $('meta[name="twitter:description"]').attr("content")?.trim()
-  const twitterCard = (tcCard || tcTitle || tcDesc)
-    ? { card: tcCard, title: tcTitle, description: tcDesc }
+  const twitterMeta = (name: string) => $(`meta[name="twitter:${name}"], meta[property="twitter:${name}"]`).first().attr("content")?.trim()
+  const tcCard = twitterMeta("card")
+  const tcTitle = twitterMeta("title")
+  const tcDesc = twitterMeta("description")
+  const tcImage = twitterMeta("image")
+  const twitterCard = (tcCard || tcTitle || tcDesc || tcImage)
+    ? { card: tcCard, title: tcTitle, description: tcDesc, ...(tcImage ? { image: tcImage } : {}) }
     : undefined
 
   // Hreflang tags
@@ -273,9 +306,11 @@ export function parsePageContent(
     metaRobots,
     isIndexable,
     images,
+    imageAltIssues,
     internalLinks: [...new Set(internalLinks)],
     externalLinks: [...new Set(externalLinks)],
     schemaOrgTypes,
+    schemaOrgErrors,
     hasViewport,
     lang,
     ogTags,
@@ -465,6 +500,7 @@ export class SEOCrawler {
         responseHeaders,
         hasResponsiveMeta: mobileMetrics.hasResponsiveMeta,
         smallTapTargets: mobileMetrics.smallTapTargets,
+        tapTargetIssues: mobileMetrics.tapTargetIssues,
         smallFontSizes: mobileMetrics.smallFontSizes,
         imagesBelowFold: imageMetrics.imagesBelowFold,
         imagesBelowFoldLazy: imageMetrics.imagesBelowFoldLazy,

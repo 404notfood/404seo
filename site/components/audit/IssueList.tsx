@@ -67,6 +67,24 @@ function FindingEvidence({ finding }: { finding: AuditFinding }) {
                 ) : <span className="font-medium text-slate-700">Constat {currentPage * EVIDENCE_PAGE_SIZE + index + 1}</span>}
               </div>
               <p className="break-words leading-relaxed text-slate-600">{check.message}</p>
+              {check.evidence?.length ? (
+                <details className="rounded-md border border-slate-100 bg-slate-50 px-3">
+                  <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-blue-700">
+                    {check.evidence.length === 1 ? "Voir l’élément relevé" : `Voir les ${check.evidence.length} éléments relevés`}{check.evidence.length === 100 ? " (100 premiers au maximum)" : ""}
+                  </summary>
+                  <ul className="divide-y divide-slate-200 pb-2">
+                    {check.evidence.map((item, itemIndex) => (
+                      <li key={itemIndex} className="space-y-1 py-2 text-xs text-slate-600">
+                        <p className="break-words font-medium">{item.label}{item.width !== undefined && item.height !== undefined ? ` — ${item.width} × ${item.height} px` : ""}</p>
+                        {item.url && /^https?:\/\//i.test(item.url) && <a href={item.url} target="_blank" rel="noopener noreferrer" className="inline-block min-h-6 break-all text-blue-700 hover:underline">{item.url}<ExternalLink className="ml-1 inline h-3 w-3" /></a>}
+                        {item.selector && <p className="break-all font-mono text-[11px]">{item.selector}</p>}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : check.status !== "PASS" && ["images_alt", "tap_targets"].includes(check.checkName) ? (
+                <p className="text-xs text-slate-500">Les éléments précis n’ont pas été conservés dans cet ancien audit. Relancez l’audit pour les obtenir.</p>
+              ) : null}
               {(check.value || check.expected) && (
                 <dl className="grid gap-1 break-words text-xs sm:grid-cols-2">
                   {check.value && <div><dt className="text-slate-400">Valeur observée</dt><dd className="mt-0.5 text-slate-700">{check.value}</dd></div>}
@@ -105,7 +123,7 @@ function FindingCard({ finding, compact }: { finding: AuditFinding; compact: boo
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(!expanded)} className={cn("w-full text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-500", compact ? "p-3" : "p-4 sm:p-5")}>
+      <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded(!expanded)} className="min-h-11 w-full p-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-blue-500">
         <div className="flex items-start gap-3">
           <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", bg)}><Icon className={cn("h-4 w-4", color)} /></div>
           <div className="min-w-0 flex-1">
@@ -113,10 +131,11 @@ function FindingCard({ finding, compact }: { finding: AuditFinding; compact: boo
               <span className="text-sm font-semibold text-slate-900">{getCheckLabel(finding.checkName)}</span>
               {!compact && <Badge variant="outline" className={cn("text-[10px]", badge)}>{label}</Badge>}
             </div>
-            {!compact && <p className="mt-1.5 break-words text-sm leading-relaxed text-slate-600">{summary}</p>}
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+            {expanded && !compact && <p className="mt-1.5 break-words text-sm leading-relaxed text-slate-600">{summary}</p>}
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
               <span className="font-semibold text-slate-700">{findingCoverageLabel(finding)} {coverageSuffix}</span>
               {!compact && <><span>{CATEGORY_LABELS[finding.category]}</span><span>Priorité {PRIORITY_LABELS[finding.priority].toLowerCase()}</span></>}
+              {!compact && <span className="text-blue-700">{expanded ? "Masquer les détails" : "Voir les pages et éléments"}</span>}
             </div>
           </div>
           <ChevronDown className={cn("mt-1 h-4 w-4 shrink-0 text-slate-400 transition-transform", expanded && "rotate-180")} />
@@ -130,5 +149,5 @@ function FindingCard({ finding, compact }: { finding: AuditFinding; compact: boo
 export function IssueList({ results = EMPTY_RESULTS, findings: providedFindings, compact = false }: IssueListProps) {
   const findings = useMemo(() => providedFindings ?? groupAuditFindings(results), [providedFindings, results])
   if (!findings.length) return <p className="py-8 text-center text-sm text-slate-400">Aucun résultat dans cette section</p>
-  return <div className={compact ? "grid gap-2 sm:grid-cols-2" : "space-y-3"}>{findings.map(finding => <FindingCard key={finding.key} finding={finding} compact={compact} />)}</div>
+  return <div className={compact ? "grid gap-2 sm:grid-cols-2" : "space-y-2"}>{findings.map(finding => <FindingCard key={finding.key} finding={finding} compact={compact} />)}</div>
 }

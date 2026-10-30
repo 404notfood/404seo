@@ -3,6 +3,7 @@
 
 import type { PageData } from "@seo/shared"
 import { isHtmlContentType } from "@seo/shared"
+import type { CheckEvidence } from "@seo/shared"
 
 function comparableUrl(value: string): string {
   try {
@@ -31,6 +32,7 @@ export interface CheckResult {
   message: string
   priority: Priority
   effort: Effort
+  evidence?: CheckEvidence[]
 }
 
 export interface AnalysisResult {
@@ -317,6 +319,7 @@ export function analyzeOnPage(page: PageData): CheckResult[] {
   results.push({
     category: "ON_PAGE",
     checkName: "images_alt",
+    evidence: page.imageAltIssues,
     status: imagesWithoutAlt === 0 ? "PASS" : imagesWithoutAlt < 3 ? "WARN" : "FAIL",
     score: Math.round(altRatio),
     value: `${imagesWithoutAlt} images sans ALT sur ${totalImages}`,
@@ -390,37 +393,43 @@ export function analyzeOnPage(page: PageData): CheckResult[] {
 
   // Schema.org
   const hasSchema = page.schemaOrgTypes.length > 0
+  const schemaErrors = page.schemaOrgErrors ?? []
   results.push({
     category: "ON_PAGE",
     checkName: "schema_org",
-    status: hasSchema ? "PASS" : "WARN",
-    score: hasSchema ? 100 : 40,
+    status: hasSchema && !schemaErrors.length ? "PASS" : "WARN",
+    score: hasSchema ? schemaErrors.length ? 60 : 100 : 40,
     value: hasSchema ? page.schemaOrgTypes.join(", ") : "Absent",
-    expected: "Présent (ex: Article, Product, LocalBusiness)",
-    message: hasSchema
-      ? `Schema.org détecté : ${page.schemaOrgTypes.join(", ")}`
-      : "Aucune donnée structurée Schema.org. Opportunité rich snippets manquée.",
+    expected: "Balisage pertinent en JSON-LD, Microdata ou RDFa ; JSON-LD valide",
+    message: schemaErrors.length
+      ? `${schemaErrors.join(" ; ")}.${hasSchema ? ` Types également détectés : ${page.schemaOrgTypes.join(", ")}.` : " Aucun type Schema.org détecté."}`
+      : hasSchema
+        ? `Schema.org détecté : ${page.schemaOrgTypes.join(", ")}. La présence ne garantit pas l’éligibilité aux résultats enrichis.`
+        : "Aucun type Schema.org détecté en JSON-LD, Microdata ou RDFa. Vérifiez si un balisage est pertinent pour cette page.",
     priority: "MEDIUM",
     effort: "MEDIUM",
   })
 
   // Twitter Cards
   const tc = page.twitterCard
-  const tcFields = [tc?.card, tc?.title, tc?.description].filter(Boolean).length
-  const tcScore = Math.round((tcFields / 3) * 100)
+  const tcTitle = tc?.title || og?.title
+  const tcDescription = tc?.description || og?.description
+  const tcMissing = [!tc?.card && "twitter:card", !tcTitle && "twitter:title ou og:title", !tcDescription && "twitter:description ou og:description"].filter(Boolean)
+  const validCard = !tc?.card || ["summary", "summary_large_image", "player", "app"].includes(tc.card)
+  if (tc?.card === "summary_large_image" && !(tc.image || og?.image)) tcMissing.push("twitter:image ou og:image")
+  const tcComplete = tcMissing.length === 0 && validCard
+  const tcStatus: CheckStatus = tcComplete ? "PASS" : "WARN"
   results.push({
     category: "ON_PAGE",
     checkName: "twitter_cards",
-    status: tcFields === 3 ? "PASS" : tcFields > 0 ? "WARN" : "FAIL",
-    score: tcScore,
-    value: `${tcFields}/3 balises Twitter Card`,
-    expected: "twitter:card + twitter:title + twitter:description",
-    message: tcFields === 3
-      ? "Toutes les balises Twitter Card sont présentes."
-      : tcFields > 0
-        ? `Twitter Cards incomplet : ${tcFields}/3 balises. Complétez pour un meilleur partage sur X/Twitter.`
-        : "Aucune balise Twitter Card. Le partage sur X/Twitter sera mal optimisé.",
-    priority: tcFields === 0 ? "MEDIUM" : "LOW",
+    status: tcStatus,
+    score: tcComplete ? 100 : validCard ? Math.round((3 - Math.min(3, tcMissing.length)) / 3 * 100) : 30,
+    value: `Type : ${tc?.card || "non déclaré"} ; titre : ${tc?.title ? "twitter:title" : og?.title ? "og:title (repli)" : "absent"} ; description : ${tc?.description ? "twitter:description" : og?.description ? "og:description (repli)" : "absente"}`,
+    expected: "twitter:card valide + titre et description Twitter ou Open Graph ; image pour summary_large_image",
+    message: tcComplete
+      ? "Métadonnées de partage X/Twitter présentes, avec repli Open Graph si nécessaire. L’affichage final dépend de X."
+      : `${tcMissing.length ? `À compléter : ${tcMissing.join(", ")}. ` : ""}${!validCard ? `Type twitter:card non reconnu : ${tc?.card}. ` : ""}${!tc?.card && og?.type && tcTitle && tcDescription ? "Un aperçu summary peut être produit via Open Graph. " : ""}Ce contrôle concerne le partage social et ne démontre pas un défaut de classement SEO.`,
+    priority: "LOW",
     effort: "LOW",
   })
 
@@ -534,21 +543,24 @@ export function analyzeUXMobile(page: PageData): CheckResult[] {
   })
 
   // Tap targets
-  const smallTaps = page.smallTapTargets ?? 0
-  const tapStatus: CheckStatus = smallTaps === 0 ? "PASS" : smallTaps <= 5 ? "WARN" : "FAIL"
-  results.push({
-    category: "UX_MOBILE",
-    checkName: "tap_targets",
-    status: tapStatus,
-    score: smallTaps === 0 ? 100 : smallTaps <= 3 ? 70 : smallTaps <= 10 ? 40 : 0,
-    value: `${smallTaps} cible(s) < 24px sans espacement suffisant`,
-    expected: "Cibles ≥ 24×24px ou suffisamment espacées (44×44px conseillé)",
-    message: tapStatus === "PASS"
-      ? "Toutes les cibles tactiles ont une taille suffisante."
-      : `${smallTaps} cible(s) visible(s) trop petite(s) et trop rapprochée(s) dans la vue mobile. Agrandissez-les ou espacez-les.`,
-    priority: tapStatus === "FAIL" ? "HIGH" : "MEDIUM",
-    effort: "LOW",
-  })
+  const smallTaps = page.smallTapTargets
+  if (smallTaps !== undefined) {
+    const tapStatus: CheckStatus = smallTaps === 0 ? "PASS" : smallTaps <= 5 ? "WARN" : "FAIL"
+    results.push({
+      category: "UX_MOBILE",
+      checkName: "tap_targets",
+      evidence: page.tapTargetIssues,
+      status: tapStatus,
+      score: smallTaps === 0 ? 100 : smallTaps <= 3 ? 70 : smallTaps <= 10 ? 40 : 0,
+      value: `${smallTaps} cible(s) < 24px sans espacement suffisant`,
+      expected: "Cibles ≥ 24×24px ou suffisamment espacées (44×44px conseillé)",
+      message: tapStatus === "PASS"
+        ? "Aucune cible trop petite et trop rapprochée détectée dans la vue mobile testée (espacement et liens dans le texte pris en compte)."
+        : `${smallTaps} cible(s) visible(s) trop petite(s) et trop rapprochée(s) dans la vue mobile. Agrandissez-les ou espacez-les.`,
+      priority: tapStatus === "FAIL" ? "HIGH" : "MEDIUM",
+      effort: "LOW",
+    })
+  }
 
   // Font size
   const smallFonts = page.smallFontSizes ?? 0

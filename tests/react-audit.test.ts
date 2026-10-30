@@ -12,6 +12,7 @@ import { analyzePage } from "../packages/analyzer/src/index"
 import { crawlMetadata, toAnalysisPage } from "../workers/auditPageData"
 import type { PageData } from "../packages/shared/src/types/index"
 import { tokenize } from "../packages/shared/src/keywords"
+import { getStoredCheckEvidence } from "../packages/shared/src/checkEvidence"
 
 const url = "https://8.8.8.8/"
 const pageData = (html: string): PageData => ({ url, statusCode: 200, responseTime: 100, pageSize: html.length, ...parsePageContent(html, url) })
@@ -38,6 +39,54 @@ test("Schema.org graphs, arrays and nested entities are detected", () => {
     { "@type": "BreadcrumbList" },
   ])}</script><script type="application/ld+json">invalid json</script>`)
   assert.deepEqual(page.schemaOrgTypes, ["LocalBusiness", "Organization", "PostalAddress", "BreadcrumbList"])
+})
+
+test("ALT evidence identifies resolved image URLs and survives worker JSON persistence", () => {
+  const page = pageData('<base href="https://example.com/assets/"><img src="photo.jpg" id="hero"><img data-src="lazy.webp"><img src="decorative.svg" alt="">')
+  const metadata = JSON.parse(JSON.stringify(crawlMetadata(page)))
+  const evidence = getStoredCheckEvidence("images_alt", metadata)!
+  assert.equal(evidence.length, 2)
+  assert.deepEqual(evidence.map(item => item.url), ["https://example.com/assets/photo.jpg", "https://example.com/assets/lazy.webp"])
+  assert.equal(evidence[0].selector, 'img[id="hero"]')
+  assert.equal(checks(page).find(check => check.checkName === "images_alt")?.evidence?.length, 2)
+  assert.equal(getStoredCheckEvidence("images_alt", null), undefined)
+  assert.equal(getStoredCheckEvidence("images_alt", { version: 2, imageAltIssues: evidence }), undefined)
+  assert.deepEqual(getStoredCheckEvidence("images_alt", { version: 1, imageAltIssues: [null, { label: 3 }, { label: "Image", url: 3 }] })?.map(item => [item.label, item.url]), [["Image", undefined]])
+  const many = pageData('<img src="missing.png">'.repeat(105))
+  assert.equal(many.images.length, 105)
+  assert.equal(many.imageAltIssues?.length, 100)
+  assert.match(checks(many).find(check => check.checkName === "images_alt")?.value ?? "", /105 images/)
+})
+
+test("Schema.org supports Microdata and scoped RDFa while exposing malformed JSON-LD", () => {
+  const page = pageData(`<div itemscope itemtype="https://schema.org/Product http://schema.org/Offer"></div>
+    <section vocab="https://schema.org/"><div typeof="Organization"></div></section>
+    <section prefix="s: https://schema.org/"><div typeof="s:LocalBusiness"></div></section>
+    <div typeof="https://schema.org/Person"></div>
+    <div vocab="https://other.org/" typeof="Unrelated"></div>
+    <script type="application/ld+json">broken</script>`)
+  assert.deepEqual(page.schemaOrgTypes, ["Product", "Offer", "Organization", "LocalBusiness", "Person"])
+  assert.deepEqual(page.schemaOrgErrors, ["Bloc JSON-LD n° 1 : JSON invalide"])
+  assert.equal(checks(page).find(check => check.checkName === "schema_org")?.status, "WARN")
+  assert.equal(checks(pageData('<div itemscope itemtype="https://schema.org/Product"></div>')).find(check => check.checkName === "schema_org")?.status, "PASS")
+})
+
+test("Twitter checks accept Open Graph fallbacks, property attributes and report precise omissions", () => {
+  const social = '<meta property="og:title" content="Titre"><meta property="og:description" content="Description"><meta property="og:type" content="website">'
+  const result = (html: string) => checks(pageData(html)).find(check => check.checkName === "twitter_cards")!
+  assert.equal(result(social + '<meta property="twitter:card" content="summary">').status, "PASS")
+  assert.match(result(social).message, /aperçu summary peut/)
+  assert.equal(result("").status, "WARN")
+  assert.equal(result(social + '<meta name="twitter:card" content="unsupported">').status, "WARN")
+  assert.match(result(social + '<meta name="twitter:card" content="summary_large_image">').message, /twitter:image ou og:image/)
+  assert.equal(result(social + '<meta name="twitter:card" content="summary_large_image"><meta property="og:image" content="https://example.com/image.jpg">').status, "PASS")
+})
+
+test("Unmeasured mobile targets are not labelled compliant; measured evidence is preserved", () => {
+  assert.ok(!checks(pageData("")).some(check => check.checkName === "tap_targets"))
+  const page = { ...pageData(""), smallTapTargets: 1, tapTargetIssues: [{ label: "Menu", selector: "#menu", width: 16, height: 18 }] }
+  assert.equal(checks(page).find(check => check.checkName === "tap_targets")?.status, "WARN")
+  assert.deepEqual(getStoredCheckEvidence("tap_targets", JSON.parse(JSON.stringify(crawlMetadata(page))))?.map(item => [item.selector, item.width, item.height]), [["#menu", 16, 18]])
 })
 
 test("Failed navigation and HTTP errors do not invent missing-content problems", () => {
@@ -150,6 +199,8 @@ test("Browser: delayed SPA rendering, metadata updates, genuine omissions and mo
     assert.ok(page.internalLinks.includes(url + "article"))
     assert.deepEqual(page.schemaOrgTypes, ["Organization"])
     assert.equal(page.smallTapTargets, 2)
+    assert.deepEqual(page.tapTargetIssues?.map(item => item.selector), ["#crowded1", "#crowded2"])
+    assert.deepEqual(page.tapTargetIssues?.map(item => [item.width, item.height]), [[16, 16], [16, 16]])
     assert.equal(page.smallFontSizes, 1)
     assert.ok(page.responseTime < 1500, "Render waiting must not inflate response time")
     assert.equal(checks(page).find(check => check.checkName === "images_alt")?.status, "PASS")

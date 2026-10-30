@@ -28,6 +28,7 @@ export function groupAuditFindings(results: readonly AuditCheckOccurrence[]): Au
     if (!existing) pages.set(source, [result])
     else if (!existing.some(check => check.status === result.status && check.score === result.score
       && check.message === result.message && check.value === result.value && check.expected === result.expected
+      && JSON.stringify(check.evidence) === JSON.stringify(result.evidence)
       && check.priority === result.priority && check.effort === result.effort)) existing.push(result)
   })
 

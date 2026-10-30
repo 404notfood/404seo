@@ -100,3 +100,17 @@ test("PDF presentation stays bounded, shows coverage and escapes untrusted repor
   assert.ok(!html.includes("red;}"))
   assert.ok(html.length < 20000)
 })
+
+test("PDF evidence includes the affected page and image, escapes element labels and limits detail", () => {
+  const checks = [check({ checkName: "images_alt", pageUrl: "https://example.com/catalogue", evidence: [
+    { label: '<img onerror="bad">', url: "https://example.com/missing-alt.jpg", selector: "#hero" },
+    { label: "Seconde image", url: "https://example.com/second.jpg" },
+    { label: "Troisième image", url: "https://example.com/third.jpg" },
+  ] })]
+  const score = calculateGlobalScore({ technical: [], onPage: checks, performance: [], uxMobile: [] })
+  const html = generateReportHTML({ url: "https://example.com/", date: "30 octobre 2026", score, recommendations: [], checks })
+  assert.ok(html.includes("https://example.com/catalogue"))
+  assert.ok(html.includes("https://example.com/missing-alt.jpg"))
+  assert.ok(html.includes("&lt;img onerror=&quot;bad&quot;&gt;"))
+  assert.ok(!html.includes("https://example.com/third.jpg"))
+})

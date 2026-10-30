@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from "fastify"
 import { z } from "zod"
+import { getStoredCheckEvidence } from "@seo/shared"
 import { prisma } from "../lib/prisma"
 import { assertAuditCapacity, AuditQuotaError } from "@seo/shared/security"
 import { crawlQueue } from "../lib/redis"
@@ -215,6 +216,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
             externalLinks: true,
             internalLinkUrls: true,
             externalLinkUrls: true,
+            crawlMetadata: true,
             results: true,
           },
           take: 100,
@@ -222,7 +224,13 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     })
     if (!audit) return reply.status(404).send({ error: "Audit introuvable" })
-    return reply.send(audit)
+    return reply.send({
+      ...audit,
+      pages: audit.pages.map(({ crawlMetadata, ...page }) => ({
+        ...page,
+        results: page.results.map(result => ({ ...result, evidence: getStoredCheckEvidence(result.checkName, crawlMetadata) })),
+      })),
+    })
   })
 
   // GET /api/audits/:id/breakdown — Répartition pages + top issues
@@ -439,6 +447,7 @@ const auditsRoutes: FastifyPluginAsync = async (fastify) => {
       recommendations,
       checks: audit.pages.flatMap(page => page.results.map(result => ({
         ...toCheck(result), pageId: page.id, pageUrl: page.url,
+        evidence: getStoredCheckEvidence(result.checkName, page.crawlMetadata),
       }))),
       totalPages: audit.pages.length,
       keywords: keywordsData as ReportData["keywords"],

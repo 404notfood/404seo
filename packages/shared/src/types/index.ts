@@ -5,6 +5,14 @@ export type Category = "TECHNICAL" | "ON_PAGE" | "PERFORMANCE" | "UX_MOBILE"
 export type Priority = "HIGH" | "MEDIUM" | "LOW"
 export type Effort = "HIGH" | "MEDIUM" | "LOW"
 
+export interface CheckEvidence {
+  label: string
+  url?: string
+  selector?: string
+  width?: number
+  height?: number
+}
+
 export interface CheckResult {
   category: Category
   checkName: string
@@ -15,6 +23,7 @@ export interface CheckResult {
   message: string
   priority: Priority
   effort: Effort
+  evidence?: CheckEvidence[]
 }
 
 export interface PageData {
@@ -35,6 +44,9 @@ export interface PageData {
   internalLinks: string[]
   externalLinks: string[]
   schemaOrgTypes: string[]
+  schemaOrgErrors?: string[]
+  imageAltIssues?: CheckEvidence[]
+  tapTargetIssues?: CheckEvidence[]
   rawHtml?: string
   hasViewport: boolean
   lang?: string
@@ -48,7 +60,7 @@ export interface PageData {
   hasResponsiveMeta?: boolean
   smallTapTargets?: number
   smallFontSizes?: number
-  twitterCard?: { card?: string; title?: string; description?: string }
+  twitterCard?: { card?: string; title?: string; description?: string; image?: string }
   hreflangTags?: { lang: string; href: string }[]
   responseHeaders?: Record<string, string>
   imagesLazyCount?: number
@@ -61,6 +73,9 @@ export interface PageData {
 export interface CrawlMetadata {
   version: 1
   contentType?: string
+  schemaOrgErrors?: string[]
+  imageAltIssues?: CheckEvidence[]
+  tapTargetIssues?: CheckEvidence[]
   twitterCard?: PageData["twitterCard"]
   hreflangTags?: PageData["hreflangTags"]
   responseHeaders?: PageData["responseHeaders"]
