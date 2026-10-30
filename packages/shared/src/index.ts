@@ -1,4 +1,5 @@
 export * from "./types/index"
+export { isHtmlContentType } from "./utils/documentType"
 export * from "./keywords"
 export * from "./types/actionPlan.types"
 export * from "./actionPlan"

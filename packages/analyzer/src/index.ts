@@ -2,6 +2,15 @@
 // Analyse SEO complète d'une page crawlée
 
 import type { PageData } from "@seo/shared"
+import { isHtmlContentType } from "@seo/shared"
+
+function comparableUrl(value: string): string {
+  try {
+    const url = new URL(value)
+    url.hash = ""
+    return url.href
+  } catch { return value }
+}
 
 // ─────────────────────────────────────────────
 // TYPES
@@ -102,14 +111,15 @@ export function analyzeTechnical(page: PageData): CheckResult[] {
 
   // Canonical
   if (page.canonicalUrl) {
-    const selfCanonical = page.canonicalUrl === page.url
+    const finalUrl = page.redirectUrl ?? page.url
+    const selfCanonical = comparableUrl(page.canonicalUrl) === comparableUrl(finalUrl)
     results.push({
       category: "TECHNICAL",
       checkName: "canonical",
       status: selfCanonical ? "PASS" : "WARN",
       score: selfCanonical ? 100 : 50,
       value: page.canonicalUrl,
-      expected: page.url,
+      expected: finalUrl,
       message: selfCanonical
         ? "Le canonical pointe sur la page elle-même."
         : `Le canonical pointe sur une URL différente : ${page.canonicalUrl}`,
@@ -691,8 +701,8 @@ export function analyzePerformance(page: PageData): CheckResult[] {
 // ─────────────────────────────────────────────
 
 export function analyzePage(page: PageData, lighthouse?: LighthouseData): AnalysisResult {
-  if (page.statusCode === 0 || page.statusCode >= 400) {
-    // A failed navigation provides no evidence of missing titles, H1s or links.
+  if (page.statusCode === 0 || page.statusCode >= 400 || !isHtmlContentType(page.contentType)) {
+    // Failed navigation and non-HTML documents provide no evidence of missing HTML.
     return { technical: analyzeTechnical(page).filter(check => ["https", "http_status"].includes(check.checkName)), onPage: [], performance: [], uxMobile: [], lighthouse }
   }
   return {
