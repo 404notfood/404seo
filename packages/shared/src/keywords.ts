@@ -32,7 +32,7 @@ export interface SiteKeywords {
 const STOP_WORDS_FR = new Set([
   "le", "la", "les", "un", "une", "des", "du", "de", "au", "aux",
   "ce", "ces", "cet", "cette", "mon", "ton", "son", "ma", "ta", "sa",
-  "mes", "tes", "ses", "nos", "vos", "leur", "leurs", "qui", "que",
+  "mes", "tes", "ses", "nos", "vos", "notre", "votre", "leur", "leurs", "qui", "que",
   "quoi", "dont", "est", "sont", "suis", "sommes", "etes", "ont",
   "fait", "faire", "dit", "dire", "peut", "pour", "par", "sur",
   "dans", "avec", "sans", "mais", "donc", "car", "pas", "plus",

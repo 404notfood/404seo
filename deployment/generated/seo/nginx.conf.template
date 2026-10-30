@@ -1,0 +1,112 @@
+# Aperçu du vhost final : /etc/nginx/sites-available/seo.conf
+# install.sh prépare HTTP/HTTPS, les routes et les interfaces DB sélectionnées avant les sources.
+# L’application répond 503 pendant sa préparation ; ce vhost applicatif la remplace après le build.
+# Ne pas copier ce modèle dans sites-enabled avant l'installation.
+# Les certificats référencés doivent exister ; install.sh crée d’abord un vhost HTTP pour ACME.
+
+# Managed by VPS Project Generator : seo
+log_format seo_dashboard '$host $remote_addr - $remote_user [$time_local] "$request_method $uri $server_protocol" $status $body_bytes_sent';
+map $http_upgrade $seo_connection { default upgrade; '' close; }
+server {
+    listen 80;
+    listen [::]:80;
+    server_name seo.404notfood.fr;
+    access_log /var/log/nginx/seo-access.log seo_dashboard;
+    error_log /var/log/nginx/seo-error.log;
+    error_log /var/log/nginx/error.log warn;
+    client_max_body_size 34m;
+    client_body_timeout 60s;
+    send_timeout 60s;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    location ^~ /.well-known/acme-challenge/ { root /var/www/vps-project-acme/seo; try_files $uri =404; }
+    location / { return 301 https://seo.404notfood.fr$request_uri; }
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name seo.404notfood.fr;
+    ssl_certificate /etc/letsencrypt/live/seo/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/seo/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:seo_SSL:10m;
+    access_log /var/log/nginx/seo-access.log seo_dashboard;
+    error_log /var/log/nginx/seo-error.log;
+    error_log /var/log/nginx/error.log warn;
+    client_max_body_size 34m;
+    client_body_timeout 60s;
+    send_timeout 60s;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    location ^~ /.well-known/acme-challenge/ { root /var/www/vps-project-acme/seo; try_files $uri =404; }
+    location ~ /\.(?!well-known(?:/|$)) { deny all; }
+    location ~* (?:^|/)(?:composer\.(?:json|lock)|package(?:-lock)?\.json|yarn\.lock|pnpm-lock\.yaml|README\.md|manifest\.json|install\.sh)$ { deny all; }
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    location = /health/ready {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $seo_connection;
+        proxy_read_timeout 60s;
+    }
+    location ^~ /api/auth/ {
+        proxy_pass http://127.0.0.1:3030;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $seo_connection;
+        proxy_read_timeout 60s;
+    }
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $seo_connection;
+        proxy_read_timeout 60s;
+    }
+    location ~ ^/api/audits/[^/]+/progress$ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        gzip off;
+        proxy_set_header Accept-Encoding "";
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+        add_header X-Accel-Buffering no always;
+        proxy_read_timeout 3600s;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:3030;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $seo_connection;
+        proxy_read_timeout 60s;
+    }
+}

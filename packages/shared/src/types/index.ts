@@ -21,6 +21,7 @@ export interface PageData {
   url: string
   statusCode: number
   redirectUrl?: string
+  contentType?: string
   responseTime: number
   pageSize: number
   title?: string
@@ -59,6 +60,7 @@ export interface PageData {
 /** Evidence preserved between crawling and analysis (no HTML or executable data). */
 export interface CrawlMetadata {
   version: 1
+  contentType?: string
   twitterCard?: PageData["twitterCard"]
   hreflangTags?: PageData["hreflangTags"]
   responseHeaders?: PageData["responseHeaders"]

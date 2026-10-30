@@ -4,6 +4,7 @@ import type { CrawlMetadata, PageData } from "@seo/shared"
 export function crawlMetadata(page: PageData): CrawlMetadata {
   return {
     version: 1,
+    contentType: page.contentType,
     twitterCard: page.twitterCard,
     hreflangTags: page.hreflangTags,
     responseHeaders: page.responseHeaders,
@@ -25,6 +26,7 @@ export function toAnalysisPage(page: AuditPage): PageData {
     url: page.url,
     statusCode: page.statusCode ?? 0,
     redirectUrl: page.redirectUrl ?? undefined,
+    contentType: metadata?.contentType,
     responseTime: page.responseTime ?? 0,
     pageSize: page.pageSize ?? 0,
     title: page.title ?? undefined,

@@ -4,7 +4,7 @@ import { URL } from "url"
 
 
 import type { PageData } from "@seo/shared"
-import { extractPageKeywords } from "@seo/shared"
+import { extractPageKeywords, isHtmlContentType } from "@seo/shared"
 import { extractLinkingData, resolveDocumentBaseUrl } from "./linkingData"
 import { googleRobotsMeta, readGoogleRobotsRules } from "./robotsDirectives"
 import { observeRendering } from "./renderedContent"
@@ -351,10 +351,10 @@ export class SEOCrawler {
       const count = (requestCounts.get(page) ?? 0) + 1
       requestCounts.set(page, count)
       if (count > 300) { await route.abort("blockedbyclient"); return }
-      const resolved = await fulfillPublicRequest(route, this.options.userAgent)
-      if (resolved && request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-        this.navigationUrls.set(page, resolved)
-      }
+      const mainNavigation = request.isNavigationRequest() && request.frame() === page.mainFrame()
+      await fulfillPublicRequest(route, this.options.userAgent, resolved => {
+        if (mainNavigation) this.navigationUrls.set(page, resolved)
+      })
     })
     await context.routeWebSocket("**/*", (socket) => socket.close())
     return context
@@ -375,26 +375,53 @@ export class SEOCrawler {
     const start = Date.now()
 
     try {
-      const response = await page.goto(url, {
-        // Rendering readiness is checked separately, with a bounded budget.
-        waitUntil: "domcontentloaded",
-        timeout: this.options.timeout,
-      })
+      const deadline = start + this.options.timeout
+      const navigate = (target: string) => {
+        this.navigationUrls.delete(page)
+        return page.goto(target, { waitUntil: "domcontentloaded", timeout: Math.max(1, deadline - Date.now()) })
+      }
+      let response = await navigate(url)
+      // The pinned client follows redirects without exposing 3xx to Chromium.
+      // Navigate explicitly to its final URL so origin and relative assets agree.
+      for (let hop = 0; ; hop++) {
+        const resolved = this.navigationUrls.get(page) ?? page.url()
+        if (resolved === page.url()) break
+        if (hop >= 5) throw new Error("Trop de redirections de navigation")
+        if (!(await isValidPublicUrlWithDns(resolved))) throw new Error(`URL finale bloquée (SSRF): ${resolved}`)
+        response = await navigate(resolved)
+      }
 
       const timing = response?.request().timing()
       const responseTime = timing && timing.responseStart >= 0 ? Math.round(timing.responseStart) : Date.now() - start
-      await rendering.wait(Math.min(8000, this.options.timeout))
       const statusCode = response?.status() ?? 0
-      const finalUrl = this.navigationUrls.get(page) ?? page.url()
+      const finalUrl = page.url()
       if (!(await isValidPublicUrlWithDns(finalUrl))) throw new Error(`URL finale bloquée (SSRF): ${finalUrl}`)
       const redirectUrl = finalUrl !== url ? finalUrl : undefined
+      const rawHeaders = response?.headers() ?? {}
+      const contentType = rawHeaders["content-type"]
+      if (!isHtmlContentType(contentType)) {
+        // Chromium can wrap XML/text in an HTML viewer. Audit the response MIME,
+        // not that viewer, and retain HTTP evidence without inventing HTML fields.
+        const body = await response?.body()
+        if (body && body.byteLength > 5 * 1024 * 1024) throw new Error("Document trop volumineux")
+        const robotsHeaders = (await response?.headersArray() ?? []).filter(header => header.name.toLowerCase() === "x-robots-tag").map(header => header.value)
+        const rules = readGoogleRobotsRules([], robotsHeaders)
+        return {
+          url: finalUrl, redirectUrl, contentType, statusCode, responseTime,
+          pageSize: body?.byteLength ?? 0,
+          h1: [], headings: { h2: [], h3: [], h4: [] },
+          isIndexable: !rules.noindex, metaRobots: rules.raw || undefined,
+          images: [], internalLinks: [], externalLinks: [], schemaOrgTypes: [],
+          hasViewport: false,
+        }
+      }
+      await rendering.wait(Math.min(8000, this.options.timeout))
       const html = await page.content()
       if (Buffer.byteLength(html, "utf8") > 5 * 1024 * 1024) throw new Error("HTML trop volumineux")
       const pageSize = Buffer.byteLength(html, "utf-8")
       const parsed = parsePageContent(html, finalUrl)
 
       // Capture response headers (sécurité)
-      const rawHeaders = response?.headers() ?? {}
       const robotsHeaders = (await response?.headersArray() ?? []).filter(header => header.name.toLowerCase() === "x-robots-tag").map(header => header.value)
       const rules = readGoogleRobotsRules(parsed.metaRobots ? [parsed.metaRobots] : [], robotsHeaders)
       parsed.isIndexable = !rules.noindex
@@ -429,6 +456,7 @@ export class SEOCrawler {
         url: finalUrl,
         statusCode,
         redirectUrl,
+        contentType,
         responseTime,
         pageSize,
         ...parsed,
